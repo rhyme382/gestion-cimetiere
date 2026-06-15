@@ -8,12 +8,21 @@
 - Documenter chaque décision dans agents/reports/.
 - Ne jamais supprimer de code sans justification.
 - Tout changement doit être validé par tests.
+- Chaque tâche MVP terminée doit produire un rapport dans `reports/dev/MVP-XX.md`.
+
+Contenu obligatoire du rapport :
+- objectif
+- fichiers modifiés
+- décisions prises
+- problèmes connus
+- résultats des tests
+- prochaine étape
 
 
 <claude-mem-context>
 # Memory Context
 
-# [gestion-cimetiere] recent context, 2026-06-15 5:07pm GMT+2
+# [gestion-cimetiere] recent context, 2026-06-15 5:21pm GMT+2
 
 No previous sessions found.
 </claude-mem-context>

@@ -11,7 +11,7 @@ Date de référence : 2026-06-15
 | backend | Modèle métier et persistance | Prêt à lancer | Structure workspace, schéma SQLite, contrats Tauri | aucune |
 | mapping | Cartographie cimetière | Prêt à lancer sous dépendance | Format de plan MVP, rendu simple, sélection d’emplacement | MVP-04 |
 | packaging | Distribution poste mairie | **En cours (MVP-08)** | Config Tauri NSIS/AppImage/.deb, scripts build, guide install | MVP-01, MVP-02 |
-| qa | Validation et tests | **MVP-03 livré** | Stratégie de tests ✅, conventions QA ✅, fixtures spécifiées ; Phase 1+ couverte | MVP-01 ✅ |
+| qa | Validation et tests | **MVP-03 livré** | Stratégie de tests ✅, conventions QA ✅ ; livraison de cadrage uniquement, sans implémentation complète des tests | MVP-01 ✅ |
 
 ## Décisions actées
 
@@ -41,7 +41,7 @@ Date de référence : 2026-06-15
 
 1. Lancer `backend` sur MVP-00 puis MVP-01.
 2. Lancer `packaging` sur MVP-08 dès que MVP-01 est stabilisé.
-3. ~~Lancer `qa` sur MVP-03~~ **✅ MVP-03 livré** → prêt pour Phase 1 (MVP-24, MVP-25, MVP-26, MVP-27).
+3. ~~Lancer `qa` sur MVP-03~~ **✅ MVP-03 livré** → stratégie QA en place, prêt pour Phase 1 (MVP-24, MVP-25, MVP-26, MVP-27).
 4. Lancer `frontend` sur MVP-02 une fois MVP-01 validé.
 5. Lancer `mapping` sur MVP-07 une fois MVP-04 cadré.
 
@@ -51,4 +51,4 @@ Date de référence : 2026-06-15
 - Projet prêt pour lancer `frontend` : oui, après sortie de MVP-01.
 - Projet prêt pour lancer `mapping` : oui, après sortie de MVP-04.
 - Projet prêt pour lancer `packaging` : oui, après sortie de MVP-01 puis MVP-02.
-- Projet prêt pour lancer `qa` Phase 1 (MVP-24, MVP-25, MVP-26) : oui, MVP-03 stratégie livrée, backend MVP-04+ en cours.
+- Projet prêt pour lancer `qa` Phase 1 (MVP-24, MVP-25, MVP-26) : oui, MVP-03 stratégie livrée sans exécution complète de tests, backend MVP-04+ en cours.

@@ -9,7 +9,7 @@ Date de référence : 2026-06-15
 | orchestrator | Pilotage | En cours | Roadmap MVP, backlog atomique, dépendances, suivi global | SPEC.md |
 | frontend | Interface React/Tauri | Prêt à lancer | Shell applicatif, composants UI, vues MVP | MVP-01, MVP-05A |
 | backend | Modèle métier et persistance | Prêt à lancer | Structure workspace, schéma SQLite, contrats Tauri | aucune |
-| mapping | Cartographie cimetière | Prêt à lancer sous dépendance | Format de plan MVP, rendu simple, sélection d’emplacement | MVP-04 |
+| mapping | Cartographie cimetière | 🚀 En cours (MVP-07) | Format de plan MVP ✅, rendu simple (MVP-14), sélection d’emplacement (MVP-14) | MVP-04 ✅, MVP-07 ✅ |
 | packaging | Distribution poste mairie | **En cours (MVP-08)** | Config Tauri NSIS/AppImage/.deb, scripts build, guide install | MVP-01, MVP-02 |
 | qa | Validation et tests | **MVP-03 livré** | Stratégie de tests ✅, conventions QA ✅ ; livraison de cadrage uniquement, sans implémentation complète des tests | MVP-01 ✅ |
 
@@ -33,7 +33,7 @@ Date de référence : 2026-06-15
 | Phase 0 — Pilotage et socle | ✅ Terminé | 100% |
 | Phase 1 — Noyau métier MVP | 🚀 En cours | 15% (socle créé, stub impl.) |
 | Phase 2 — Interface métier MVP | Débloquée après Phase 1 | 0% |
-| Phase 3 — Cartographie MVP | Débloquée après Phase 1 | 0% |
+| Phase 3 — Cartographie MVP | 🚀 En cours | 50% (MVP-07 ✅, MVP-14 en attente) |
 | Phase 4 — Documents, alertes, sauvegarde | Dépend de Phase 2 | 0% |
 | Phase 5 — Packaging et validation | Dépend de Phase 4 | 0% |
 
@@ -51,16 +51,18 @@ Date de référence : 2026-06-15
 - [x] Exécution MVP-04 — ✅ Schéma SQLite + migrations compilables
 - [x] Exécution MVP-05 — ✅ DTOs Tauri + commandes stubs
 - [x] Exécution MVP-05A — ✅ Types TypeScript préparés (specta::Type)
+- [x] Exécution MVP-07 — ✅ Format cartographique MVP stabilisé
 
 ## Blocages connus
 
 - Aucun blocage fonctionnel identifié à ce stade.
 - Aucun prompt spécialisé manquant identifié.
+- **MAPPING DÉBLOQUÉ** : MVP-07 (format cartographique) stabilisé ; MVP-14 (rendu) peut démarrer après MVP-02 ✅ et contrats Tauri stubs.
 - Le lancement parallèle doit respecter les dépendances d’entrée suivantes :
   - `backend` démarre immédiatement sur MVP-00 et MVP-01 ;
   - `qa` démarre dès que MVP-01 est cadré ;
   - `frontend` attend la stabilisation de MVP-01 puis MVP-05A pour les vues métier ;
-  - `mapping` attend la stabilisation du modèle emplacement issu de MVP-04 ;
+  - `mapping` peut démarrer sur MVP-14 dès que MVP-07 ✅ + MVP-02 ✅ en place ;
   - `packaging` peut cadrer sa stratégie après MVP-01 et lancer les builds sur squelette après MVP-02.
 
 ## Prochain lancement recommandé
@@ -74,7 +76,7 @@ Date de référence : 2026-06-15
 ## Indicateur de readiness
 
 - Projet prêt pour lancer `backend` : oui.
-- Projet prêt pour lancer `frontend` : oui, après sortie de MVP-01.
-- Projet prêt pour lancer `mapping` : oui, après sortie de MVP-04.
-- Projet prêt pour lancer `packaging` : oui, après sortie de MVP-01 puis MVP-02.
+- Projet prêt pour lancer `frontend` : oui, après sortie de MVP-01 ✅.
+- Projet prêt pour lancer `mapping` : **oui, MVP-07 ✅ stabilisé**, en attente de MVP-02 et commandes Tauri stubs pour MVP-14.
+- Projet prêt pour lancer `packaging` : oui, après sortie de MVP-01 ✅ puis MVP-02.
 - Projet prêt pour lancer `qa` Phase 1 (MVP-24, MVP-25, MVP-26) : oui, MVP-03 stratégie livrée sans exécution complète de tests, backend MVP-04+ en cours.

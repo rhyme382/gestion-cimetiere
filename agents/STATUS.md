@@ -10,7 +10,7 @@ Date de référence : 2026-06-15
 | frontend | Interface React/Tauri | Prêt à lancer | Shell applicatif, composants UI, vues MVP | MVP-01, MVP-05A |
 | backend | Modèle métier et persistance | Prêt à lancer | Structure workspace, schéma SQLite, contrats Tauri | aucune |
 | mapping | Cartographie cimetière | Prêt à lancer sous dépendance | Format de plan MVP, rendu simple, sélection d’emplacement | MVP-04 |
-| packaging | Distribution poste mairie | Prêt à lancer sous dépendance | Stratégie packaging, builds Windows/Linux | MVP-01 puis MVP-02 |
+| packaging | Distribution poste mairie | **En cours (MVP-08)** | Config Tauri NSIS/AppImage/.deb, scripts build, guide install | MVP-01, MVP-02 |
 | qa | Validation et tests | Prêt à lancer | Stratégie de tests, fixtures, suites de validation | MVP-01 |
 
 ## Décisions actées

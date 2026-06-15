@@ -47,3 +47,39 @@ Préparer la distribution desktop et la documentation d'installation/exploitatio
 - Un build local reproductible existe pour Windows et Linux.
 - Le parcours d'installation est documenté.
 - Les emplacements de stockage local sont explicités.
+
+---
+
+## MVP-08 : Stratégie packaging et pipeline de build
+
+### Objectif
+
+Définir et implémenter la stratégie packaging multi-plateforme pour le MVP :
+- Configuration NSIS pour Windows (installateur MSI)
+- Configuration AppImage pour Linux (portable et simple)
+- Packaging `.deb` pour Linux (distribution via gestionnaire de paquets)
+- Pipeline de build reproductible et documenté
+
+### Périmètre
+
+Aucun développement métier. Focus exclusif sur :
+- Configuration Tauri pour les builds
+- Scripts de packaging et automatisation
+- Documentation du processus de build
+- Vérifications d'artefacts générés
+
+### Dépendances
+
+- MVP-01 stabilisé (socle de l'application)
+- MVP-02 terminé (structure Tauri stable)
+
+### Livrables
+
+1. Configuration Tauri `tauri.conf.json` pour NSIS, AppImage et `.deb`
+2. Scripts de build documentés (si besoin au-delà de `tauri build`)
+3. Guide du packaging pour développeurs et utilisateurs
+4. Rapport de tests des artefacts générés (checksums, comportement d'installation)
+
+### Prochaine étape
+
+Après validation de MVP-08, les builds peuvent être intégrés au CI/CD et distribués aux testeurs.

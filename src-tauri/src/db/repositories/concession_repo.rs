@@ -4,12 +4,12 @@ use crate::{core::models::Concession, dto::ConcessionDTO, errors::{AppError, App
 pub struct ConcessionRepository;
 
 impl ConcessionRepository {
-    /// List concessions, optionally filtered by cemetery_id, ordered by creation date (newest first)
+    /// List concessions, optionally filtered by cemetery_id, ordered by creation date (newest first, stable id tiebreaker)
     pub fn list(conn: &Connection, cemetery_id: Option<i64>) -> AppResult<Vec<ConcessionDTO>> {
         match cemetery_id {
             Some(id) => {
                 let mut stmt = conn.prepare(
-                    "SELECT id, cemetery_id, plot_id, acquired_at, expires_at, renewed_at, status, created_at, updated_at FROM concessions WHERE cemetery_id = ? ORDER BY created_at DESC"
+                    "SELECT id, cemetery_id, plot_id, acquired_at, expires_at, renewed_at, status, created_at, updated_at FROM concessions WHERE cemetery_id = ? ORDER BY created_at DESC, id DESC"
                 )?;
                 let concessions = stmt.query_map([id], |row| {
                     Ok(ConcessionDTO {
@@ -28,7 +28,7 @@ impl ConcessionRepository {
             }
             None => {
                 let mut stmt = conn.prepare(
-                    "SELECT id, cemetery_id, plot_id, acquired_at, expires_at, renewed_at, status, created_at, updated_at FROM concessions ORDER BY created_at DESC"
+                    "SELECT id, cemetery_id, plot_id, acquired_at, expires_at, renewed_at, status, created_at, updated_at FROM concessions ORDER BY created_at DESC, id DESC"
                 )?;
                 let concessions = stmt.query_map([], |row| {
                     Ok(ConcessionDTO {
@@ -202,5 +202,102 @@ mod tests {
         // List all concessions (no filter)
         let all_concessions = ConcessionRepository::list(&conn, None).unwrap();
         assert_eq!(all_concessions.len(), 3);
+    }
+
+    #[test]
+    fn test_update_concession() {
+        let conn = setup_db();
+
+        // Create a test cemetery
+        let cemetery = Cemetery::new(
+            "Test Cemetery".to_string(),
+            Some("Test City".to_string()),
+            Some(500),
+        );
+        let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
+
+        // Create a concession
+        let concession = Concession::new(created_cemetery.id, None);
+        let created = ConcessionRepository::create(&conn, &concession).unwrap();
+        let id = created.id;
+
+        // Update the concession status
+        let mut updated_concession = concession;
+        updated_concession.id = id;
+        updated_concession.status = "expired".to_string();
+        updated_concession.updated_at = chrono::Utc::now().to_rfc3339();
+
+        let updated = ConcessionRepository::update(&conn, id, &updated_concession).unwrap();
+        assert_eq!(updated.id, id);
+        assert_eq!(updated.status, "expired");
+
+        // Verify the update persisted
+        let retrieved = ConcessionRepository::get(&conn, id).unwrap();
+        assert_eq!(retrieved.status, "expired");
+    }
+
+    #[test]
+    fn test_get_non_existent_concession() {
+        let conn = setup_db();
+
+        // Try to get a concession that never existed
+        let result = ConcessionRepository::get(&conn, 999);
+        assert!(result.is_err());
+
+        // Verify it's a NotFound error, not a Database error
+        match result {
+            Err(AppError::NotFound(msg)) => {
+                assert!(msg.contains("999"));
+            }
+            Err(AppError::Database(_)) => {
+                panic!("Should return NotFound, not Database error");
+            }
+            Err(AppError::InvalidInput(_)) | Err(AppError::Internal(_)) => {
+                panic!("Should return NotFound, not other error variant");
+            }
+            Ok(_) => panic!("Should return an error"),
+        }
+    }
+
+    #[test]
+    fn test_update_non_existent_concession() {
+        let conn = setup_db();
+
+        // Create a test cemetery for valid FK
+        let cemetery = Cemetery::new(
+            "Test Cemetery".to_string(),
+            Some("Test City".to_string()),
+            Some(500),
+        );
+        let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
+
+        // Create a concession template
+        let concession = Concession::new(created_cemetery.id, None);
+
+        // Try to update a concession that never existed
+        let result = ConcessionRepository::update(&conn, 999, &concession);
+        assert!(result.is_err());
+
+        // Verify it's a NotFound error
+        match result {
+            Err(AppError::NotFound(_)) => (),
+            _ => panic!("Should return NotFound error"),
+        }
+    }
+
+    #[test]
+    fn test_fk_constraint_cemetery() {
+        let conn = setup_db();
+
+        // Try to create a concession with non-existent cemetery_id
+        let concession = Concession::new(9999, None);
+        let result = ConcessionRepository::create(&conn, &concession);
+
+        // Should fail with Database error (FK constraint violation)
+        assert!(result.is_err());
+        match result {
+            Err(AppError::Database(_)) => (),
+            _ => panic!("Should return Database error for FK constraint violation"),
+        }
     }
 }

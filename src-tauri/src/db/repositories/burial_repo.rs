@@ -29,10 +29,10 @@ impl BurialRepository {
         })
     }
 
-    /// List burials for a concession, ordered by burial date (newest first)
+    /// List burials for a concession, ordered by burial date (newest first, stable id tiebreaker)
     pub fn list_by_concession(conn: &Connection, concession_id: i64) -> AppResult<Vec<BurialDTO>> {
         let mut stmt = conn.prepare(
-            "SELECT id, concession_id, individual_id, buried_at, created_at, updated_at FROM burials WHERE concession_id = ? ORDER BY buried_at DESC"
+            "SELECT id, concession_id, individual_id, buried_at, created_at, updated_at FROM burials WHERE concession_id = ? ORDER BY buried_at DESC, id DESC"
         )?;
 
         let burials = stmt.query_map([concession_id], |row| {
@@ -185,5 +185,80 @@ mod tests {
         let burials_2 = BurialRepository::list_by_concession(&conn, created_concession2.id).unwrap();
         assert_eq!(burials_2.len(), 1);
         assert_eq!(burials_2[0].concession_id, created_concession2.id);
+    }
+
+    #[test]
+    fn test_get_non_existent_burial() {
+        let conn = setup_db();
+
+        // Try to get a burial that never existed
+        let result = BurialRepository::get(&conn, 999);
+        assert!(result.is_err());
+
+        // Verify it's a NotFound error, not a Database error
+        match result {
+            Err(AppError::NotFound(msg)) => {
+                assert!(msg.contains("999"));
+            }
+            Err(AppError::Database(_)) => {
+                panic!("Should return NotFound, not Database error");
+            }
+            Err(AppError::InvalidInput(_)) | Err(AppError::Internal(_)) => {
+                panic!("Should return NotFound, not other error variant");
+            }
+            Ok(_) => panic!("Should return an error"),
+        }
+    }
+
+    #[test]
+    fn test_fk_constraint_concession() {
+        let conn = setup_db();
+
+        // Create an individual
+        let individual = Individual::new(
+            "Person".to_string(),
+            None,
+            None,
+            "deceased".to_string(),
+        );
+        let created_individual = IndividualRepository::create(&conn, &individual).unwrap();
+
+        // Try to create a burial with non-existent concession_id
+        let burial = Burial::new(9999, created_individual.id);
+        let result = BurialRepository::create(&conn, &burial);
+
+        // Should fail with Database error (FK constraint violation)
+        assert!(result.is_err());
+        match result {
+            Err(AppError::Database(_)) => (),
+            _ => panic!("Should return Database error for FK constraint violation"),
+        }
+    }
+
+    #[test]
+    fn test_fk_constraint_individual() {
+        let conn = setup_db();
+
+        // Create a cemetery and concession
+        let cemetery = Cemetery::new(
+            "Test Cemetery".to_string(),
+            Some("Test City".to_string()),
+            Some(500),
+        );
+        let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
+
+        let concession = Concession::new(created_cemetery.id, None);
+        let created_concession = ConcessionRepository::create(&conn, &concession).unwrap();
+
+        // Try to create a burial with non-existent individual_id
+        let burial = Burial::new(created_concession.id, 9999);
+        let result = BurialRepository::create(&conn, &burial);
+
+        // Should fail with Database error (FK constraint violation)
+        assert!(result.is_err());
+        match result {
+            Err(AppError::Database(_)) => (),
+            _ => panic!("Should return Database error for FK constraint violation"),
+        }
     }
 }

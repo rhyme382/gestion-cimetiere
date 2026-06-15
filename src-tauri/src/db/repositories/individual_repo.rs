@@ -278,4 +278,49 @@ mod tests {
         assert_eq!(retrieved.name, "Updated Name");
         assert_eq!(retrieved.email, Some("updated@example.com".to_string()));
     }
+
+    #[test]
+    fn test_get_non_existent_individual() {
+        let conn = setup_db();
+
+        // Try to get an individual that never existed
+        let result = IndividualRepository::get(&conn, 999);
+        assert!(result.is_err());
+
+        // Verify it's a NotFound error, not a Database error
+        match result {
+            Err(AppError::NotFound(msg)) => {
+                assert!(msg.contains("999"));
+            }
+            Err(AppError::Database(_)) => {
+                panic!("Should return NotFound, not Database error");
+            }
+            Err(AppError::InvalidInput(_)) | Err(AppError::Internal(_)) => {
+                panic!("Should return NotFound, not other error variant");
+            }
+            Ok(_) => panic!("Should return an error"),
+        }
+    }
+
+    #[test]
+    fn test_update_non_existent_individual() {
+        let conn = setup_db();
+
+        let individual = Individual::new(
+            "Test Name".to_string(),
+            Some("test@example.com".to_string()),
+            None,
+            "family".to_string(),
+        );
+
+        // Try to update an individual that never existed
+        let result = IndividualRepository::update(&conn, 999, &individual);
+        assert!(result.is_err());
+
+        // Verify it's a NotFound error
+        match result {
+            Err(AppError::NotFound(_)) => (),
+            _ => panic!("Should return NotFound error"),
+        }
+    }
 }

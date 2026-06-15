@@ -1,0 +1,92 @@
+# Repository hygiene
+# Keep source code, prompts, documentation, and project configuration in Git.
+# Ignore local environments, generated artifacts, runtime state, logs, and secrets.
+
+# Secrets and local environment
+.env
+.env.*
+*.env
+*.local
+*.secret
+*.secrets
+*.key
+*.pem
+*.p12
+*.pfx
+secrets.*
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Python
+.python-version
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# CrewAI
+.crewai/
+
+# Claude Code local state
+.claude/
+.claude.json
+.claude.json.backup
+
+# Codex CLI local state
+.codex/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+.pnpm-store/
+.yarn/
+.parcel-cache/
+.next/
+.nuxt/
+.svelte-kit/
+coverage/
+dist/
+build/
+
+# Rust and Tauri
+target/
+src-tauri/target/
+
+# Runtime logs and local orchestration state
+logs/
+*.log
+orchestration/logs/
+orchestration/state/
+
+# VS Code
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+!.vscode/tasks.json
+

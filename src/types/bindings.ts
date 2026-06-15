@@ -145,3 +145,37 @@ export interface CreateBurialRequest {
   individual_id: number;
   buried_at?: string;
 }
+
+// --- Cartography (MVP-07) ---
+
+export interface PlotMapDTO {
+  id: number;
+  cemetery_id: number;
+  section: string | null;
+  row: number | null;
+  number: number | null;
+  status: PlotStatus;
+  capacity: number;
+  occupied_count: number;
+  concession_count: number;
+}
+
+export interface CemeteryMapDTO {
+  id: number;
+  name: string;
+  commune: string | null;
+  plots: PlotMapDTO[];
+  section_count: number;
+  max_row: number;
+  max_number: number;
+  total_capacity: number;
+  occupied_count: number;
+  available_count: number;
+}
+
+export interface PlotLocationRequest {
+  cemetery_id: number;
+  section?: string;
+  row?: number;
+  number?: number;
+}

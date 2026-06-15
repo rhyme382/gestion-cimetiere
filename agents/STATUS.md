@@ -7,7 +7,7 @@ Date de référence : 2026-06-15
 | Agent | Domaine | Statut | Livrable attendu | Dépendances |
 | --- | --- | --- | --- | --- |
 | orchestrator | Pilotage | En cours | Roadmap MVP, backlog atomique, dépendances, suivi global | SPEC.md |
-| frontend | Interface React/Tauri | Prêt à lancer | Shell applicatif, composants UI, vues MVP | MVP-01, MVP-05A |
+| frontend | Interface React/Tauri | 🚀 En cours (MVP-02, MVP-06) | Shell ✅, composants UI ✅, vues métier (MVP-12+) | MVP-01 ✅, MVP-05A ✅ |
 | backend | Modèle métier et persistance | Prêt à lancer | Structure workspace, schéma SQLite, contrats Tauri | aucune |
 | mapping | Cartographie cimetière | 🚀 En cours (MVP-07) | Format de plan MVP ✅, rendu simple (MVP-14), sélection d’emplacement (MVP-14) | MVP-04 ✅, MVP-07 ✅ |
 | packaging | Distribution poste mairie | **En cours (MVP-08)** | Config Tauri NSIS/AppImage/.deb, scripts build, guide install | MVP-01, MVP-02 |
@@ -32,7 +32,7 @@ Date de référence : 2026-06-15
 | --- | --- | --- |
 | Phase 0 — Pilotage et socle | ✅ Terminé | 100% |
 | Phase 1 — Noyau métier MVP | 🚀 En cours | 15% (socle créé, stub impl.) |
-| Phase 2 — Interface métier MVP | Débloquée après Phase 1 | 0% |
+| Phase 2 — Interface métier MVP | 🚀 En cours (MVP-02, MVP-06) | 25% (shell + design system en place) |
 | Phase 3 — Cartographie MVP | 🚀 En cours | 50% (MVP-07 ✅, MVP-14 en attente) |
 | Phase 4 — Documents, alertes, sauvegarde | Dépend de Phase 2 | 0% |
 | Phase 5 — Packaging et validation | Dépend de Phase 4 | 0% |
@@ -45,12 +45,14 @@ Date de référence : 2026-06-15
 - [x] SPEC.md complète et validée
 - [x] ROADMAP.md avec backlog priorisé
 - [x] `agents/STATUS.md` défini comme suivi officiel
-- [x] Rapports MVP-00, MVP-01, MVP-03, MVP-04, MVP-05, MVP-05A
+- [x] Rapports MVP-00, MVP-01, MVP-02, MVP-03, MVP-04, MVP-05, MVP-05A, MVP-06
 - [x] Exécution MVP-00 — ✅ Socle Rust/Tauri
 - [x] Exécution MVP-01 — ✅ Architecture applicative (modules, layering)
 - [x] Exécution MVP-04 — ✅ Schéma SQLite + migrations compilables
 - [x] Exécution MVP-05 — ✅ DTOs Tauri + commandes stubs
 - [x] Exécution MVP-05A — ✅ Types TypeScript préparés (specta::Type)
+- [x] Exécution MVP-02 — ✅ Shell Tauri + React + TypeScript (router, layout, Tailwind)
+- [x] Exécution MVP-06 — ✅ Composants UI + pages stubs + types mirroir Rust
 - [x] Exécution MVP-07 — ✅ Format cartographique MVP stabilisé
 
 ## Blocages connus
@@ -76,7 +78,7 @@ Date de référence : 2026-06-15
 ## Indicateur de readiness
 
 - Projet prêt pour lancer `backend` : oui.
-- Projet prêt pour lancer `frontend` : oui, après sortie de MVP-01 ✅.
+- Projet prêt pour lancer `frontend` : **MVP-02 + MVP-06 TERMINÉ ✅**, prêt pour MVP-12 (vues métier).
 - Projet prêt pour lancer `mapping` : **oui, MVP-07 ✅ stabilisé**, en attente de MVP-02 et commandes Tauri stubs pour MVP-14.
 - Projet prêt pour lancer `packaging` : oui, après sortie de MVP-01 ✅ puis MVP-02.
 - Projet prêt pour lancer `qa` Phase 1 (MVP-24, MVP-25, MVP-26) : oui, MVP-03 stratégie livrée sans exécution complète de tests, backend MVP-04+ en cours.

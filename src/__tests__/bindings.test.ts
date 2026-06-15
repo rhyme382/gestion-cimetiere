@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { CemeteryDTO, PlotDTO, ConcessionDTO, IndividualDTO, BurialDTO } from "@/types/bindings";
+import type { CemeteryDTO, PlotDTO, ConcessionDTO, IndividualDTO } from "@/types/bindings";
 
 describe("Types bindings — cohérence de forme", () => {
   it("CemeteryDTO a les champs attendus", () => {

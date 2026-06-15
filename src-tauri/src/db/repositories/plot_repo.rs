@@ -7,7 +7,7 @@ impl PlotRepository {
     /// List all plots for a cemetery, ordered by section, row, and number
     pub fn list(conn: &Connection, cemetery_id: i64) -> AppResult<Vec<PlotDTO>> {
         let mut stmt = conn.prepare(
-            "SELECT id, cemetery_id, section, row, number, capacity, status, created_at, updated_at FROM plots WHERE cemetery_id = ?1 ORDER BY section, row, number"
+            "SELECT id, cemetery_id, section, row, number, capacity, status, created_at, updated_at FROM plots WHERE cemetery_id = ? ORDER BY section, row, number"
         )?;
 
         let plots = stmt.query_map([cemetery_id], |row| {
@@ -169,32 +169,64 @@ mod tests {
         );
         let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
-        // Create two plots for the same cemetery
-        let plot1 = Plot::new(
-            created_cemetery.id,
-            Some("A".to_string()),
-            Some(1),
-            Some(1),
-            1,
-        );
-        let plot2 = Plot::new(
-            created_cemetery.id,
-            Some("A".to_string()),
-            Some(1),
-            Some(2),
-            1,
-        );
+        // Create plots out of order to verify proper sorting
+        // Insert in reverse order: B2, B1, A2, A1
+        let plots_to_create = vec![
+            Plot::new(
+                created_cemetery.id,
+                Some("B".to_string()),
+                Some(2),
+                Some(3),
+                1,
+            ),
+            Plot::new(
+                created_cemetery.id,
+                Some("B".to_string()),
+                Some(1),
+                Some(1),
+                1,
+            ),
+            Plot::new(
+                created_cemetery.id,
+                Some("A".to_string()),
+                Some(2),
+                Some(2),
+                1,
+            ),
+            Plot::new(
+                created_cemetery.id,
+                Some("A".to_string()),
+                Some(1),
+                Some(1),
+                1,
+            ),
+        ];
 
-        PlotRepository::create(&conn, &plot1).unwrap();
-        PlotRepository::create(&conn, &plot2).unwrap();
+        for plot in plots_to_create {
+            PlotRepository::create(&conn, &plot).unwrap();
+        }
 
         // List plots for the cemetery
         let plots = PlotRepository::list(&conn, created_cemetery.id).unwrap();
-        assert_eq!(plots.len(), 2);
+        assert_eq!(plots.len(), 4);
 
-        // Verify plots are ordered by section, row, number
+        // Verify plots are correctly ordered by section, row, number
+        // Expected order: A/1/1, A/2/2, B/1/1, B/2/3
+        assert_eq!(plots[0].section, Some("A".to_string()));
+        assert_eq!(plots[0].row, Some(1));
         assert_eq!(plots[0].number, Some(1));
+
+        assert_eq!(plots[1].section, Some("A".to_string()));
+        assert_eq!(plots[1].row, Some(2));
         assert_eq!(plots[1].number, Some(2));
+
+        assert_eq!(plots[2].section, Some("B".to_string()));
+        assert_eq!(plots[2].row, Some(1));
+        assert_eq!(plots[2].number, Some(1));
+
+        assert_eq!(plots[3].section, Some("B".to_string()));
+        assert_eq!(plots[3].row, Some(2));
+        assert_eq!(plots[3].number, Some(3));
     }
 
     #[test]
@@ -235,5 +267,68 @@ mod tests {
         // Verify the update persisted in the database
         let retrieved = PlotRepository::get(&conn, id).unwrap();
         assert_eq!(retrieved.status, "occupied");
+    }
+
+    #[test]
+    fn test_get_non_existent_plot() {
+        let conn = setup_db();
+
+        // Try to get a plot that never existed
+        let result = PlotRepository::get(&conn, 999);
+        assert!(result.is_err());
+
+        // Verify it's a NotFound error, not a Database error
+        match result {
+            Err(AppError::NotFound(msg)) => {
+                assert!(msg.contains("999"));
+            }
+            Err(AppError::Database(_)) => {
+                panic!("Should return NotFound, not Database error");
+            }
+            Err(AppError::InvalidInput(_)) | Err(AppError::Internal(_)) => {
+                panic!("Should return NotFound, not other error variant");
+            }
+            Ok(_) => panic!("Should return an error"),
+        }
+    }
+
+    #[test]
+    fn test_update_non_existent_plot() {
+        let conn = setup_db();
+
+        // Create a test cemetery (needed for valid cemetery_id)
+        let cemetery = Cemetery::new(
+            "Test Cemetery".to_string(),
+            Some("Test City".to_string()),
+            Some(500),
+        );
+        let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
+
+        // Create a plot to use as a template
+        let plot = Plot::new(
+            created_cemetery.id,
+            Some("A".to_string()),
+            Some(1),
+            Some(1),
+            1,
+        );
+
+        // Try to update a plot that never existed
+        let result = PlotRepository::update(&conn, 999, &plot);
+        assert!(result.is_err());
+
+        // Verify it's a NotFound error (from the existence check in update)
+        match result {
+            Err(AppError::NotFound(msg)) => {
+                assert!(msg.contains("999"));
+            }
+            Err(AppError::Database(_)) => {
+                panic!("Should return NotFound, not Database error");
+            }
+            Err(AppError::InvalidInput(_)) | Err(AppError::Internal(_)) => {
+                panic!("Should return NotFound, not other error variant");
+            }
+            Ok(_) => panic!("Should return an error"),
+        }
     }
 }

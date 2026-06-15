@@ -4,10 +4,10 @@ use crate::{core::models::Cemetery, dto::CemeteryDTO, errors::{AppError, AppResu
 pub struct CemeteryRepository;
 
 impl CemeteryRepository {
-    /// List all cemeteries ordered by creation date (newest first)
+    /// List all cemeteries ordered by creation date (newest first), with stable tiebreaker on id
     pub fn list(conn: &Connection) -> AppResult<Vec<CemeteryDTO>> {
         let mut stmt = conn.prepare(
-            "SELECT id, name, commune, capacity, created_at, updated_at FROM cemeteries ORDER BY created_at DESC"
+            "SELECT id, name, commune, capacity, created_at, updated_at FROM cemeteries ORDER BY created_at DESC, id DESC"
         )?;
 
         let cemeteries = stmt.query_map([], |row| {
@@ -21,11 +21,7 @@ impl CemeteryRepository {
             })
         })?;
 
-        let mut result = Vec::new();
-        for cemetery in cemeteries {
-            result.push(cemetery?);
-        }
-        Ok(result)
+        cemeteries.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
     }
 
     /// Get a cemetery by id
@@ -43,7 +39,14 @@ impl CemeteryRepository {
                     updated_at: row.get(5)?,
                 })
             }
-        ).map_err(|_| AppError::NotFound(format!("Cemetery with id {} not found", id)))
+        ).map_err(|err| {
+            match err {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    AppError::NotFound(format!("Cemetery with id {} not found", id))
+                }
+                _ => AppError::Database(err),
+            }
+        })
     }
 
     /// Create a new cemetery
@@ -229,6 +232,29 @@ mod tests {
         match result {
             Err(AppError::NotFound(_)) => (),
             _ => panic!("Expected NotFound error"),
+        }
+    }
+
+    #[test]
+    fn test_get_non_existent_cemetery() {
+        let conn = setup_db();
+
+        // Try to get a cemetery that never existed
+        let result = CemeteryRepository::get(&conn, 999);
+        assert!(result.is_err());
+
+        // Verify it's a NotFound error, not a Database error
+        match result {
+            Err(AppError::NotFound(msg)) => {
+                assert!(msg.contains("999"));
+            }
+            Err(AppError::Database(_)) => {
+                panic!("Should return NotFound, not Database error");
+            }
+            Err(AppError::InvalidInput(_)) | Err(AppError::Internal(_)) => {
+                panic!("Should return NotFound, not other error variant");
+            }
+            Ok(_) => panic!("Should return an error"),
         }
     }
 }

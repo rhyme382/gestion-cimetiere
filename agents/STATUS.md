@@ -26,6 +26,32 @@ Date de référence : 2026-06-15
 - Contrats d’échange MVP : DTO Rust/TypeScript partagés, versionnés, avec génération automatique des types frontend.
 - Chaque tâche MVP terminée doit produire un rapport `reports/dev/MVP-XX.md` avec objectif, fichiers modifiés, décisions prises, problèmes connus, résultats des tests et prochaine étape.
 
+## Avancement projet
+
+| Phase | Statut | Avancement |
+| --- | --- | --- |
+| Phase 0 — Pilotage et socle | En cours | 70% |
+| Phase 1 — Noyau métier MVP | À lancer | 0% |
+| Phase 2 — Interface métier MVP | Dépend de Phase 1 | 0% |
+| Phase 3 — Cartographie MVP | Dépend de Phase 1 | 0% |
+| Phase 4 — Documents, alertes, sauvegarde | Dépend de Phase 2 | 0% |
+| Phase 5 — Packaging et validation | Dépend de Phase 4 | 0% |
+
+## Checklist de lancement
+
+- [x] Dépôt nettoyé et repositionné
+- [x] Infrastructure d'orchestration initialisée
+- [x] Prompts spécialisés pour tous les agents
+- [x] SPEC.md complète et validée
+- [x] ROADMAP.md avec backlog priorisé
+- [x] `agents/STATUS.md` défini comme suivi officiel
+- [x] Rapports MVP-00, MVP-01, MVP-03, MVP-04, MVP-05, MVP-05A
+- [ ] Exécution MVP-00
+- [ ] Exécution MVP-01
+- [ ] Exécution MVP-04
+- [ ] Exécution MVP-05
+- [ ] Exécution MVP-05A
+
 ## Blocages connus
 
 - Aucun blocage fonctionnel identifié à ce stade.

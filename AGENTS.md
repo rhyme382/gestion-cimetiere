@@ -9,6 +9,7 @@
 - Ne jamais supprimer de code sans justification.
 - Tout changement doit être validé par tests.
 - Chaque tâche MVP terminée doit produire un rapport dans `reports/dev/MVP-XX.md`.
+- La seule source de vérité officielle pour le statut du projet et des agents est `agents/STATUS.md`.
 
 Contenu obligatoire du rapport :
 - objectif
@@ -22,7 +23,7 @@ Contenu obligatoire du rapport :
 <claude-mem-context>
 # Memory Context
 
-# [gestion-cimetiere] recent context, 2026-06-15 5:21pm GMT+2
+# [gestion-cimetiere] recent context, 2026-06-15 5:38pm GMT+2
 
 No previous sessions found.
 </claude-mem-context>

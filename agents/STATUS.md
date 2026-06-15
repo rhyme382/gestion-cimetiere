@@ -7,7 +7,7 @@ Date de référence : 2026-06-15
 | Agent | Domaine | Statut | Livrable attendu | Dépendances |
 | --- | --- | --- | --- | --- |
 | orchestrator | Pilotage | En cours | Roadmap MVP, backlog atomique, dépendances, suivi global | SPEC.md |
-| frontend | Interface React/Tauri | 🚀 En cours (MVP-02, MVP-06) | Shell ✅, composants UI ✅, vues métier (MVP-12+) | MVP-01 ✅, MVP-05A ✅ |
+| frontend | Interface React/Tauri | 🚀 En cours (API prep) | Shell ✅, composants UI ✅, intégration API ✅, vues métier (MVP-12+) | MVP-01 ✅, MVP-05A ✅, Backend commands en attente |
 | backend | Modèle métier et persistance | Prêt à lancer | Structure workspace, schéma SQLite, contrats Tauri | aucune |
 | mapping | Cartographie cimetière | 🚀 En cours (MVP-07) | Format de plan MVP ✅, rendu simple (MVP-14), sélection d’emplacement (MVP-14) | MVP-04 ✅, MVP-07 ✅ |
 | packaging | Distribution poste mairie | **En cours (MVP-08)** | Config Tauri NSIS/AppImage/.deb, scripts build, guide install | MVP-01, MVP-02 |

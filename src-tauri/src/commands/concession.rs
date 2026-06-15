@@ -1,22 +1,42 @@
 use tauri::State;
-use crate::{db::DbConnection, dto::*};
+use crate::{db::DbConnection, dto::*, core::models::Concession, db::repositories::ConcessionRepository};
 
 #[tauri::command]
-pub fn list_concessions(_state: State<DbConnection>, _cemetery_id: Option<i64>) -> Result<Vec<ConcessionDTO>, String> {
-    Ok(vec![])
+pub fn list_concessions(state: State<DbConnection>, cemetery_id: Option<i64>) -> Result<Vec<ConcessionDTO>, String> {
+    let conn = state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    ConcessionRepository::list(&conn, cemetery_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn get_concession(_state: State<DbConnection>, _id: i64) -> Result<ConcessionDTO, String> {
-    Err("Not implemented".to_string())
+pub fn get_concession(state: State<DbConnection>, id: i64) -> Result<ConcessionDTO, String> {
+    let conn = state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    ConcessionRepository::get(&conn, id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn create_concession(_state: State<DbConnection>, _req: CreateConcessionRequest) -> Result<ConcessionDTO, String> {
-    Err("Not implemented".to_string())
+pub fn create_concession(state: State<DbConnection>, req: CreateConcessionRequest) -> Result<ConcessionDTO, String> {
+    let conn = state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let mut concession = Concession::new(req.cemetery_id, req.plot_id);
+    concession.acquired_at = req.acquired_at;
+    concession.expires_at = req.expires_at;
+    ConcessionRepository::create(&conn, &concession).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn update_concession(_state: State<DbConnection>, _id: i64, _req: UpdateConcessionRequest) -> Result<ConcessionDTO, String> {
-    Err("Not implemented".to_string())
+pub fn update_concession(state: State<DbConnection>, id: i64, req: UpdateConcessionRequest) -> Result<ConcessionDTO, String> {
+    let conn = state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    let existing = ConcessionRepository::get(&conn, id).map_err(|e| e.to_string())?;
+
+    let mut concession = Concession::new(
+        existing.cemetery_id,
+        req.plot_id.or(existing.plot_id),
+    );
+    concession.id = id;
+    concession.acquired_at = req.acquired_at.or(existing.acquired_at);
+    concession.expires_at = req.expires_at.or(existing.expires_at);
+    concession.renewed_at = req.renewed_at.or(existing.renewed_at);
+    concession.status = req.status.unwrap_or(existing.status);
+    concession.created_at = existing.created_at;
+
+    ConcessionRepository::update(&conn, id, &concession).map_err(|e| e.to_string())
 }

@@ -15,130 +15,157 @@ Documents lus :
 - `reports/dev/MVP-05.md`
 - `reports/dev/MVP-05A.md`
 - `reports/dev/MVP-08.md`
+- `reports/qa/backend_foundation_review.md`
+
+Commits pris en compte :
+- `71a9d18` — implémentation du socle backend MVP-00 à MVP-05A
+- `78d9abf` — validation QA du socle backend
 
 ## Résumé exécutif
 
-Le projet a produit plusieurs rapports de cadrage utiles, mais les lots critiques attendus pour le lancement de `frontend` et `mapping` ne sont pas encore stabilisés au sens opérationnel.
+Le backend et la QA ont effectivement stabilisé le socle nécessaire au démarrage du `frontend`.
 
-Constats majeurs :
-- `MVP-00`, `MVP-01`, `MVP-04`, `MVP-05` et `MVP-05A` sont tous encore marqués `En cours de définition`.
-- Les rapports décrivent des intentions, structures proposées et prochaines étapes, mais pas une stabilisation effective, ni une implémentation validée, ni des tests exécutés.
-- `MVP-07` n’a pas été fourni dans les éléments audités et aucun rapport `reports/dev/MVP-07.md` n’est disponible ici.
-- `MVP-08` a démarré comme stratégie packaging, mais reste incomplet.
+En revanche, `mapping` reste bloqué car le lot `MVP-07` n’est toujours pas matérialisé dans les artefacts audités. Le modèle `plots` est désormais stable, mais le format cartographique MVP n’est pas encore spécifié ni validé comme lot distinct.
+
+Le packaging `MVP-08` reste un cadrage utile mais incomplet.
 
 ## Audit frontend
 
 ### Pré requis attendus
 
-Selon `ROADMAP.md`, `agents/QUEUE.md` et `agents/STATUS.md`, le lancement utile de `frontend` dépend de :
-- `MVP-01` ;
-- `MVP-05A` ;
-- et, pour les vues métier, d’un socle backend réellement stabilisé.
+Pour lancer `frontend`, les prérequis critiques sont :
+- `MVP-00` stabilisé ;
+- `MVP-01` stabilisé ;
+- `MVP-05` stabilisé ;
+- `MVP-05A` stabilisé ;
+- cadrage QA présent pour encadrer la suite.
 
-### Vérification des lots backend nécessaires
+### Vérification des lots backend
 
 #### MVP-00 — Structure du dépôt et conventions
 
-Verdict : insuffisant pour déclarer stable.
+Verdict : stable.
 
-Motifs :
-- statut du rapport : `En cours de définition` ;
-- tâches clés non cochées ;
-- aucun résultat de test ;
-- aucune preuve d’exécution ou de validation finale de l’arborescence.
+Éléments probants :
+- rapport `reports/dev/MVP-00.md` passé à `✅ Stabilisé` ;
+- structure Rust/Tauri en place ;
+- dépendances résolues ;
+- `cargo check` indiqué comme réussi ;
+- revue QA confirme la conformité du socle.
 
 #### MVP-01 — Architecture applicative desktop
 
-Verdict : insuffisant pour déclarer stable.
+Verdict : stable.
 
-Motifs :
-- statut du rapport : `En cours de définition` ;
-- architecture proposée mais non validée comme standard effectif du dépôt ;
-- compatibilité frontend évoquée, mais pas démontrée ;
-- aucun test ni validation de structure réellement achevés.
+Éléments probants :
+- rapport `reports/dev/MVP-01.md` passé à `✅ Stabilisé` ;
+- layering implémenté (`core`, `db`, `dto`, `commands`, `errors`) ;
+- `main.rs` et `lib.rs` présents ;
+- 3 tests backend passent ;
+- revue QA conclut `BACKEND_FOUNDATION_ACCEPTED`.
 
 #### MVP-04 — Schéma SQLite et entités cœur
 
-Verdict : insuffisant pour déclarer stable.
+Verdict : stable pour le lancement frontend.
 
-Motifs :
-- statut du rapport : `En cours de définition` ;
-- schéma proposé seulement en aperçu ;
-- migrations non livrées ;
-- plusieurs décisions restent ouvertes ;
-- aucun test de migration ou de cohérence exécuté.
+Éléments probants :
+- rapport `reports/dev/MVP-04.md` passé à `✅ Stabilisé` ;
+- migration `001_initial_schema.sql` créée ;
+- 5 tables avec FK et index ;
+- modèles Rust alignés ;
+- test de migrations validé ;
+- revue QA confirme la cohérence schéma/modèles.
 
 #### MVP-05 — Contrats API/Tauri et DTO partagés
 
-Verdict : insuffisant pour déclarer stable.
+Verdict : stable pour démarrer le frontend.
 
-Motifs :
-- statut du rapport : `En cours de définition` ;
-- structures et commandes proposées, mais pas stabilisées ;
-- stratégie d’erreur, versioning et validation encore à arbitrer ;
-- aucun contrat testé.
+Éléments probants :
+- rapport `reports/dev/MVP-05.md` passé à `✅ Stabilisé` ;
+- DTOs définis et compilables ;
+- 18 commandes Tauri stubées et enregistrées ;
+- gestion d’erreurs centralisée ;
+- versioning documentaire posé ;
+- revue QA confirme l’alignement DTOs/modèles.
+
+Limite restante :
+- commandes encore en stubs, donc le frontend peut démarrer sur le shell, le typage et l’intégration, mais pas sur des flux métier complets finalisés.
 
 #### MVP-05A — Génération automatique des types TypeScript
 
-Verdict : insuffisant pour déclarer stable.
+Verdict : suffisamment stable pour lancer le frontend.
 
-Motifs :
-- statut du rapport : `En cours de définition` ;
-- outil recommandé (`specta`) mais pas acté par une implémentation confirmée ;
-- flux de génération décrit mais pas intégré ;
-- aucune génération réellement vérifiée ;
-- aucun test ni preuve de non-divergence Rust ↔ TypeScript.
+Éléments probants :
+- rapport `reports/dev/MVP-05A.md` passé à `✅ Stabilisé (préparation pour MVP-06)` ;
+- `specta` + `tauri-specta` configurés ;
+- `Type` dérivé sur tous les DTOs ;
+- structure d’export en place ;
+- revue QA confirme la présence des prérequis de génération.
+
+Limite restante :
+- la génération automatique n’est pas encore complètement intégrée au workflow de build ; elle est préparée et exploitable, mais pas industrialisée au maximum.
+
+### QA
+
+#### MVP-03 — Stratégie QA
+
+Verdict : suffisant pour encadrer le lancement frontend.
+
+Éléments probants :
+- `reports/dev/MVP-03.md` présent ;
+- stratégie QA explicitée ;
+- conventions de tests présentes ;
+- pas de faux signal sur des tests non exécutés.
 
 ### Conclusion frontend
 
-Le frontend ne doit pas être lancé au-delà d’un éventuel cadrage théorique.
+Le socle backend/QA est maintenant suffisamment stable pour lancer `frontend` sur :
+- `MVP-02` ;
+- `MVP-06` ;
+- la préparation des vues en s’appuyant sur les DTOs et types partagés.
 
-Raisons bloquantes :
-- absence de stabilisation réelle de `MVP-01` ;
-- absence de DTO versionnés effectivement figés ;
-- absence de génération TypeScript effectivement en place et validée ;
-- absence de résultats de tests sur les contrats et la structure.
+Réserve :
+- ne pas présenter les commandes Tauri stubées comme des flux métier finalisés ;
+- la réalisation des vues profondes dépendra toujours de `MVP-10` et `MVP-11`.
 
 Verdict explicite :
 
-`FRONTEND_BLOCKED`
+`FRONTEND_GO`
 
 ## Audit mapping
 
 ### Pré requis attendus
 
-Selon le backlog :
-- `MVP-07` dépend de `MVP-04` ;
-- `MVP-14` dépend de `MVP-07` et `MVP-10`.
+Pour lancer `mapping`, il faut au minimum :
+- `MVP-04` stabilisé ;
+- `MVP-07` défini ;
+- et, pour l’étape suivante, cohérence future avec `MVP-10`.
 
 ### Vérification des éléments disponibles
 
 #### MVP-04 — Modèle de données emplacements
 
-Verdict : insuffisant pour lancer utilement mapping.
+Verdict : stable.
 
-Motifs :
-- schéma seulement proposé ;
-- structure des emplacements non stabilisée ;
-- questions ouvertes sur types, états, historisation et indexation.
+Éléments probants :
+- structure `plots` stabilisée ;
+- champs métier minimaux disponibles : `cemetery_id`, `section`, `row`, `number`, `capacity`, `status` ;
+- base acceptable pour concevoir un format cartographique MVP.
 
 #### MVP-07 — Format cartographique MVP
 
 Verdict : absent dans les artefacts audités.
 
-Motifs :
-- aucun rapport `reports/dev/MVP-07.md` fourni ;
-- aucune spécification formelle du format cartographique MVP lue ;
-- aucun contrat entre données `plots` et rendu cartographique n’est stabilisé.
+Constat :
+- aucun rapport `reports/dev/MVP-07.md` présent ;
+- aucune spécification formelle du format cartographique MVP n’a été fournie ici ;
+- aucune décision stabilisée sur la représentation du plan, des coordonnées ou des polygones n’est tracée dans les rapports lus.
 
 ### Conclusion mapping
 
-Le mapping ne peut pas être lancé proprement.
+Le mapping ne doit pas être lancé comme implémentation réelle tant que `MVP-07` n’est pas produit.
 
-Raisons bloquantes :
-- `MVP-04` n’est pas stabilisé ;
-- `MVP-07` est manquant dans les éléments audités ;
-- le couplage futur avec `MVP-10` n’est pas encore matérialisé.
+Le backend a maintenant assez stabilisé le modèle emplacement pour permettre le cadrage de `MVP-07`, mais pas pour considérer le mapping prêt à démarrer sans ce lot.
 
 Verdict explicite :
 
@@ -148,28 +175,29 @@ Verdict explicite :
 
 ### MVP-08 — Stratégie packaging Windows/Linux
 
-Verdict : utile comme cadrage, mais encore incomplet.
+Verdict : cadrage utile, encore incomplet.
 
-Motifs :
-- statut du rapport : `Initié` ;
-- dépendances du rapport lui-même : `MVP-01 stabilisé` et `MVP-02 terminé`, ce qui n’est pas encore démontré ici ;
-- configuration Tauri non stabilisée ;
-- scripts NSIS/AppImage non implémentés ;
-- aucun test d’artefact exécuté ;
-- aucune validation sur machine réelle.
+Éléments probants :
+- rapport `reports/dev/MVP-08.md` toujours au statut `Initié` ;
+- stratégie claire pour NSIS / AppImage / `.deb` ;
+- mais aucune configuration finalisée d’artefact n’est validée dans ce rapport ;
+- pas de test d’installation ;
+- pas de validation machine réelle.
 
 Conclusion :
-- `MVP-08` constitue une base de stratégie acceptable ;
-- `MVP-08` n’est pas suffisant pour considérer le packaging prêt ou sécurisé.
+- `MVP-08` est suffisant pour guider le packaging ;
+- `MVP-08` n’est pas suffisant pour considérer le lot packaging stabilisé.
 
 ## Recommandations immédiates
 
-1. Faire passer `MVP-00`, `MVP-01`, `MVP-04`, `MVP-05` et `MVP-05A` du statut “définition” à un statut stabilisé avec preuves concrètes.
-2. Exiger un rapport `MVP-07` avant tout lancement de `mapping`.
-3. Ne lancer `frontend` que lorsque les DTO, conventions de sérialisation et génération TypeScript sont réellement figés.
-4. Considérer `MVP-08` comme un cadrage de packaging, pas comme un lot prêt à validation finale.
+1. Lancer `frontend` sur `MVP-02` puis `MVP-06` en s’appuyant sur les DTOs/types déjà stabilisés.
+2. Exiger un `reports/dev/MVP-07.md` avant tout feu vert mapping.
+3. Faire converger `MVP-08` vers une configuration Tauri réellement exécutable dès que `MVP-02` avance.
+4. Maintenir la distinction entre :
+   - socle backend stabilisé ;
+   - flux métier backend complets encore à implémenter (`MVP-09`, `MVP-10`, `MVP-11`).
 
 ## Verdict final
 
-- FRONTEND : `FRONTEND_BLOCKED`
+- FRONTEND : `FRONTEND_GO`
 - MAPPING : `MAPPING_BLOCKED`

@@ -1,7 +1,7 @@
 {
   "productName": "Gestion Cimetière",
   "version": "0.1.0",
-  "identifier": "com.gestion-cimetiere.app",
+  "identifier": "com.gestion-cimetiere",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
@@ -26,6 +26,6 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"]
+    "targets": ["nsis", "appimage"]
   }
 }

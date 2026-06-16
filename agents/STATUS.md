@@ -1,6 +1,6 @@
 # Statut des agents
 
-Date de référence : 2026-06-15
+Date de référence : 2026-06-16
 
 ## Vue d'ensemble
 
@@ -81,7 +81,7 @@ Date de référence : 2026-06-15
 2. **✅ LIVRÉ : `backend` sur MVP-10 et MVP-11** — Commandes Tauri pour cemeteries, plots, concessions, individuals, burials (21 handlers, 27+ unit tests)
 3. ~~Lancer `packaging` sur MVP-08~~ **🚀 EN COURS**
 4. ~~Lancer `qa` sur MVP-03~~ **✅ MVP-03 livré** → stratégie QA en place, prêt pour Phase 1 (MVP-24, MVP-25, MVP-26, MVP-27).
-5. **🚀 PROCHAIN : Lancer `frontend` sur MVP-12** (dashboard, listes concessions) — MVP-10/11 backend API ✅ prêt pour intégration.
+5. **🚀 PROCHAIN : Lancer `frontend` sur MVP-15** (liaison cartographie, concession et défunt côté interface) — après validation du nettoyage frontend et des builds, MVP-12/13/14 ✅.
 6. ~~Lancer `mapping` sur MVP-14~~ **✅ MVP-14 TERMINÉ** → Rendu + sélection ✅, intégration avec API Tauri réelle (MVP-10/11 ✅) peut démarrer.
 
 ## Indicateur de readiness

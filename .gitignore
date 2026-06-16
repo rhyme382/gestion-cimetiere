@@ -72,6 +72,8 @@ pnpm-debug.log*
 coverage/
 dist/
 build/
+src/pages/*.js
+src/router.js
 
 # Rust and Tauri
 target/
@@ -89,4 +91,3 @@ orchestration/state/
 !.vscode/settings.json
 !.vscode/launch.json
 !.vscode/tasks.json
-

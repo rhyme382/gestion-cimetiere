@@ -1,16 +1,25 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DataLoader } from "@/components/ui";
+import { useCemeteries, useConcessions, useIndividuals } from "@/hooks";
 import { Building2, FileText, Users, Bell } from "lucide-react";
 
-const stats = [
-  { label: "Cimetières", value: "—", icon: Building2, color: "text-blue-600" },
-  { label: "Concessions", value: "—", icon: FileText, color: "text-green-600" },
-  { label: "Défunts", value: "—", icon: Users, color: "text-purple-600" },
-  { label: "Alertes actives", value: "—", icon: Bell, color: "text-orange-600" },
-];
-
 export default function DashboardPage() {
+  const { data: cemeteries, loading: cemLoading } = useCemeteries();
+  const { data: concessions, loading: conLoading, error: conError } = useConcessions();
+  const { data: individuals, loading: indLoading } = useIndividuals();
+
+  const stats = [
+    { label: "Cimetières", value: cemLoading ? "..." : cemeteries?.length ?? 0, icon: Building2, color: "text-blue-600" },
+    { label: "Concessions", value: conLoading ? "..." : concessions?.length ?? 0, icon: FileText, color: "text-green-600" },
+    { label: "Défunts/Personnes", value: indLoading ? "..." : individuals?.length ?? 0, icon: Users, color: "text-purple-600" },
+    { label: "Alertes actives", value: "—", icon: Bell, color: "text-orange-600" },
+  ];
+
+  const recentConcessions = concessions?.slice(0, 5) ?? [];
+
   return (
     <div className="space-y-6">
+      {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {stats.map(({ label, value, icon: Icon, color }) => (
           <Card key={label}>
@@ -24,12 +33,42 @@ export default function DashboardPage() {
           </Card>
         ))}
       </div>
+
+      {/* Recent Concessions */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">Activité récente</CardTitle>
+          <CardTitle className="text-base">Concessions récentes</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">Aucune activité récente. Les données seront affichées ici une fois le backend complet (MVP-10/11).</p>
+          <DataLoader
+            loading={conLoading}
+            error={conError}
+            data={recentConcessions}
+            emptyState={{
+              icon: <FileText className="h-8 w-8" />,
+              title: "Aucune concession",
+              description: "Créez une première concession pour la voir ici",
+            }}
+          >
+            <div className="space-y-3">
+              {recentConcessions.map((c) => (
+                <div
+                  key={c.id}
+                  className="flex items-center justify-between p-3 border rounded hover:bg-accent transition"
+                >
+                  <div>
+                    <p className="text-sm font-medium">Concession {c.id}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Cimetière {c.cemetery_id} • Statut: {c.status}
+                    </p>
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {new Date(c.created_at).toLocaleDateString("fr-FR")}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </DataLoader>
         </CardContent>
       </Card>
     </div>

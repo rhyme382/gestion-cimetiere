@@ -7,7 +7,7 @@ Date de référence : 2026-06-15
 | Agent | Domaine | Statut | Livrable attendu | Dépendances |
 | --- | --- | --- | --- | --- |
 | orchestrator | Pilotage | En cours | Roadmap MVP, backlog atomique, dépendances, suivi global | SPEC.md |
-| frontend | Interface React/Tauri | 🚀 En cours (API prep) | Shell ✅, composants UI ✅, intégration API ✅, vues métier (MVP-12+) | MVP-01 ✅, MVP-05A ✅, Backend commands en attente |
+| frontend | Interface React/Tauri | ✅ MVP-12/13 livré | Shell ✅, UI ✅, API ✅, dashboard ✅, listes ✅, fiches ✅, recherche ✅ | MVP-01 ✅, MVP-05A ✅, MVP-10 ✅, MVP-11 ✅ |
 | backend | Modèle métier et persistance | ✅ MVP-10/11 livré | Commandes Tauri CRUD ✅, vues métier en attente (MVP-12+) | MVP-05 ✅, MVP-09 (migrations) ✅ |
 | mapping | Cartographie cimetière | ✅ Phase 3 terminée | Format de plan MVP ✅, rendu simple ✅, sélection d’emplacement ✅ | MVP-04 ✅, MVP-07 ✅, MVP-14 ✅ |
 | packaging | Distribution poste mairie | **En cours (MVP-08)** | Config Tauri NSIS/AppImage/.deb, scripts build, guide install | MVP-01, MVP-02 |
@@ -32,7 +32,7 @@ Date de référence : 2026-06-15
 | --- | --- | --- |
 | Phase 0 — Pilotage et socle | ✅ Terminé | 100% |
 | Phase 1 — Noyau métier MVP | 🚀 En cours | 50% (repositories et commandes Tauri MVP-10/11 en implémentation) |
-| Phase 2 — Interface métier MVP | 🚀 En cours (MVP-02, MVP-06) | 25% (shell + design system en place) |
+| Phase 2 — Interface métier MVP | ✅ Terminée | 100% (shell + design system + écrans métier) |
 | Phase 3 — Cartographie MVP | ✅ Terminé | 100% (MVP-07 ✅, MVP-14 ✅) |
 | Phase 4 — Documents, alertes, sauvegarde | Dépend de Phase 2 | 0% |
 | Phase 5 — Packaging et validation | Dépend de Phase 4 | 0% |
@@ -45,7 +45,7 @@ Date de référence : 2026-06-15
 - [x] SPEC.md complète et validée
 - [x] ROADMAP.md avec backlog priorisé
 - [x] `agents/STATUS.md` défini comme suivi officiel
-- [x] Rapports MVP-00, MVP-01, MVP-02, MVP-03, MVP-04, MVP-05, MVP-05A, MVP-06, MVP-07, MVP-10, MVP-11, MVP-14
+- [x] Rapports MVP-00, MVP-01, MVP-02, MVP-03, MVP-04, MVP-05, MVP-05A, MVP-06, MVP-07, MVP-10, MVP-11, MVP-12, MVP-13, MVP-14
 - [x] Exécution MVP-00 — ✅ Socle Rust/Tauri
 - [x] Exécution MVP-01 — ✅ Architecture applicative (modules, layering)
 - [x] Exécution MVP-04 — ✅ Schéma SQLite + migrations compilables
@@ -54,10 +54,14 @@ Date de référence : 2026-06-15
 - [x] Exécution MVP-02 — ✅ Shell Tauri + React + TypeScript (router, layout, Tailwind)
 - [x] Exécution MVP-06 — ✅ Composants UI + pages stubs + types mirroir Rust
 - [x] Exécution MVP-07 — ✅ Format cartographique MVP stabilisé
-- [x] Exécution MVP-14 — ✅ Rendu cartographique SVG + sélection (mock data, tests ✅)
-- [x] Exécution MVP-10 — ✅ Commandes Tauri cemeteries + plots (27 unit tests, all passing)
-- [x] Exécution MVP-11 — ✅ Commandes Tauri concessions + individuals + burials (tests complets)
-- [x] Rapports MVP-10, MVP-11 — ✅ Générés
+- [x] Exécution MVP-02 — ✅ Shell Tauri + React + TypeScript
+- [x] Exécution MVP-06 — ✅ Design system + composants UI + types
+- [x] Exécution Frontend API prep — ✅ Hooks + services + états loading/error
+- [x] Exécution MVP-10 — ✅ Commandes Tauri cemeteries + plots
+- [x] Exécution MVP-11 — ✅ Commandes Tauri concessions + individuals + burials
+- [x] Exécution MVP-12 — ✅ Dashboard, liste concessions, fiche concession
+- [x] Exécution MVP-13 — ✅ Liste défunts, fiche défunt, recherche globale
+- [x] Exécution MVP-14 — ✅ Rendu cartographique SVG + sélection
 
 ## Blocages connus
 

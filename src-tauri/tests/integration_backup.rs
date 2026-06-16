@@ -52,9 +52,10 @@ fn test_backup_nonexistent_db() {
 
 #[test]
 fn test_list_backups_empty() {
+    let test_db = "test_empty_list.db";
     cleanup_backups();
 
-    let result = BackupService::list_backups();
+    let result = BackupService::list_backups(test_db);
     assert!(result.is_ok(), "list_backups should not fail");
     let backups = result.unwrap();
     assert_eq!(backups.len(), 0, "Should have no backups initially");
@@ -80,7 +81,7 @@ fn test_list_backups_multiple() {
     assert!(backup2.is_ok());
 
     // List backups
-    let result = BackupService::list_backups();
+    let result = BackupService::list_backups(test_db);
     assert!(result.is_ok());
     let backups = result.unwrap();
     assert_eq!(backups.len(), 2, "Should have 2 backups");

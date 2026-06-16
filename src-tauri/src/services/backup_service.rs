@@ -5,9 +5,21 @@ use std::path::{Path, PathBuf};
 pub struct BackupService;
 
 impl BackupService {
-    /// Get backup directory, create if doesn't exist
-    fn get_backup_dir() -> Result<PathBuf, String> {
-        let backup_dir = PathBuf::from("backups");
+    /// Get backup directory adjacent to database, create if doesn't exist
+    fn get_backup_dir(db_path: &str) -> Result<PathBuf, String> {
+        // Get parent directory of database file
+        let db_path_obj = Path::new(db_path);
+        let backup_dir = if let Some(parent) = db_path_obj.parent() {
+            if parent.as_os_str().is_empty() {
+                // If parent is empty (e.g., "file.db"), use current directory
+                PathBuf::from("backups")
+            } else {
+                parent.join("backups")
+            }
+        } else {
+            PathBuf::from("backups")
+        };
+
         fs::create_dir_all(&backup_dir)
             .map_err(|e| format!("Failed to create backup directory: {}", e))?;
         Ok(backup_dir)
@@ -34,8 +46,8 @@ impl BackupService {
             return Err(format!("Database file not found: {}", db_path));
         }
 
-        // Get backup directory
-        let backup_dir = Self::get_backup_dir()?;
+        // Get backup directory adjacent to database
+        let backup_dir = Self::get_backup_dir(db_path)?;
 
         // Generate backup filename
         let backup_filename = Self::get_backup_filename();
@@ -48,8 +60,8 @@ impl BackupService {
     }
 
     /// List all available backups
-    pub fn list_backups() -> Result<Vec<String>, String> {
-        let backup_dir = Self::get_backup_dir()?;
+    pub fn list_backups(db_path: &str) -> Result<Vec<String>, String> {
+        let backup_dir = Self::get_backup_dir(db_path)?;
 
         let entries = fs::read_dir(&backup_dir)
             .map_err(|e| format!("Failed to read backup directory: {}", e))?;
@@ -78,12 +90,22 @@ impl BackupService {
 
     /// Restore from a backup file
     pub fn restore_backup(backup_filename: &str, db_path: &str) -> Result<(), String> {
-        // Validate backup filename to prevent path traversal
-        if backup_filename.contains("..") || backup_filename.contains("/") {
-            return Err("Invalid backup filename".to_string());
+        // Validate backup filename to prevent path traversal (Windows & Unix)
+        if backup_filename.contains("..")
+            || backup_filename.contains("/")
+            || backup_filename.contains("\\")
+            || backup_filename.starts_with("/")
+            || backup_filename.starts_with("\\")
+            || (cfg!(windows)
+                && backup_filename.len() > 1
+                && backup_filename.chars().nth(1) == Some(':'))
+        {
+            return Err(
+                "Invalid backup filename: path traversal or absolute path detected".to_string(),
+            );
         }
 
-        let backup_dir = Self::get_backup_dir()?;
+        let backup_dir = Self::get_backup_dir(db_path)?;
         let backup_path = backup_dir.join(backup_filename);
 
         // Verify backup exists

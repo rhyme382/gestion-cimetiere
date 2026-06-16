@@ -13,8 +13,12 @@ pub fn create_backup(db_path: State<String>) -> Result<String, String> {
 
 /// List all available backups
 #[tauri::command]
-pub fn list_backups() -> Result<Vec<String>, String> {
-    BackupService::list_backups()
+pub fn list_backups(db_path: State<String>) -> Result<Vec<String>, String> {
+    // Skip listing if using in-memory database (for testing)
+    if db_path.as_str() == ":memory:" {
+        return Ok(Vec::new());
+    }
+    BackupService::list_backups(db_path.as_str())
 }
 
 /// Restore from a specific backup

@@ -8,7 +8,7 @@ Date de référence : 2026-06-15
 | --- | --- | --- | --- | --- |
 | orchestrator | Pilotage | En cours | Roadmap MVP, backlog atomique, dépendances, suivi global | SPEC.md |
 | frontend | Interface React/Tauri | 🚀 En cours (API prep) | Shell ✅, composants UI ✅, intégration API ✅, vues métier (MVP-12+) | MVP-01 ✅, MVP-05A ✅, Backend commands en attente |
-| backend | Modèle métier et persistance | 🚀 En cours (MVP-10, MVP-11) | Commandes Tauri CRUD (cimeteries, plots, concessions, individuals, burials) | MVP-05 ✅, MVP-09 (migrations) ✅ |
+| backend | Modèle métier et persistance | ✅ MVP-10/11 livré | Commandes Tauri CRUD ✅, vues métier en attente (MVP-12+) | MVP-05 ✅, MVP-09 (migrations) ✅ |
 | mapping | Cartographie cimetière | ✅ Phase 3 terminée | Format de plan MVP ✅, rendu simple ✅, sélection d’emplacement ✅ | MVP-04 ✅, MVP-07 ✅, MVP-14 ✅ |
 | packaging | Distribution poste mairie | **En cours (MVP-08)** | Config Tauri NSIS/AppImage/.deb, scripts build, guide install | MVP-01, MVP-02 |
 | qa | Validation et tests | **MVP-03 livré** | Stratégie de tests ✅, conventions QA ✅ ; livraison de cadrage uniquement, sans implémentation complète des tests | MVP-01 ✅ |
@@ -45,7 +45,7 @@ Date de référence : 2026-06-15
 - [x] SPEC.md complète et validée
 - [x] ROADMAP.md avec backlog priorisé
 - [x] `agents/STATUS.md` défini comme suivi officiel
-- [x] Rapports MVP-00, MVP-01, MVP-02, MVP-03, MVP-04, MVP-05, MVP-05A, MVP-06, MVP-07, MVP-14
+- [x] Rapports MVP-00, MVP-01, MVP-02, MVP-03, MVP-04, MVP-05, MVP-05A, MVP-06, MVP-07, MVP-10, MVP-11, MVP-14
 - [x] Exécution MVP-00 — ✅ Socle Rust/Tauri
 - [x] Exécution MVP-01 — ✅ Architecture applicative (modules, layering)
 - [x] Exécution MVP-04 — ✅ Schéma SQLite + migrations compilables
@@ -55,9 +55,9 @@ Date de référence : 2026-06-15
 - [x] Exécution MVP-06 — ✅ Composants UI + pages stubs + types mirroir Rust
 - [x] Exécution MVP-07 — ✅ Format cartographique MVP stabilisé
 - [x] Exécution MVP-14 — ✅ Rendu cartographique SVG + sélection (mock data, tests ✅)
-- [ ] Exécution MVP-10 — 🚀 En cours, Commandes Tauri cemeteries + plots
-- [ ] Exécution MVP-11 — 🚀 En cours, Commandes Tauri concessions + individuals + burials
-- [ ] Rapports MVP-10, MVP-11 — À générer après implémentation
+- [x] Exécution MVP-10 — ✅ Commandes Tauri cemeteries + plots (27 unit tests, all passing)
+- [x] Exécution MVP-11 — ✅ Commandes Tauri concessions + individuals + burials (tests complets)
+- [x] Rapports MVP-10, MVP-11 — ✅ Générés
 
 ## Blocages connus
 
@@ -73,12 +73,12 @@ Date de référence : 2026-06-15
 
 ## Prochain lancement recommandé
 
-1. ~~Lancer `backend` sur MVP-00 puis MVP-01~~ **✅ MVP-00 à MVP-07 TERMINÉ**
-2. **🚀 EN COURS : `backend` sur MVP-10 et MVP-11** — Commandes Tauri pour cimeteries, plots, concessions, individuals, burials (plan: `docs/superpowers/plans/2026-06-15-MVP-10-11-tauri-commands.md`)
+1. ~~Lancer `backend` sur MVP-00 puis MVP-01~~ **✅ MVP-00 à MVP-11 TERMINÉ**
+2. **✅ LIVRÉ : `backend` sur MVP-10 et MVP-11** — Commandes Tauri pour cemeteries, plots, concessions, individuals, burials (21 handlers, 27+ unit tests)
 3. ~~Lancer `packaging` sur MVP-08~~ **🚀 EN COURS**
 4. ~~Lancer `qa` sur MVP-03~~ **✅ MVP-03 livré** → stratégie QA en place, prêt pour Phase 1 (MVP-24, MVP-25, MVP-26, MVP-27).
-5. Lancer `frontend` sur MVP-12 (dashboard, listes concessions) dès que MVP-10/11 livrés.
-6. ~~Lancer `mapping` sur MVP-14~~ **✅ MVP-14 TERMINÉ** → Rendu + sélection ✅, swap mock data avec API Tauri real quand MVP-10/11 livré.
+5. **🚀 PROCHAIN : Lancer `frontend` sur MVP-12** (dashboard, listes concessions) — MVP-10/11 backend API ✅ prêt pour intégration.
+6. ~~Lancer `mapping` sur MVP-14~~ **✅ MVP-14 TERMINÉ** → Rendu + sélection ✅, intégration avec API Tauri réelle (MVP-10/11 ✅) peut démarrer.
 
 ## Indicateur de readiness
 

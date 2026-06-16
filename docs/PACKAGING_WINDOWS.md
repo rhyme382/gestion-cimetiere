@@ -2,7 +2,7 @@
 
 ## Vue d'ensemble
 
-Ce guide couvre la préparation et la génération du paquet d'installation Windows (.msi) pour l'application Gestion Cimetière via NSIS (Nullsoft Scriptable Install System), intégré à Tauri 2.
+Ce guide couvre la préparation et la génération de l'installateur Windows (.exe) pour l'application Gestion Cimetière via NSIS (Nullsoft Scriptable Install System), intégré à Tauri 2.
 
 ## Prérequis
 
@@ -97,7 +97,7 @@ npx tauri build -- --target nsis
 ```
 
 Cela génère :
-- `target/release/bundle/nsis/Gestion_Cimetiere_*.exe` — Installateur MSI
+- `target/release/bundle/nsis/Gestion_Cimetiere_*.exe` — Installateur Windows NSIS
 
 ### 5. Alternative : Build sur Linux (prépare, ne compile pas NSIS)
 

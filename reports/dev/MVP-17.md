@@ -3,7 +3,9 @@
 **Date :** 2026-06-16  
 **Agent :** frontend  
 **Statut :** ✅ Stabilisé  
-**Dépend de :** MVP-12 ✅, MVP-13 ✅, MVP-15 ✅, MVP-16 ✅
+**Dépend de :** MVP-12 ✅, MVP-16 ✅
+
+**Contexte utile :** MVP-13 ✅, MVP-15 ✅
 
 ## Objectif
 

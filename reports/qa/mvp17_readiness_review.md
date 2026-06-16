@@ -12,8 +12,12 @@
 
 ### MVP-17 dépend de :
 - ✅ MVP-16 (alertes backend) — **COMPLÈTE** (48/48 tests passent)
-- ✅ MVP-12/13/15 (interface frontend) — **LIVRÉE**
+- ✅ MVP-12 (interface frontend cible) — **LIVRÉE**
 - ✅ MVP-10/11 (commandes Tauri CRUD) — **OPÉRATIONNELLES**
+
+### Contexte utile non bloquant :
+- ✅ MVP-13 — écrans défunts et recherche déjà livrés
+- ✅ MVP-15 — intégration cartographie/fiches déjà livrée
 
 ### Livrables MVP-16 à valider :
 1. **DTO alertes** (`src-tauri/src/dto/alert.rs`) — sérialisables et stables

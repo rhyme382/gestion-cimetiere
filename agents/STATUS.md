@@ -45,7 +45,7 @@ Date de référence : 2026-06-16
 - [x] SPEC.md complète et validée
 - [x] ROADMAP.md avec backlog priorisé
 - [x] `agents/STATUS.md` défini comme suivi officiel
-- [x] Rapports MVP-00, MVP-01, MVP-02, MVP-03, MVP-04, MVP-05, MVP-05A, MVP-06, MVP-07, MVP-10, MVP-11, MVP-12, MVP-13, MVP-14, MVP-15, MVP-17
+- [x] Rapports MVP-00, MVP-01, MVP-02, MVP-03, MVP-04, MVP-05, MVP-05A, MVP-06, MVP-07, MVP-10, MVP-11, MVP-12, MVP-13, MVP-14, MVP-15, MVP-16, MVP-17
 - [x] Exécution MVP-00 — ✅ Socle Rust/Tauri
 - [x] Exécution MVP-01 — ✅ Architecture applicative (modules, layering)
 - [x] Exécution MVP-04 — ✅ Schéma SQLite + migrations compilables
@@ -63,6 +63,7 @@ Date de référence : 2026-06-16
 - [x] Exécution MVP-13 — ✅ Liste défunts, fiche défunt, recherche globale
 - [x] Exécution MVP-14 — ✅ Rendu cartographique SVG + sélection
 - [x] Exécution MVP-15 — ✅ Intégration cartographie ↔ fiches métier
+- [x] Exécution MVP-16 — ✅ Alertes d’échéance backend
 - [x] Exécution MVP-17 — ✅ Centre d'alertes (widget + tableau + acquittement)
 
 ## Blocages connus
@@ -84,13 +85,14 @@ Date de référence : 2026-06-16
 3. ~~Lancer `packaging` sur MVP-08~~ **🚀 EN COURS**
 4. ~~Lancer `qa` sur MVP-03~~ **✅ MVP-03 livré** → stratégie QA en place, prêt pour Phase 1 (MVP-24, MVP-25, MVP-26, MVP-27).
 5. **✅ LIVRÉ : `backend` sur MVP-16** — Alertes d’échéance MVP (3 tests service, 6 tests repository, 4 tests integration)
-6. **🚀 PROCHAIN : Lancer `frontend` sur MVP-17** après livraison de MVP-16 ✅
-7. ~~Lancer `mapping` sur MVP-14~~ **✅ MVP-14 TERMINÉ** → Rendu + sélection ✅, intégration avec API Tauri réelle (MVP-10/11 ✅) peut démarrer.
+6. **✅ LIVRÉ : `frontend` sur MVP-17** — Centre d’alertes minimal intégré (widget dashboard, tableau, acquittement)
+7. **🚀 PROCHAIN : Lancer `backend` sur MVP-18** — Génération PDF administratif simple, dépendance MVP-11 ✅
+8. ~~Lancer `mapping` sur MVP-14~~ **✅ MVP-14 TERMINÉ** → Rendu + sélection ✅, intégration avec API Tauri réelle (MVP-10/11 ✅) peut démarrer.
 
 ## Indicateur de readiness
 
-- Projet prêt pour lancer `backend` : **oui, prêt pour MVP-16** (alertes d’échéance), MVP-11 ✅.
-- Projet prêt pour lancer `frontend` : **MVP-15 TERMINÉ ✅** ; prochain lot frontend pertinent = MVP-17 après livraison de MVP-16.
+- Projet prêt pour lancer `backend` : **oui, prêt pour MVP-18** (génération PDF administratif simple), MVP-11 ✅.
+- Projet prêt pour lancer `frontend` : **MVP-17 TERMINÉ ✅** ; prochain lot frontend pertinent = MVP-19 après livraison de MVP-18.
 - Projet prêt pour lancer `mapping` : **✅ MVP-14 TERMINÉ**, composant rendu SVG + sélection implémentés avec 25 tests passants ; intégration réelle dépend de MVP-10/11.
 - Projet prêt pour lancer `packaging` : oui, après sortie de MVP-01 ✅ puis MVP-02.
 - Projet prêt pour lancer `qa` Phase 1 (MVP-24, MVP-25, MVP-26) : oui, MVP-03 stratégie livrée sans exécution complète de tests, backend MVP-04+ en cours.

@@ -42,3 +42,6 @@ export const listAlerts = () => invoke<AlertDTO[]>("list_alerts");
 export const getAlertSummary = () => invoke<AlertSummaryDTO>("get_alert_summary");
 export const refreshAlerts = () => invoke<AlertDTO[]>("refresh_alerts");
 export const acknowledgeAlert = (alert_id: number) => invoke<boolean>("acknowledge_alert", { alert_id });
+
+// PDF
+export const generateConcessionPdf = (concession_id: number) => invoke<string>("generate_concession_pdf", { concession_id });

@@ -3,6 +3,7 @@ pub mod db;
 pub mod dto;
 pub mod errors;
 pub mod commands;
+pub mod services;
 
 pub fn init_app() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize database at app startup

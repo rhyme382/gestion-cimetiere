@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge, DataLoader, ErrorMessage } from "@/components/ui";
-import { useConcession, useCemetery, usePlot, useAlerts, acknowledgeAlertAsync } from "@/hooks";
-import { ArrowLeft, AlertTriangle, AlertOctagon, AlertCircle } from "lucide-react";
+import { useConcession, useCemetery, usePlot, useAlerts, acknowledgeAlertAsync, usePdfGeneration } from "@/hooks";
+import { ArrowLeft, AlertTriangle, AlertOctagon, AlertCircle, FileText, CheckCircle, AlertCircle as AlertCircleIcon } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { PlotViewer } from "@/components/map/PlotViewer";
 import { useState } from "react";
@@ -16,6 +16,7 @@ export default function ConcessionDetailPage() {
   const { data: cemetery } = useCemetery(concession?.cemetery_id ?? null);
   const { data: plot } = usePlot(concession?.plot_id ?? null);
   const { data: allAlerts, refetch: refetchAlerts } = useAlerts();
+  const { generating, error: pdfError, filePath, generate: generatePdf } = usePdfGeneration(concessionId);
 
   const relatedAlerts = allAlerts?.filter((a) => a.concession_id === concessionId) ?? [];
 
@@ -218,9 +219,40 @@ export default function ConcessionDetailPage() {
                 <Button className="w-full" variant="outline">
                   Imprimer
                 </Button>
-                <Button className="w-full" variant="outline">
-                  Télécharger
+                <Button
+                  className="w-full"
+                  variant={filePath ? "default" : "outline"}
+                  onClick={generatePdf}
+                  disabled={generating}
+                >
+                  {generating ? (
+                    <>
+                      <div className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent mr-2" />
+                      Génération...
+                    </>
+                  ) : filePath ? (
+                    <>
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      PDF généré
+                    </>
+                  ) : (
+                    <>
+                      <FileText className="h-4 w-4 mr-2" />
+                      Générer PDF
+                    </>
+                  )}
                 </Button>
+                {filePath && (
+                  <p className="text-xs text-green-700 bg-green-50 p-2 rounded border border-green-200">
+                    ✓ PDF généré: {filePath.split("/").pop()}
+                  </p>
+                )}
+                {pdfError && (
+                  <p className="text-xs text-red-700 bg-red-50 p-2 rounded border border-red-200 flex items-start gap-2">
+                    <AlertCircleIcon className="h-3 w-3 flex-shrink-0 mt-0.5" />
+                    {pdfError}
+                  </p>
+                )}
                 {concession.plot_id && (
                   <Button
                     className="w-full"

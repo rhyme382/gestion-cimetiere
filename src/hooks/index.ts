@@ -6,3 +6,4 @@ export { useConcessions, useConcession, createConcessionAsync, updateConcessionA
 export { useIndividuals, useIndividual, useSearchIndividuals, createIndividualAsync, updateIndividualAsync } from "./useIndividuals";
 export { createBurialAsync } from "./useBurials";
 export { useAlerts, useAlertSummary, refreshAlertsAsync, acknowledgeAlertAsync } from "./useAlerts";
+export { usePdfGeneration } from "./usePdfGeneration";

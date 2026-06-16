@@ -2,6 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataLoader } from "@/components/ui";
 import { useCemeteries, useConcessions, useIndividuals } from "@/hooks";
 import { Building2, FileText, Users, Bell } from "lucide-react";
+import { AlertWidget } from "@/components/alerts/AlertWidget";
 
 export default function DashboardPage() {
   const { data: cemeteries, loading: cemLoading } = useCemeteries();
@@ -19,6 +20,11 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Alerts Widget */}
+      <div className="mb-4">
+        <AlertWidget />
+      </div>
+
       {/* Stats Grid */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {stats.map(({ label, value, icon: Icon, color }) => (

@@ -1,18 +1,35 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge, DataLoader, ErrorMessage } from "@/components/ui";
-import { useConcession, useCemetery, usePlot } from "@/hooks";
-import { ArrowLeft } from "lucide-react";
+import { useConcession, useCemetery, usePlot, useAlerts, acknowledgeAlertAsync } from "@/hooks";
+import { ArrowLeft, AlertTriangle, AlertOctagon, AlertCircle } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { PlotViewer } from "@/components/map/PlotViewer";
+import { useState } from "react";
 
 export default function ConcessionDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const concessionId = id ? Number(id) : null;
+  const [acknowledging, setAcknowledging] = useState<number | null>(null);
 
   const { data: concession, loading, error, refetch } = useConcession(concessionId);
   const { data: cemetery } = useCemetery(concession?.cemetery_id ?? null);
   const { data: plot } = usePlot(concession?.plot_id ?? null);
+  const { data: allAlerts, refetch: refetchAlerts } = useAlerts();
+
+  const relatedAlerts = allAlerts?.filter((a) => a.concession_id === concessionId) ?? [];
+
+  async function handleAcknowledgeAlert(alert_id: number) {
+    setAcknowledging(alert_id);
+    try {
+      await acknowledgeAlertAsync(alert_id);
+      await refetchAlerts();
+    } catch (err) {
+      console.error("Erreur lors de l'acquittement:", err);
+    } finally {
+      setAcknowledging(null);
+    }
+  }
 
   if (!concessionId) {
     return (
@@ -47,6 +64,62 @@ export default function ConcessionDetailPage() {
       </div>
 
       {error && <ErrorMessage error={error} onRetry={refetch} />}
+
+      {/* Alerts */}
+      {relatedAlerts.length > 0 && (
+        <Card className="border-orange-200 bg-orange-50">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2 text-orange-800">
+              <AlertTriangle className="h-4 w-4" />
+              Alertes associées
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {relatedAlerts.map((alert) => (
+              <div
+                key={alert.id}
+                className="flex items-center justify-between p-3 border rounded bg-white"
+              >
+                <div className="flex items-center gap-3 flex-1">
+                  {alert.alert_type === "CRITICAL" && (
+                    <AlertOctagon className="h-4 w-4 text-red-600 flex-shrink-0" />
+                  )}
+                  {alert.alert_type === "WARNING" && (
+                    <AlertTriangle className="h-4 w-4 text-orange-600 flex-shrink-0" />
+                  )}
+                  {alert.alert_type === "INFO" && (
+                    <AlertCircle className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                  )}
+                  <div className="flex-1">
+                    <p className="text-xs font-medium">
+                      {alert.alert_type === "CRITICAL"
+                        ? "Alerte critique"
+                        : alert.alert_type === "WARNING"
+                        ? "Alerte"
+                        : "Information"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Expire le {formatDate(alert.expected_expiry_date)} (
+                      {alert.days_until_expiry} jours)
+                    </p>
+                  </div>
+                </div>
+                {!alert.acknowledged_at && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleAcknowledgeAlert(alert.id)}
+                    disabled={acknowledging === alert.id}
+                    className="text-xs h-7 ml-2 flex-shrink-0"
+                  >
+                    {acknowledging === alert.id ? "..." : "Acquitter"}
+                  </Button>
+                )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Details */}
       <DataLoader

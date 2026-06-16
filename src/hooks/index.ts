@@ -5,3 +5,4 @@ export { usePlots, usePlot, createPlotAsync, updatePlotAsync } from "./usePlots"
 export { useConcessions, useConcession, createConcessionAsync, updateConcessionAsync } from "./useConcessions";
 export { useIndividuals, useIndividual, useSearchIndividuals, createIndividualAsync, updateIndividualAsync } from "./useIndividuals";
 export { createBurialAsync } from "./useBurials";
+export { useAlerts, useAlertSummary, refreshAlertsAsync, acknowledgeAlertAsync } from "./useAlerts";

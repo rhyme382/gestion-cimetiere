@@ -179,3 +179,24 @@ export interface PlotLocationRequest {
   row?: number;
   number?: number;
 }
+
+// --- Alert (MVP-16/17) ---
+
+export type AlertType = "CRITICAL" | "WARNING" | "INFO";
+
+export interface AlertDTO {
+  id: number;
+  concession_id: number;
+  alert_type: AlertType;
+  expected_expiry_date: string;
+  days_until_expiry: number;
+  created_at: string;
+  acknowledged_at: string | null;
+}
+
+export interface AlertSummaryDTO {
+  total_alerts: number;
+  critical_count: number;
+  warning_count: number;
+  info_count: number;
+}

@@ -8,7 +8,7 @@ Date de référence : 2026-06-16
 | --- | --- | --- | --- | --- |
 | orchestrator | Pilotage | En cours | Roadmap MVP, backlog atomique, dépendances, suivi global | SPEC.md |
 | frontend | Interface React/Tauri | ✅ MVP-12/13/15 livré | Shell ✅, UI ✅, API ✅, dashboard ✅, listes ✅, fiches ✅, recherche ✅, cartographie ✅ | MVP-01 ✅, MVP-05A ✅, MVP-10 ✅, MVP-11 ✅, MVP-14 ✅ |
-| backend | Modèle métier et persistance | ✅ MVP-10/11 livré | Commandes Tauri CRUD ✅, vues métier en attente (MVP-12+) | MVP-05 ✅, MVP-09 (migrations) ✅ |
+| backend | Modèle métier et persistance | ✅ MVP-10/11/16 livré | Commandes Tauri CRUD ✅, alertes d'échéance ✅, vues métier complètes ✅ | MVP-05 ✅, MVP-09 (migrations) ✅ |
 | mapping | Cartographie cimetière | ✅ Phase 3 terminée | Format de plan MVP ✅, rendu simple ✅, sélection d’emplacement ✅ | MVP-04 ✅, MVP-07 ✅, MVP-14 ✅ |
 | packaging | Distribution poste mairie | **En cours (MVP-08)** | Config Tauri NSIS/AppImage/.deb, scripts build, guide install | MVP-01, MVP-02 |
 | qa | Validation et tests | **MVP-03 livré** | Stratégie de tests ✅, conventions QA ✅ ; livraison de cadrage uniquement, sans implémentation complète des tests | MVP-01 ✅ |
@@ -31,7 +31,7 @@ Date de référence : 2026-06-16
 | Phase | Statut | Avancement |
 | --- | --- | --- |
 | Phase 0 — Pilotage et socle | ✅ Terminé | 100% |
-| Phase 1 — Noyau métier MVP | 🚀 En cours | 50% (repositories et commandes Tauri MVP-10/11 en implémentation) |
+| Phase 1 — Noyau métier MVP | ✅ Terminé | 100% (repositories ✅, commandes Tauri ✅, alertes ✅) |
 | Phase 2 — Interface métier MVP | ✅ Terminée | 100% (shell + design system + écrans métier) |
 | Phase 3 — Cartographie MVP | ✅ Terminé | 100% (MVP-07 ✅, MVP-14 ✅) |
 | Phase 4 — Documents, alertes, sauvegarde | Dépend de Phase 2 | 0% |
@@ -82,8 +82,9 @@ Date de référence : 2026-06-16
 2. **✅ LIVRÉ : `backend` sur MVP-10 et MVP-11** — Commandes Tauri pour cemeteries, plots, concessions, individuals, burials (21 handlers, 27+ unit tests)
 3. ~~Lancer `packaging` sur MVP-08~~ **🚀 EN COURS**
 4. ~~Lancer `qa` sur MVP-03~~ **✅ MVP-03 livré** → stratégie QA en place, prêt pour Phase 1 (MVP-24, MVP-25, MVP-26, MVP-27).
-5. **🚀 PROCHAIN : Lancer `backend` sur MVP-16** (alertes d’échéance MVP) — MVP-11 ✅, dépendance d’entrée validée.
-6. ~~Lancer `mapping` sur MVP-14~~ **✅ MVP-14 TERMINÉ** → Rendu + sélection ✅, intégration avec API Tauri réelle (MVP-10/11 ✅) peut démarrer.
+5. **✅ LIVRÉ : `backend` sur MVP-16** — Alertes d’échéance MVP (3 tests service, 6 tests repository, 4 tests integration)
+6. **🚀 PROCHAIN : Lancer `frontend` sur MVP-17** après livraison de MVP-16 ✅
+7. ~~Lancer `mapping` sur MVP-14~~ **✅ MVP-14 TERMINÉ** → Rendu + sélection ✅, intégration avec API Tauri réelle (MVP-10/11 ✅) peut démarrer.
 
 ## Indicateur de readiness
 

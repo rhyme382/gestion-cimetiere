@@ -1,4 +1,11 @@
+use gestion_cimetiere::db::repositories::{
+    BurialRepository, CemeteryRepository, ConcessionRepository, PlotRepository,
+};
+use gestion_cimetiere::services::PdfService;
 use rusqlite::Connection;
+use std::fs;
+use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn setup_test_db() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
@@ -15,6 +22,43 @@ fn setup_test_db() -> Connection {
     conn
 }
 
+fn get_unique_test_dir() -> String {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    format!("/tmp/test_mvp18_pdf_{}", timestamp)
+}
+
+fn verify_pdf_file(path: &str) -> Result<(), String> {
+    // Check file exists
+    if !Path::new(path).exists() {
+        return Err(format!("PDF file does not exist: {}", path));
+    }
+
+    // Check file has .pdf extension
+    if !path.ends_with(".pdf") {
+        return Err(format!("File does not have .pdf extension: {}", path));
+    }
+
+    // Read file and verify size > 0
+    let content = fs::read(path).map_err(|e| format!("Failed to read PDF file: {}", e))?;
+
+    if content.is_empty() {
+        return Err("PDF file is empty".to_string());
+    }
+
+    // Verify PDF header
+    if !content.starts_with(b"%PDF") {
+        return Err(format!(
+            "File does not start with PDF header. Got: {:?}",
+            &content[..4.min(content.len())]
+        ));
+    }
+
+    Ok(())
+}
+
 #[test]
 fn test_integration_pdf_generation_basic() {
     let conn = setup_test_db();
@@ -22,8 +66,13 @@ fn test_integration_pdf_generation_basic() {
     // Setup: create cemetery and plot
     conn.execute(
         "INSERT INTO cemeteries (name, created_at, updated_at) VALUES (?, ?, ?)",
-        rusqlite::params!["Test Cemetery", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],
-    ).unwrap();
+        rusqlite::params![
+            "Test Cemetery",
+            "2026-06-16 10:00:00",
+            "2026-06-16 10:00:00"
+        ],
+    )
+    .unwrap();
 
     conn.execute(
         "INSERT INTO plots (cemetery_id, capacity, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -35,12 +84,35 @@ fn test_integration_pdf_generation_basic() {
         rusqlite::params![1, 1, "active", "2027-06-16", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],
     ).unwrap();
 
-    // Verify concession was created
-    let concession_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM concessions", [], |row| row.get(0))
-        .unwrap();
+    // Fetch data and generate PDF
+    let concession = ConcessionRepository::get(&conn, 1).unwrap();
+    let cemetery = CemeteryRepository::get(&conn, concession.cemetery_id).unwrap();
+    let plot = PlotRepository::get(&conn, 1).ok();
+    let burials = BurialRepository::list_by_concession(&conn, 1).unwrap_or_default();
 
-    assert_eq!(concession_count, 1);
+    let output_dir = get_unique_test_dir();
+    let result = PdfService::generate_concession_pdf(
+        &concession,
+        &cemetery,
+        plot.as_ref(),
+        None,
+        &burials,
+        &output_dir,
+    );
+
+    assert!(result.is_ok(), "PDF generation failed: {:?}", result);
+
+    let pdf_path = result.unwrap();
+    let verification = verify_pdf_file(&pdf_path);
+    assert!(
+        verification.is_ok(),
+        "PDF validation failed: {:?}",
+        verification.err()
+    );
+
+    // Cleanup
+    let _ = fs::remove_file(&pdf_path);
+    let _ = fs::remove_dir(output_dir);
 }
 
 #[test]
@@ -50,8 +122,13 @@ fn test_integration_pdf_with_burials() {
     // Setup: create cemetery, plot, concession, and burial
     conn.execute(
         "INSERT INTO cemeteries (name, created_at, updated_at) VALUES (?, ?, ?)",
-        rusqlite::params!["Test Cemetery", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],
-    ).unwrap();
+        rusqlite::params![
+            "Test Cemetery",
+            "2026-06-16 10:00:00",
+            "2026-06-16 10:00:00"
+        ],
+    )
+    .unwrap();
 
     conn.execute(
         "INSERT INTO plots (cemetery_id, capacity, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -65,20 +142,51 @@ fn test_integration_pdf_with_burials() {
 
     conn.execute(
         "INSERT INTO individuals (name, role, created_at, updated_at) VALUES (?, ?, ?, ?)",
-        rusqlite::params!["John Doe", "beneficiary", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],
-    ).unwrap();
+        rusqlite::params![
+            "John Doe",
+            "beneficiary",
+            "2026-06-16 10:00:00",
+            "2026-06-16 10:00:00"
+        ],
+    )
+    .unwrap();
 
     conn.execute(
         "INSERT INTO burials (concession_id, individual_id, buried_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
         rusqlite::params![1, 1, "2026-06-10", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],
     ).unwrap();
 
-    // Verify burial was created
-    let burial_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM burials", [], |row| row.get(0))
-        .unwrap();
+    // Fetch data and generate PDF
+    let concession = ConcessionRepository::get(&conn, 1).unwrap();
+    let cemetery = CemeteryRepository::get(&conn, concession.cemetery_id).unwrap();
+    let plot = PlotRepository::get(&conn, 1).ok();
+    let burials = BurialRepository::list_by_concession(&conn, 1).unwrap_or_default();
 
-    assert_eq!(burial_count, 1);
+    let output_dir = get_unique_test_dir();
+    let result = PdfService::generate_concession_pdf(
+        &concession,
+        &cemetery,
+        plot.as_ref(),
+        None,
+        &burials,
+        &output_dir,
+    );
+
+    assert!(result.is_ok(), "PDF generation failed: {:?}", result);
+
+    let pdf_path = result.unwrap();
+    let verification = verify_pdf_file(&pdf_path);
+    assert!(
+        verification.is_ok(),
+        "PDF validation failed: {:?}",
+        verification.err()
+    );
+
+    assert_eq!(burials.len(), 1, "Should have one burial");
+
+    // Cleanup
+    let _ = fs::remove_file(&pdf_path);
+    let _ = fs::remove_dir(output_dir);
 }
 
 #[test]
@@ -88,8 +196,13 @@ fn test_integration_pdf_with_multiple_burials() {
     // Setup
     conn.execute(
         "INSERT INTO cemeteries (name, created_at, updated_at) VALUES (?, ?, ?)",
-        rusqlite::params!["Test Cemetery", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],
-    ).unwrap();
+        rusqlite::params![
+            "Test Cemetery",
+            "2026-06-16 10:00:00",
+            "2026-06-16 10:00:00"
+        ],
+    )
+    .unwrap();
 
     conn.execute(
         "INSERT INTO plots (cemetery_id, capacity, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -111,7 +224,8 @@ fn test_integration_pdf_with_multiple_burials() {
                 "2026-06-16 10:00:00",
                 "2026-06-16 10:00:00"
             ],
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     // Add multiple burials
@@ -122,10 +236,35 @@ fn test_integration_pdf_with_multiple_burials() {
         ).unwrap();
     }
 
-    // Verify all burials were created
-    let burial_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM burials", [], |row| row.get(0))
-        .unwrap();
+    // Fetch data and generate PDF
+    let concession = ConcessionRepository::get(&conn, 1).unwrap();
+    let cemetery = CemeteryRepository::get(&conn, concession.cemetery_id).unwrap();
+    let plot = PlotRepository::get(&conn, 1).ok();
+    let burials = BurialRepository::list_by_concession(&conn, 1).unwrap_or_default();
 
-    assert_eq!(burial_count, 3);
+    let output_dir = get_unique_test_dir();
+    let result = PdfService::generate_concession_pdf(
+        &concession,
+        &cemetery,
+        plot.as_ref(),
+        None,
+        &burials,
+        &output_dir,
+    );
+
+    assert!(result.is_ok(), "PDF generation failed: {:?}", result);
+
+    let pdf_path = result.unwrap();
+    let verification = verify_pdf_file(&pdf_path);
+    assert!(
+        verification.is_ok(),
+        "PDF validation failed: {:?}",
+        verification.err()
+    );
+
+    assert_eq!(burials.len(), 3, "Should have three burials");
+
+    // Cleanup
+    let _ = fs::remove_file(&pdf_path);
+    let _ = fs::remove_dir(output_dir);
 }

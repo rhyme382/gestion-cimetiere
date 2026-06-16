@@ -1,8 +1,10 @@
-use crate::db::repositories::{BurialRepository, CemeteryRepository, ConcessionRepository, PlotRepository};
+use crate::db::repositories::{
+    BurialRepository, CemeteryRepository, ConcessionRepository, PlotRepository,
+};
 use crate::services::PdfService;
+use rusqlite::Connection;
 use std::sync::Mutex;
 use tauri::State;
-use rusqlite::Connection;
 
 /// Generate a PDF document for a concession
 #[tauri::command]
@@ -33,8 +35,7 @@ pub fn generate_concession_pdf(
     let individual = None;
 
     // Fetch burials for this concession
-    let burials = BurialRepository::list_by_concession(&conn, concession_id)
-        .unwrap_or_default();
+    let burials = BurialRepository::list_by_concession(&conn, concession_id).unwrap_or_default();
 
     // Generate PDF
     // For MVP, use a temporary directory

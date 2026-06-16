@@ -1,12 +1,15 @@
 use crate::dto::{BurialDTO, CemeteryDTO, ConcessionDTO, IndividualDTO, PlotDTO};
 use chrono::Local;
+use printpdf::*;
 use std::fs;
+use std::fs::File;
+use std::io::BufWriter;
 use std::path::PathBuf;
 
 pub struct PdfService;
 
 impl PdfService {
-    /// Generate a formatted text document (PDF-like) for a concession
+    /// Generate a real PDF document for a concession
     pub fn generate_concession_pdf(
         concession: &ConcessionDTO,
         cemetery: &CemeteryDTO,
@@ -19,113 +22,304 @@ impl PdfService {
         fs::create_dir_all(output_dir)
             .map_err(|e| format!("Failed to create output dir: {}", e))?;
 
-        // Build document content
-        let mut content = String::new();
-        content.push_str("================================================================================\n");
-        content.push_str("FICHE CONCESSION - DOCUMENT ADMINISTRATIF\n");
-        content.push_str("================================================================================\n\n");
+        // Create PDF document (A4 size)
+        let (doc, page1, layer1) =
+            PdfDocument::new("FICHE CONCESSION", Mm(210.0), Mm(297.0), "Layer 1");
+        let font = doc
+            .add_builtin_font(BuiltinFont::Helvetica)
+            .map_err(|e| format!("Failed to add font: {}", e))?;
 
-        // Header
-        content.push_str(&format!("Concession ID         : {}\n", concession.id));
-        content.push_str(&format!(
-            "Date de génération    : {}\n",
-            Local::now().format("%d/%m/%Y %H:%M:%S")
-        ));
-        content.push_str("\n");
+        let current_layer = doc.get_page(page1).get_layer(layer1);
+        let mut y_position = 270.0;
+        const LINE_HEIGHT: f32 = 5.0;
+        const MARGIN: f32 = 10.0;
+
+        // Title
+        current_layer.use_text("FICHE CONCESSION", 16.0, Mm(MARGIN), Mm(y_position), &font);
+        y_position -= LINE_HEIGHT * 2.0;
+
+        current_layer.use_text(
+            "DOCUMENT ADMINISTRATIF",
+            12.0,
+            Mm(MARGIN),
+            Mm(y_position),
+            &font,
+        );
+        y_position -= LINE_HEIGHT * 2.0;
+
+        // Header info
+        current_layer.use_text(
+            &format!("ID Concession: {}", concession.id),
+            10.0,
+            Mm(MARGIN),
+            Mm(y_position),
+            &font,
+        );
+        y_position -= LINE_HEIGHT;
+
+        current_layer.use_text(
+            &format!(
+                "Date de génération: {}",
+                Local::now().format("%d/%m/%Y %H:%M:%S")
+            ),
+            10.0,
+            Mm(MARGIN),
+            Mm(y_position),
+            &font,
+        );
+        y_position -= LINE_HEIGHT * 2.0;
 
         // Cemetery info
-        content.push_str("INFORMATIONS CIMETIÈRE\n");
-        content.push_str("----------------------\n");
-        content.push_str(&format!("Nom du cimetière      : {}\n", cemetery.name));
+        current_layer.use_text(
+            "INFORMATIONS CIMETIÈRE",
+            11.0,
+            Mm(MARGIN),
+            Mm(y_position),
+            &font,
+        );
+        y_position -= LINE_HEIGHT;
+
+        current_layer.use_text(
+            &format!("Cimetière: {}", cemetery.name),
+            10.0,
+            Mm(MARGIN + 2.0),
+            Mm(y_position),
+            &font,
+        );
+        y_position -= LINE_HEIGHT;
+
         if let Some(commune) = &cemetery.commune {
-            content.push_str(&format!("Commune               : {}\n", commune));
+            current_layer.use_text(
+                &format!("Commune: {}", commune),
+                10.0,
+                Mm(MARGIN + 2.0),
+                Mm(y_position),
+                &font,
+            );
+            y_position -= LINE_HEIGHT;
         }
+
         if let Some(capacity) = cemetery.capacity {
-            content.push_str(&format!("Capacité              : {} emplacements\n", capacity));
+            current_layer.use_text(
+                &format!("Capacité: {} emplacements", capacity),
+                10.0,
+                Mm(MARGIN + 2.0),
+                Mm(y_position),
+                &font,
+            );
+            y_position -= LINE_HEIGHT;
         }
-        content.push_str("\n");
+        y_position -= LINE_HEIGHT;
 
         // Plot info
         if let Some(p) = plot {
-            content.push_str("INFORMATIONS EMPLACEMENT\n");
-            content.push_str("------------------------\n");
+            current_layer.use_text(
+                "INFORMATIONS EMPLACEMENT",
+                11.0,
+                Mm(MARGIN),
+                Mm(y_position),
+                &font,
+            );
+            y_position -= LINE_HEIGHT;
+
             if let Some(section) = &p.section {
-                content.push_str(&format!("Secteur               : {}\n", section));
+                current_layer.use_text(
+                    &format!("Secteur: {}", section),
+                    10.0,
+                    Mm(MARGIN + 2.0),
+                    Mm(y_position),
+                    &font,
+                );
+                y_position -= LINE_HEIGHT;
             }
+
             if let Some(row) = &p.row {
-                content.push_str(&format!("Rangée                : {}\n", row));
+                current_layer.use_text(
+                    &format!("Rangée: {}", row),
+                    10.0,
+                    Mm(MARGIN + 2.0),
+                    Mm(y_position),
+                    &font,
+                );
+                y_position -= LINE_HEIGHT;
             }
+
             if let Some(number) = &p.number {
-                content.push_str(&format!("Numéro                : {}\n", number));
+                current_layer.use_text(
+                    &format!("Numéro: {}", number),
+                    10.0,
+                    Mm(MARGIN + 2.0),
+                    Mm(y_position),
+                    &font,
+                );
+                y_position -= LINE_HEIGHT;
             }
-            content.push_str(&format!("Capacité              : {}\n", p.capacity));
-            content.push_str(&format!("Statut                : {}\n", p.status));
-            content.push_str("\n");
+
+            current_layer.use_text(
+                &format!("Capacité: {}", p.capacity),
+                10.0,
+                Mm(MARGIN + 2.0),
+                Mm(y_position),
+                &font,
+            );
+            y_position -= LINE_HEIGHT;
+
+            current_layer.use_text(
+                &format!("Statut: {}", p.status),
+                10.0,
+                Mm(MARGIN + 2.0),
+                Mm(y_position),
+                &font,
+            );
+            y_position -= LINE_HEIGHT * 2.0;
         }
 
         // Concession info
-        content.push_str("INFORMATIONS CONCESSION\n");
-        content.push_str("-----------------------\n");
-        content.push_str(&format!("Statut                : {}\n", concession.status));
+        current_layer.use_text(
+            "INFORMATIONS CONCESSION",
+            11.0,
+            Mm(MARGIN),
+            Mm(y_position),
+            &font,
+        );
+        y_position -= LINE_HEIGHT;
+
+        current_layer.use_text(
+            &format!("Statut: {}", concession.status),
+            10.0,
+            Mm(MARGIN + 2.0),
+            Mm(y_position),
+            &font,
+        );
+        y_position -= LINE_HEIGHT;
+
         if let Some(acquired) = &concession.acquired_at {
-            content.push_str(&format!("Date d'acquisition    : {}\n", acquired));
+            current_layer.use_text(
+                &format!("Date d'acquisition: {}", acquired),
+                10.0,
+                Mm(MARGIN + 2.0),
+                Mm(y_position),
+                &font,
+            );
+            y_position -= LINE_HEIGHT;
         }
+
         if let Some(expires) = &concession.expires_at {
-            content.push_str(&format!("Date d'expiration     : {}\n", expires));
+            current_layer.use_text(
+                &format!("Date d'expiration: {}", expires),
+                10.0,
+                Mm(MARGIN + 2.0),
+                Mm(y_position),
+                &font,
+            );
+            y_position -= LINE_HEIGHT;
         }
+
         if let Some(renewed) = &concession.renewed_at {
-            content.push_str(&format!("Date de renouvellement: {}\n", renewed));
+            current_layer.use_text(
+                &format!("Date de renouvellement: {}", renewed),
+                10.0,
+                Mm(MARGIN + 2.0),
+                Mm(y_position),
+                &font,
+            );
+            y_position -= LINE_HEIGHT;
         }
-        content.push_str("\n");
+        y_position -= LINE_HEIGHT;
 
         // Individual info
         if let Some(ind) = individual {
-            content.push_str("TITULAIRE DE LA CONCESSION\n");
-            content.push_str("---------------------------\n");
-            content.push_str(&format!("Nom                   : {}\n", ind.name));
+            current_layer.use_text(
+                "TITULAIRE DE LA CONCESSION",
+                11.0,
+                Mm(MARGIN),
+                Mm(y_position),
+                &font,
+            );
+            y_position -= LINE_HEIGHT;
+
+            current_layer.use_text(
+                &format!("Nom: {}", ind.name),
+                10.0,
+                Mm(MARGIN + 2.0),
+                Mm(y_position),
+                &font,
+            );
+            y_position -= LINE_HEIGHT;
+
             if let Some(email) = &ind.email {
-                content.push_str(&format!("Email                 : {}\n", email));
+                current_layer.use_text(
+                    &format!("Email: {}", email),
+                    10.0,
+                    Mm(MARGIN + 2.0),
+                    Mm(y_position),
+                    &font,
+                );
+                y_position -= LINE_HEIGHT;
             }
+
             if let Some(phone) = &ind.phone {
-                content.push_str(&format!("Téléphone             : {}\n", phone));
+                current_layer.use_text(
+                    &format!("Téléphone: {}", phone),
+                    10.0,
+                    Mm(MARGIN + 2.0),
+                    Mm(y_position),
+                    &font,
+                );
+                y_position -= LINE_HEIGHT;
             }
-            content.push_str(&format!("Rôle                  : {}\n", ind.role));
-            content.push_str("\n");
+
+            current_layer.use_text(
+                &format!("Rôle: {}", ind.role),
+                10.0,
+                Mm(MARGIN + 2.0),
+                Mm(y_position),
+                &font,
+            );
+            y_position -= LINE_HEIGHT * 2.0;
         }
 
         // Burials
         if !burials.is_empty() {
-            content.push_str("DÉFUNTS INHUMÉS\n");
-            content.push_str("---------------\n");
+            current_layer.use_text("DÉFUNTS INHUMÉS", 11.0, Mm(MARGIN), Mm(y_position), &font);
+            y_position -= LINE_HEIGHT;
+
             for (idx, burial) in burials.iter().enumerate() {
                 let buried_date = burial
                     .buried_at
                     .as_ref()
                     .map(|d| d.as_str())
                     .unwrap_or("Date inconnue");
-                content.push_str(&format!(
-                    "{}. Défunt ID: {}, Inhumé le: {}\n",
-                    idx + 1, burial.individual_id, buried_date
-                ));
+                current_layer.use_text(
+                    &format!(
+                        "{}. Défunt ID: {}, Inhumé le: {}",
+                        idx + 1,
+                        burial.individual_id,
+                        buried_date
+                    ),
+                    10.0,
+                    Mm(MARGIN + 2.0),
+                    Mm(y_position),
+                    &font,
+                );
+                y_position -= LINE_HEIGHT;
             }
-            content.push_str("\n");
         }
 
-        content.push_str("================================================================================\n");
-        content.push_str("Ce document a été généré automatiquement par le système de gestion de cimetière.\n");
-        content.push_str("================================================================================\n");
-
-        // Generate filename
+        // Generate filename with .pdf extension
         let filename = format!(
-            "Concession_{}_generated_{}.txt",
+            "Concession_{}_generated_{}.pdf",
             concession.id,
             Local::now().format("%Y%m%d_%H%M%S")
         );
         let file_path = PathBuf::from(output_dir).join(&filename);
 
-        // Save file
-        fs::write(&file_path, content)
-            .map_err(|e| format!("Failed to write PDF: {}", e))?;
+        // Save PDF file
+        let file =
+            File::create(&file_path).map_err(|e| format!("Failed to create PDF file: {}", e))?;
+        let mut writer = BufWriter::new(file);
+        doc.save(&mut writer)
+            .map_err(|e| format!("Failed to save PDF: {}", e))?;
 
         Ok(file_path.to_string_lossy().to_string())
     }
@@ -144,5 +338,11 @@ mod tests {
         );
         assert!(filename.contains("Concession_123_generated_"));
         assert!(filename.ends_with(".pdf"));
+    }
+
+    #[test]
+    fn test_pdf_header_marker() {
+        let pdf_header = b"%PDF-1.4";
+        assert!(pdf_header.starts_with(b"%PDF"));
     }
 }

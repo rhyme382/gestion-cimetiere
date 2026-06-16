@@ -8,7 +8,7 @@ Date de référence : 2026-06-16
 | --- | --- | --- | --- | --- |
 | orchestrator | Pilotage | En cours | Roadmap MVP, backlog atomique, dépendances, suivi global | SPEC.md |
 | frontend | Interface React/Tauri | ✅ MVP-12/13/15/17 livré | Shell ✅, UI ✅, API ✅, dashboard ✅, listes ✅, fiches ✅, recherche ✅, cartographie ✅, alertes ✅ | MVP-01 ✅, MVP-05A ✅, MVP-10 ✅, MVP-11 ✅, MVP-14 ✅, MVP-16 ✅ |
-| backend | Modèle métier et persistance | ✅ MVP-10/11/16/18 livré | Commandes Tauri CRUD ✅, alertes d'échéance ✅, PDF administratif ✅, vues métier complètes ✅ | MVP-05 ✅, MVP-09 (migrations) ✅ |
+| backend | Modèle métier et persistance | ✅ MVP-10/11/16/18 livré (correction PDF) | Commandes Tauri CRUD ✅, alertes d'échéance ✅, PDF administratif binaire réel ✅, vues métier complètes ✅ | MVP-05 ✅, MVP-09 (migrations) ✅ |
 | mapping | Cartographie cimetière | ✅ Phase 3 terminée | Format de plan MVP ✅, rendu simple ✅, sélection d’emplacement ✅ | MVP-04 ✅, MVP-07 ✅, MVP-14 ✅ |
 | packaging | Distribution poste mairie | **En cours (MVP-08)** | Config Tauri NSIS/AppImage/.deb, scripts build, guide install | MVP-01, MVP-02 |
 | qa | Validation et tests | **MVP-03 livré** | Stratégie de tests ✅, conventions QA ✅ ; livraison de cadrage uniquement, sans implémentation complète des tests | MVP-01 ✅ |

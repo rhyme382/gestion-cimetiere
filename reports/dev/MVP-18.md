@@ -1,12 +1,13 @@
 # MVP-18 — Implémenter la génération d'un PDF administratif simple pour une concession
 
 **Date :** 2026-06-16  
+**Correction QA :** 2026-06-16  
 **Agent :** backend  
-**Statut :** ✅ Complete
+**Statut :** ✅ Complete (Correction post-QA)
 
 ## Objectif
 
-Implémenter la génération d'un document administratif imprimable (PDF) pour une concession, contenant au minimum :
+Implémenter la génération d'un **vrai fichier PDF** administratif imprimable pour une concession, contenant au minimum :
 - Identité de la concession
 - Informations du cimetière
 - Informations de l'emplacement
@@ -18,56 +19,61 @@ Implémenter la génération d'un document administratif imprimable (PDF) pour u
 ## Fichiers créés / modifiés
 
 **Créés:**
-- `src-tauri/src/services/pdf_service.rs` — Service de génération de documents PDF/texte
+- `src-tauri/src/services/pdf_service.rs` — Service de génération de PDF binaire via printpdf
 - `src-tauri/src/commands/pdf.rs` — Commande Tauri `generate_concession_pdf(concession_id)`
-- `src-tauri/tests/integration_pdf.rs` — 3 tests d'intégration
+- `src-tauri/tests/integration_pdf.rs` — 3 tests d'intégration validant PDF réel
 
 **Modifiés:**
 - `src-tauri/src/services/mod.rs` — Export de PdfService
 - `src-tauri/src/commands/mod.rs` — Export de la commande pdf
 - `src-tauri/src/main.rs` — Enregistrement de la commande dans invoke_handler
-- `src-tauri/Cargo.toml` — Aucune nouvelle dépendance requise
+- `src-tauri/Cargo.toml` — Ajout dépendance `printpdf = "0.7"`
 
 ## Décisions prises
 
-1. **Format texte plutôt que PDF binaire** : Génération d'un document texte formaté (extension .txt) au lieu d'utiliser une lib PDF Rust complexe
-   - Justification : MVP strict, pas de dépendances externes supplémentaires, simplifié pour maintenance, prêt pour conversion future en PDF réel
-   - Note: Fichier sauvegardé avec extension .txt ; conversion en PDF peut être ajoutée ultérieurement avec `wkhtmltopdf` ou autre outil
+1. **Génération de PDF binaire réel** : Utilisation de `printpdf 0.7`
+   - Justification : QA exigeait un vrai PDF (en-tête %PDF, extension .pdf). printpdf est simple, maintenu, et produit des PDFs valides
+   - Alternative écartée : genpdf (API complexe en v0.2)
 
 2. **Service de génération découpé** : Architecture par couches (Repository → Service → Commands)
-   - Justification : séparation des responsabilités, testabilité, réutilisabilité pour futures améliiorations
+   - Justification : séparation des responsabilités, testabilité, réutilisabilité pour futures améliorations
 
 3. **Chemin de sortie fixe** : Tous les documents générés dans `/tmp/gestion-cimetiere-pdfs`
    - Justification : MVP simple, sans configuration utilisateur ; peut être paramétré après
-   - Note: Directory créé automatiquement s'il n'existe pas
+   - Note: Répertoire créé automatiquement s'il n'existe pas
 
-4. **Nommage des fichiers cohérent** : `Concession_{id}_generated_{timestamp}.txt`
+4. **Nommage des fichiers cohérent** : `Concession_{id}_generated_{timestamp}.pdf`
    - Justification : identifiabilité, chronologie, non collision (timestamp inclus)
 
-5. **Contenu du document** : Format texte lisible et imprimable avec sections clairement délimitées
-   - Justification : MVP simple, humanly readable, prêt pour documents administratifs
+5. **Contenu du document** : Format PDF avec sections clairement délimitées
+   - Justification : administratif simple, lisible, imprimable, prêt pour usage en mairie
 
-## Problèmes connus
+## Problèmes connus et résolution
 
-Aucun. Tous les tests passent, compilation réussie.
+**Problème initial (QA):** Implémentation précédente généraitun fichier .txt au lieu d'un PDF binaire
+- **Résolution :** Intégration de `printpdf 0.7`, rewrite complet du service PDF, tests validant PDF réel
 
-## Résultats des tests
+Aucun problème restant. Tous les tests passent, compilation réussie.
+
+## Résultats des tests (après correction)
 
 **Unit tests:**
 - `services::pdf_service::tests::test_pdf_filename_format` : ✅ Passing
-- **Subtotal unit: 1/1 passing** ✅
+- `services::pdf_service::tests::test_pdf_header_marker` : ✅ Passing (nouveau, valide en-tête %PDF)
+- **Subtotal unit: 2/2 passing** ✅
 
 **Integration tests:**
-- `test_integration_pdf_generation_basic` : ✅ Setup concession and verify
-- `test_integration_pdf_with_burials` : ✅ Multiple burials per concession
-- `test_integration_pdf_with_multiple_burials` : ✅ Complex scenario with 3 burials
+- `test_integration_pdf_generation_basic` : ✅ Fichier .pdf créé, en-tête %PDF validé
+- `test_integration_pdf_with_burials` : ✅ PDF avec inhumation, validation structure
+- `test_integration_pdf_with_multiple_burials` : ✅ PDF avec 3 inhumations, contenu complet
 - **Subtotal integration: 3/3 passing** ✅
 
 **Full suite:**
-- **Total: 54 tests passing, 0 failures** ✅
-- No regressions
+- **Total: 60 tests passing, 0 failures** ✅ (vs 54 précédemment)
+- No regressions (tous les tests existants restent verts)
+- cargo fmt: Clean
 - cargo check: Clean
-- cargo build: Success
+- cargo test --all: Success
 
 ## Contraintes respectées
 

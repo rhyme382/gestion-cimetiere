@@ -13,6 +13,7 @@ specta = "2.0.0-rc.25"
 tauri-specta = "2.0.0-rc.22"
 tokio = { version = "1", features = ["rt"] }
 chrono = { version = "0.4", features = ["serde"] }
+printpdf = "0.7"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

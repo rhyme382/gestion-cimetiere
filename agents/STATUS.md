@@ -82,13 +82,13 @@ Date de référence : 2026-06-16
 2. **✅ LIVRÉ : `backend` sur MVP-10 et MVP-11** — Commandes Tauri pour cemeteries, plots, concessions, individuals, burials (21 handlers, 27+ unit tests)
 3. ~~Lancer `packaging` sur MVP-08~~ **🚀 EN COURS**
 4. ~~Lancer `qa` sur MVP-03~~ **✅ MVP-03 livré** → stratégie QA en place, prêt pour Phase 1 (MVP-24, MVP-25, MVP-26, MVP-27).
-5. **🚀 PROCHAIN : Lancer `frontend` sur MVP-15** (liaison cartographie, concession et défunt côté interface) — après validation du nettoyage frontend et des builds, MVP-12/13/14 ✅.
+5. **🚀 PROCHAIN : Lancer `backend` sur MVP-16** (alertes d’échéance MVP) — MVP-11 ✅, dépendance d’entrée validée.
 6. ~~Lancer `mapping` sur MVP-14~~ **✅ MVP-14 TERMINÉ** → Rendu + sélection ✅, intégration avec API Tauri réelle (MVP-10/11 ✅) peut démarrer.
 
 ## Indicateur de readiness
 
-- Projet prêt pour lancer `backend` : oui.
-- Projet prêt pour lancer `frontend` : **MVP-02 + MVP-06 TERMINÉ ✅**, prêt pour MVP-12 (vues métier).
+- Projet prêt pour lancer `backend` : **oui, prêt pour MVP-16** (alertes d’échéance), MVP-11 ✅.
+- Projet prêt pour lancer `frontend` : **MVP-15 TERMINÉ ✅** ; prochain lot frontend pertinent = MVP-17 après livraison de MVP-16.
 - Projet prêt pour lancer `mapping` : **✅ MVP-14 TERMINÉ**, composant rendu SVG + sélection implémentés avec 25 tests passants ; intégration réelle dépend de MVP-10/11.
 - Projet prêt pour lancer `packaging` : oui, après sortie de MVP-01 ✅ puis MVP-02.
 - Projet prêt pour lancer `qa` Phase 1 (MVP-24, MVP-25, MVP-26) : oui, MVP-03 stratégie livrée sans exécution complète de tests, backend MVP-04+ en cours.

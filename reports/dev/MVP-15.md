@@ -163,17 +163,19 @@ $ npm run build
 
 ## Prochaines étapes
 
-1. **MVP-16+** — Alertes :
-   - Intégrer notifications d'échéance dans l'interface
-   - Ajouter centre d'alertes
+1. **MVP-16** — Backend alertes :
+   - Implémenter les alertes d'échéance MVP côté backend
+   - Exposer les données nécessaires au futur centre d'alertes
 
-2. **MVP-17+** — Amélioration cartographique :
+2. **MVP-17** — Frontend alertes :
+   - Intégrer le centre d'alertes minimal dans l'interface
+   - Consommer les alertes produites par MVP-16
+
+3. **Post-MVP** — Améliorations cartographiques et intégrations avancées :
    - Ajouter zoom/pan
    - Ajouter filtres visuels par statut
    - Ajouter recherche sur le plan
    - Ajouter animation de sélection
-
-3. **Post-MVP** — Intégrations avancées :
    - Import SIG (Leaflet) pour géométries personnalisées
    - QR codes sur les emplacements
    - Édition de cartographie
@@ -200,4 +202,4 @@ $ npm run build
 
 **Blocages résolus :** Séparation entre UI métier et cartographie clairement établie, navigation intuitive mise en place.
 
-**Prochains jalons :** MVP-16 (alertes), MVP-17+ (améliorations cartographiques optionnelles).
+**Prochains jalons :** MVP-16 (backend alertes), MVP-17 (frontend centre d’alertes minimal), puis améliorations cartographiques hors séquence MVP immédiate.

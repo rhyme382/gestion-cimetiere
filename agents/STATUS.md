@@ -8,7 +8,7 @@ Date de référence : 2026-06-16
 | --- | --- | --- | --- | --- |
 | orchestrator | Pilotage | En cours | Roadmap MVP, backlog atomique, dépendances, suivi global | SPEC.md |
 | frontend | Interface React/Tauri | ✅ MVP-12/13/15/17 livré | Shell ✅, UI ✅, API ✅, dashboard ✅, listes ✅, fiches ✅, recherche ✅, cartographie ✅, alertes ✅ | MVP-01 ✅, MVP-05A ✅, MVP-10 ✅, MVP-11 ✅, MVP-14 ✅, MVP-16 ✅ |
-| backend | Modèle métier et persistance | ✅ MVP-10/11/16 livré | Commandes Tauri CRUD ✅, alertes d'échéance ✅, vues métier complètes ✅ | MVP-05 ✅, MVP-09 (migrations) ✅ |
+| backend | Modèle métier et persistance | ✅ MVP-10/11/16/18 livré | Commandes Tauri CRUD ✅, alertes d'échéance ✅, PDF administratif ✅, vues métier complètes ✅ | MVP-05 ✅, MVP-09 (migrations) ✅ |
 | mapping | Cartographie cimetière | ✅ Phase 3 terminée | Format de plan MVP ✅, rendu simple ✅, sélection d’emplacement ✅ | MVP-04 ✅, MVP-07 ✅, MVP-14 ✅ |
 | packaging | Distribution poste mairie | **En cours (MVP-08)** | Config Tauri NSIS/AppImage/.deb, scripts build, guide install | MVP-01, MVP-02 |
 | qa | Validation et tests | **MVP-03 livré** | Stratégie de tests ✅, conventions QA ✅ ; livraison de cadrage uniquement, sans implémentation complète des tests | MVP-01 ✅ |
@@ -34,7 +34,7 @@ Date de référence : 2026-06-16
 | Phase 1 — Noyau métier MVP | ✅ Terminé | 100% (repositories ✅, commandes Tauri ✅, alertes ✅) |
 | Phase 2 — Interface métier MVP | ✅ Terminée | 100% (shell + design system + écrans métier) |
 | Phase 3 — Cartographie MVP | ✅ Terminé | 100% (MVP-07 ✅, MVP-14 ✅) |
-| Phase 4 — Documents, alertes, sauvegarde | Dépend de Phase 2 | 0% |
+| Phase 4 — Documents, alertes, sauvegarde | ✅ Partiellement avancé | 66% (alertes ✅, PDF ✅) |
 | Phase 5 — Packaging et validation | Dépend de Phase 4 | 0% |
 
 ## Checklist de lancement
@@ -64,7 +64,8 @@ Date de référence : 2026-06-16
 - [x] Exécution MVP-14 — ✅ Rendu cartographique SVG + sélection
 - [x] Exécution MVP-15 — ✅ Intégration cartographie ↔ fiches métier
 - [x] Exécution MVP-16 — ✅ Alertes d’échéance backend
-- [x] Exécution MVP-17 — ✅ Centre d'alertes (widget + tableau + acquittement)
+- [x] Exécution MVP-17 — ✅ Centre d’alertes (widget + tableau + acquittement)
+- [x] Exécution MVP-18 — ✅ Génération PDF administratif simple
 
 ## Blocages connus
 
@@ -86,13 +87,14 @@ Date de référence : 2026-06-16
 4. ~~Lancer `qa` sur MVP-03~~ **✅ MVP-03 livré** → stratégie QA en place, prêt pour Phase 1 (MVP-24, MVP-25, MVP-26, MVP-27).
 5. **✅ LIVRÉ : `backend` sur MVP-16** — Alertes d’échéance MVP (3 tests service, 6 tests repository, 4 tests integration)
 6. **✅ LIVRÉ : `frontend` sur MVP-17** — Centre d’alertes minimal intégré (widget dashboard, tableau, acquittement)
-7. **🚀 PROCHAIN : Lancer `backend` sur MVP-18** — Génération PDF administratif simple, dépendance MVP-11 ✅
-8. ~~Lancer `mapping` sur MVP-14~~ **✅ MVP-14 TERMINÉ** → Rendu + sélection ✅, intégration avec API Tauri réelle (MVP-10/11 ✅) peut démarrer.
+7. **✅ LIVRÉ : `backend` sur MVP-18** — Génération PDF administratif simple (service, command, 3 integration tests, 54 total tests passing)
+8. **🚀 PROCHAIN : Lancer `frontend` sur MVP-19** — Intégration bouton génération PDF dans écrans concession, affichage chemin fichier, lien téléchargement/ouverture
+9. ~~Lancer `mapping` sur MVP-14~~ **✅ MVP-14 TERMINÉ** → Rendu + sélection ✅, intégration avec API Tauri réelle (MVP-10/11 ✅) peut démarrer.
 
 ## Indicateur de readiness
 
-- Projet prêt pour lancer `backend` : **oui, prêt pour MVP-18** (génération PDF administratif simple), MVP-11 ✅.
-- Projet prêt pour lancer `frontend` : **MVP-17 TERMINÉ ✅** ; prochain lot frontend pertinent = MVP-19 après livraison de MVP-18.
+- Projet prêt pour lancer `backend` : **MVP-18 ✅ LIVRÉ** (génération PDF administratif simple) ; prochain = MVP-20+ selon roadmap.
+- Projet prêt pour lancer `frontend` : **MVP-17 TERMINÉ ✅** ; prochain lot frontend pertinent = **MVP-19 (intégration PDF)** après livraison de MVP-18 ✅.
 - Projet prêt pour lancer `mapping` : **✅ MVP-14 TERMINÉ**, composant rendu SVG + sélection implémentés avec 25 tests passants ; intégration réelle dépend de MVP-10/11.
 - Projet prêt pour lancer `packaging` : oui, après sortie de MVP-01 ✅ puis MVP-02.
 - Projet prêt pour lancer `qa` Phase 1 (MVP-24, MVP-25, MVP-26) : oui, MVP-03 stratégie livrée sans exécution complète de tests, backend MVP-04+ en cours.

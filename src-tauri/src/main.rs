@@ -53,6 +53,7 @@ fn main() {
             commands::get_alert_summary,
             commands::refresh_alerts,
             commands::acknowledge_alert,
+            commands::generate_concession_pdf,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

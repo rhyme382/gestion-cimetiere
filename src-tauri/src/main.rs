@@ -27,6 +27,7 @@ fn main() {
 
     tauri::Builder::default()
         .manage(db_conn)
+        .manage(db_path.to_string())
         .invoke_handler(tauri::generate_handler![
             commands::list_cemeteries,
             commands::get_cemetery,
@@ -54,6 +55,9 @@ fn main() {
             commands::refresh_alerts,
             commands::acknowledge_alert,
             commands::generate_concession_pdf,
+            commands::create_backup,
+            commands::list_backups,
+            commands::restore_backup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

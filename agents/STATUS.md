@@ -8,7 +8,7 @@ Date de référence : 2026-06-16
 | --- | --- | --- | --- | --- |
 | orchestrator | Pilotage | En cours | Roadmap MVP, backlog atomique, dépendances, suivi global | SPEC.md |
 | frontend | Interface React/Tauri | ✅ MVP-12/13/15/17/19 livré | Shell ✅, UI ✅, API ✅, dashboard ✅, listes ✅, fiches ✅, recherche ✅, cartographie ✅, alertes ✅, PDF export ✅ | MVP-01 ✅, MVP-05A ✅, MVP-10 ✅, MVP-11 ✅, MVP-14 ✅, MVP-16 ✅, MVP-18 ✅ |
-| backend | Modèle métier et persistance | ✅ MVP-10/11/16/18 livré (correction PDF) | Commandes Tauri CRUD ✅, alertes d'échéance ✅, PDF administratif binaire réel ✅, vues métier complètes ✅ | MVP-05 ✅, MVP-09 (migrations) ✅ |
+| backend | Modèle métier et persistance | ✅ MVP-10/11/16/18/20 livré | Commandes Tauri CRUD ✅, alertes d'échéance ✅, PDF administratif ✅, sauvegarde/restauration ✅, vues métier complètes ✅ | MVP-05 ✅, MVP-09 (migrations) ✅ |
 | mapping | Cartographie cimetière | ✅ Phase 3 terminée | Format de plan MVP ✅, rendu simple ✅, sélection d’emplacement ✅ | MVP-04 ✅, MVP-07 ✅, MVP-14 ✅ |
 | packaging | Distribution poste mairie | **En cours (MVP-08)** | Config Tauri NSIS/AppImage/.deb, scripts build, guide install | MVP-01, MVP-02 |
 | qa | Validation et tests | **MVP-03 livré** | Stratégie de tests ✅, conventions QA ✅ ; livraison de cadrage uniquement, sans implémentation complète des tests | MVP-01 ✅ |
@@ -34,7 +34,7 @@ Date de référence : 2026-06-16
 | Phase 1 — Noyau métier MVP | ✅ Terminé | 100% (repositories ✅, commandes Tauri ✅, alertes ✅) |
 | Phase 2 — Interface métier MVP | ✅ Terminée | 100% (shell + design system + écrans métier) |
 | Phase 3 — Cartographie MVP | ✅ Terminé | 100% (MVP-07 ✅, MVP-14 ✅) |
-| Phase 4 — Documents, alertes, sauvegarde | ✅ Partiellement avancé | 66% (alertes ✅, PDF ✅) |
+| Phase 4 — Documents, alertes, sauvegarde | ✅ Terminé | 100% (alertes ✅, PDF ✅, sauvegarde ✅) |
 | Phase 5 — Packaging et validation | Dépend de Phase 4 | 0% |
 
 ## Checklist de lancement
@@ -45,7 +45,7 @@ Date de référence : 2026-06-16
 - [x] SPEC.md complète et validée
 - [x] ROADMAP.md avec backlog priorisé
 - [x] `agents/STATUS.md` défini comme suivi officiel
-- [x] Rapports MVP-00, MVP-01, MVP-02, MVP-03, MVP-04, MVP-05, MVP-05A, MVP-06, MVP-07, MVP-10, MVP-11, MVP-12, MVP-13, MVP-14, MVP-15, MVP-16, MVP-17, MVP-18, MVP-19
+- [x] Rapports MVP-00, MVP-01, MVP-02, MVP-03, MVP-04, MVP-05, MVP-05A, MVP-06, MVP-07, MVP-10, MVP-11, MVP-12, MVP-13, MVP-14, MVP-15, MVP-16, MVP-17, MVP-18, MVP-19, MVP-20
 - [x] Exécution MVP-00 — ✅ Socle Rust/Tauri
 - [x] Exécution MVP-01 — ✅ Architecture applicative (modules, layering)
 - [x] Exécution MVP-04 — ✅ Schéma SQLite + migrations compilables
@@ -67,6 +67,7 @@ Date de référence : 2026-06-16
 - [x] Exécution MVP-17 — ✅ Centre d’alertes (widget + tableau + acquittement)
 - [x] Exécution MVP-18 — ✅ Génération PDF administratif simple
 - [x] Exécution MVP-19 — ✅ Intégration interface génération PDF (bouton, loading, success/error states)
+- [x] Exécution MVP-20 — ✅ Sauvegarde/restauration locale (service, commands, 8 integration tests)
 
 ## Blocages connus
 
@@ -90,13 +91,14 @@ Date de référence : 2026-06-16
 6. **✅ LIVRÉ : `frontend` sur MVP-17** — Centre d’alertes minimal intégré (widget dashboard, tableau, acquittement)
 7. **✅ LIVRÉ : `backend` sur MVP-18** — Génération PDF administratif simple (service, command, 3 integration tests, 54 total tests passing)
 8. **✅ LIVRÉ : `frontend` sur MVP-19** — Intégration bouton génération PDF dans écrans concession, hook usePdfGeneration, affichage chemin fichier et états d'erreur
-9. **🚀 PROCHAIN : Lancer `backend` sur MVP-20** — Sauvegarde/restauration locale, dépendance `MVP-09` ✅
-10. ~~Lancer `mapping` sur MVP-14~~ **✅ MVP-14 TERMINÉ** → Rendu + sélection ✅, intégration avec API Tauri réelle (MVP-10/11 ✅) peut démarrer.
+9. **✅ LIVRÉ : `backend` sur MVP-20** — Sauvegarde/restauration locale (service, commands, 8 integration tests, 68 total tests passing)
+10. **🚀 PROCHAIN : Lancer `packaging` sur MVP-21** — Packaging Windows NSIS, dépendance MVP-02 ✅, MVP-20 ✅
+11. ~~Lancer `mapping` sur MVP-14~~ **✅ MVP-14 TERMINÉ** → Rendu + sélection ✅, intégration avec API Tauri réelle (MVP-10/11 ✅) peut démarrer.
 
 ## Indicateur de readiness
 
-- Projet prêt pour lancer `backend` : **oui, prêt pour MVP-20** (sauvegarde/restauration locale), `MVP-09` ✅.
-- Projet prêt pour lancer `frontend` : **MVP-19 TERMINÉ ✅** ; aucun lot frontend MVP immédiat avant les dépendances ultérieures de roadmap.
+- Projet prêt pour lancer `backend` : **MVP-20 ✅ LIVRÉ** (sauvegarde/restauration locale) ; prochain = MVP-24+ (QA massive tests).
+- Projet prêt pour lancer `frontend` : **MVP-19 TERMINÉ ✅** ; prochain lot frontend dépend de nouvelles fonctionnalités roadmap.
 - Projet prêt pour lancer `mapping` : **✅ MVP-14 TERMINÉ**, composant rendu SVG + sélection implémentés avec 25 tests passants ; intégration réelle dépend de MVP-10/11.
-- Projet prêt pour lancer `packaging` : oui, après sortie de MVP-01 ✅ puis MVP-02.
-- Projet prêt pour lancer `qa` Phase 1 (MVP-24, MVP-25, MVP-26) : oui, MVP-03 stratégie livrée sans exécution complète de tests, backend MVP-04+ en cours.
+- Projet prêt pour lancer `packaging` : **✅ MVP-21 peut démarrer**, dépendances MVP-02 ✅, MVP-20 ✅ en place.
+- Projet prêt pour lancer `qa` Phase 1 (MVP-24, MVP-25, MVP-26) : **✅ Oui**, MVP-03 stratégie livrée, backend MVP-04+ ✅, MVP-11 ✅, MVP-16 ✅, MVP-20 ✅ prêts.

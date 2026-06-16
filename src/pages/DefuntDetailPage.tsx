@@ -127,6 +127,13 @@ export default function DefuntDetailPage() {
                 <Button className="w-full" variant="outline">
                   Imprimer
                 </Button>
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  onClick={() => navigate("/emplacements")}
+                >
+                  Localiser sur la carte
+                </Button>
                 <Button className="w-full" variant="destructive">
                   Supprimer
                 </Button>

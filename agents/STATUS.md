@@ -7,7 +7,7 @@ Date de référence : 2026-06-16
 | Agent | Domaine | Statut | Livrable attendu | Dépendances |
 | --- | --- | --- | --- | --- |
 | orchestrator | Pilotage | En cours | Roadmap MVP, backlog atomique, dépendances, suivi global | SPEC.md |
-| frontend | Interface React/Tauri | ✅ MVP-12/13 livré | Shell ✅, UI ✅, API ✅, dashboard ✅, listes ✅, fiches ✅, recherche ✅ | MVP-01 ✅, MVP-05A ✅, MVP-10 ✅, MVP-11 ✅ |
+| frontend | Interface React/Tauri | ✅ MVP-12/13/15 livré | Shell ✅, UI ✅, API ✅, dashboard ✅, listes ✅, fiches ✅, recherche ✅, cartographie ✅ | MVP-01 ✅, MVP-05A ✅, MVP-10 ✅, MVP-11 ✅, MVP-14 ✅ |
 | backend | Modèle métier et persistance | ✅ MVP-10/11 livré | Commandes Tauri CRUD ✅, vues métier en attente (MVP-12+) | MVP-05 ✅, MVP-09 (migrations) ✅ |
 | mapping | Cartographie cimetière | ✅ Phase 3 terminée | Format de plan MVP ✅, rendu simple ✅, sélection d’emplacement ✅ | MVP-04 ✅, MVP-07 ✅, MVP-14 ✅ |
 | packaging | Distribution poste mairie | **En cours (MVP-08)** | Config Tauri NSIS/AppImage/.deb, scripts build, guide install | MVP-01, MVP-02 |
@@ -45,7 +45,7 @@ Date de référence : 2026-06-16
 - [x] SPEC.md complète et validée
 - [x] ROADMAP.md avec backlog priorisé
 - [x] `agents/STATUS.md` défini comme suivi officiel
-- [x] Rapports MVP-00, MVP-01, MVP-02, MVP-03, MVP-04, MVP-05, MVP-05A, MVP-06, MVP-07, MVP-10, MVP-11, MVP-12, MVP-13, MVP-14
+- [x] Rapports MVP-00, MVP-01, MVP-02, MVP-03, MVP-04, MVP-05, MVP-05A, MVP-06, MVP-07, MVP-10, MVP-11, MVP-12, MVP-13, MVP-14, MVP-15
 - [x] Exécution MVP-00 — ✅ Socle Rust/Tauri
 - [x] Exécution MVP-01 — ✅ Architecture applicative (modules, layering)
 - [x] Exécution MVP-04 — ✅ Schéma SQLite + migrations compilables
@@ -62,6 +62,7 @@ Date de référence : 2026-06-16
 - [x] Exécution MVP-12 — ✅ Dashboard, liste concessions, fiche concession
 - [x] Exécution MVP-13 — ✅ Liste défunts, fiche défunt, recherche globale
 - [x] Exécution MVP-14 — ✅ Rendu cartographique SVG + sélection
+- [x] Exécution MVP-15 — ✅ Intégration cartographie ↔ fiches métier
 
 ## Blocages connus
 

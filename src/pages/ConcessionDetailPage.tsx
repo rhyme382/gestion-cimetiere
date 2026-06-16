@@ -1,8 +1,9 @@
 import { useParams, useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, Button, Badge, DataLoader, ErrorMessage } from "@/components/ui";
-import { useConcession } from "@/hooks";
+import { useConcession, useCemetery, usePlot } from "@/hooks";
 import { ArrowLeft } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { PlotViewer } from "@/components/map/PlotViewer";
 
 export default function ConcessionDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -10,6 +11,8 @@ export default function ConcessionDetailPage() {
   const concessionId = id ? Number(id) : null;
 
   const { data: concession, loading, error, refetch } = useConcession(concessionId);
+  const { data: cemetery } = useCemetery(concession?.cemetery_id ?? null);
+  const { data: plot } = usePlot(concession?.plot_id ?? null);
 
   if (!concessionId) {
     return (
@@ -54,6 +57,13 @@ export default function ConcessionDetailPage() {
       >
         {concession && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Localisation */}
+            {concession.plot_id && (
+              <div className="lg:col-span-3">
+                <PlotViewer plot={plot} cemeteryName={cemetery?.name} size="sm" />
+              </div>
+            )}
+
             {/* Main Info */}
             <Card className="lg:col-span-2">
               <CardHeader>
@@ -138,6 +148,15 @@ export default function ConcessionDetailPage() {
                 <Button className="w-full" variant="outline">
                   Télécharger
                 </Button>
+                {concession.plot_id && (
+                  <Button
+                    className="w-full"
+                    variant="outline"
+                    onClick={() => navigate("/emplacements")}
+                  >
+                    Voir sur la carte
+                  </Button>
+                )}
                 <Button className="w-full" variant="destructive">
                   Supprimer
                 </Button>

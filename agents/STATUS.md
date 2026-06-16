@@ -90,12 +90,13 @@ Date de référence : 2026-06-16
 6. **✅ LIVRÉ : `frontend` sur MVP-17** — Centre d’alertes minimal intégré (widget dashboard, tableau, acquittement)
 7. **✅ LIVRÉ : `backend` sur MVP-18** — Génération PDF administratif simple (service, command, 3 integration tests, 54 total tests passing)
 8. **✅ LIVRÉ : `frontend` sur MVP-19** — Intégration bouton génération PDF dans écrans concession, hook usePdfGeneration, affichage chemin fichier et états d'erreur
-9. ~~Lancer `mapping` sur MVP-14~~ **✅ MVP-14 TERMINÉ** → Rendu + sélection ✅, intégration avec API Tauri réelle (MVP-10/11 ✅) peut démarrer.
+9. **🚀 PROCHAIN : Lancer `backend` sur MVP-20** — Sauvegarde/restauration locale, dépendance `MVP-09` ✅
+10. ~~Lancer `mapping` sur MVP-14~~ **✅ MVP-14 TERMINÉ** → Rendu + sélection ✅, intégration avec API Tauri réelle (MVP-10/11 ✅) peut démarrer.
 
 ## Indicateur de readiness
 
-- Projet prêt pour lancer `backend` : **MVP-18 ✅ LIVRÉ** (génération PDF administratif simple) ; prochain = MVP-20+ selon roadmap.
-- Projet prêt pour lancer `frontend` : **MVP-19 TERMINÉ ✅** ; prochain lot frontend pertinent = **Phase 5 (packaging/validation)** ou **MVP-20+ (courriers relance, améliorations PDF)** selon roadmap.
+- Projet prêt pour lancer `backend` : **oui, prêt pour MVP-20** (sauvegarde/restauration locale), `MVP-09` ✅.
+- Projet prêt pour lancer `frontend` : **MVP-19 TERMINÉ ✅** ; aucun lot frontend MVP immédiat avant les dépendances ultérieures de roadmap.
 - Projet prêt pour lancer `mapping` : **✅ MVP-14 TERMINÉ**, composant rendu SVG + sélection implémentés avec 25 tests passants ; intégration réelle dépend de MVP-10/11.
 - Projet prêt pour lancer `packaging` : oui, après sortie de MVP-01 ✅ puis MVP-02.
 - Projet prêt pour lancer `qa` Phase 1 (MVP-24, MVP-25, MVP-26) : oui, MVP-03 stratégie livrée sans exécution complète de tests, backend MVP-04+ en cours.

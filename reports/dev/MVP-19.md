@@ -147,12 +147,11 @@ ConcessionDetailPage
 
 ## Prochaines étapes
 
-1. **MVP-20** (optionnel) : Amélioration PDF
-   - Ajouter ouverture automatique du fichier après génération
-   - Implémenter téléchargement/stockage utilisateur
-   - Ajouter génération de courriers de relance
+1. **MVP-20** — Sauvegarde/restauration locale
+   - Implémenter le lot backend officiel suivant selon `ROADMAP.md`
+   - Préparer les futures intégrations UI dépendantes de la disponibilité de la sauvegarde/restauration
 
-2. **Post-MVP** : Améliorations d'export
+2. **Post-MVP** : Améliorations d'export PDF
    - Historique des PDFs générés par concession
    - Téléchargement en masse de PDFs
    - Formats d'export supplémentaires (Word, Excel)
@@ -183,4 +182,4 @@ ConcessionDetailPage
 
 **Blocages résolus :** Génération PDF accessible directement depuis l'interface utilisateur.
 
-**Prochains jalons :** Post-MVP améliorations d'export (ouverture fichier, téléchargement, historique).
+**Prochains jalons :** MVP-20 (sauvegarde/restauration locale), puis améliorations d'export PDF hors lot immédiat.

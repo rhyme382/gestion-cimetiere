@@ -1,8 +1,13 @@
+use crate::{
+    core::models::Concession, db::repositories::ConcessionRepository, db::DbConnection, dto::*,
+};
 use tauri::State;
-use crate::{db::DbConnection, dto::*, core::models::Concession, db::repositories::ConcessionRepository};
 
 #[tauri::command]
-pub fn list_concessions(state: State<DbConnection>, cemetery_id: Option<i64>) -> Result<Vec<ConcessionDTO>, String> {
+pub fn list_concessions(
+    state: State<DbConnection>,
+    cemetery_id: Option<i64>,
+) -> Result<Vec<ConcessionDTO>, String> {
     let conn = state.lock().map_err(|e| format!("Lock error: {}", e))?;
     ConcessionRepository::list(&conn, cemetery_id).map_err(|e| e.to_string())
 }
@@ -14,7 +19,10 @@ pub fn get_concession(state: State<DbConnection>, id: i64) -> Result<ConcessionD
 }
 
 #[tauri::command]
-pub fn create_concession(state: State<DbConnection>, req: CreateConcessionRequest) -> Result<ConcessionDTO, String> {
+pub fn create_concession(
+    state: State<DbConnection>,
+    req: CreateConcessionRequest,
+) -> Result<ConcessionDTO, String> {
     let conn = state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let mut concession = Concession::new(req.cemetery_id, req.plot_id);
     concession.acquired_at = req.acquired_at;
@@ -23,14 +31,15 @@ pub fn create_concession(state: State<DbConnection>, req: CreateConcessionReques
 }
 
 #[tauri::command]
-pub fn update_concession(state: State<DbConnection>, id: i64, req: UpdateConcessionRequest) -> Result<ConcessionDTO, String> {
+pub fn update_concession(
+    state: State<DbConnection>,
+    id: i64,
+    req: UpdateConcessionRequest,
+) -> Result<ConcessionDTO, String> {
     let conn = state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let existing = ConcessionRepository::get(&conn, id).map_err(|e| e.to_string())?;
 
-    let mut concession = Concession::new(
-        existing.cemetery_id,
-        req.plot_id.or(existing.plot_id),
-    );
+    let mut concession = Concession::new(existing.cemetery_id, req.plot_id.or(existing.plot_id));
     concession.id = id;
     concession.acquired_at = req.acquired_at.or(existing.acquired_at);
     concession.expires_at = req.expires_at.or(existing.expires_at);

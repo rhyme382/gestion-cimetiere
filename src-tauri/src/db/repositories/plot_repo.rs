@@ -1,5 +1,9 @@
+use crate::{
+    core::models::Plot,
+    dto::PlotDTO,
+    errors::{AppError, AppResult},
+};
 use rusqlite::Connection;
-use crate::{core::models::Plot, dto::PlotDTO, errors::{AppError, AppResult}};
 
 pub struct PlotRepository;
 
@@ -101,8 +105,8 @@ impl PlotRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::migrations::run_migrations;
     use crate::core::models::Cemetery;
+    use crate::db::migrations::run_migrations;
     use crate::db::repositories::CemeteryRepository;
 
     fn setup_db() -> Connection {

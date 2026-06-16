@@ -1,6 +1,6 @@
+use crate::errors::AppResult;
 use rusqlite::Connection;
 use std::sync::Mutex;
-use crate::errors::AppResult;
 
 pub type DbConnection = Mutex<Connection>;
 
@@ -27,11 +27,9 @@ mod tests {
     fn test_foreign_keys_enabled() {
         let db = init_db(":memory:").unwrap();
         let conn = db.lock().unwrap();
-        let fk_enabled: bool = conn.query_row(
-            "PRAGMA foreign_keys",
-            [],
-            |row| row.get(0)
-        ).unwrap();
+        let fk_enabled: bool = conn
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .unwrap();
         assert!(fk_enabled);
     }
 }

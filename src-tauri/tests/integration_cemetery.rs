@@ -1,6 +1,6 @@
+use gestion_cimetiere::core::models::Cemetery;
 use gestion_cimetiere::db::migrations::run_migrations;
 use gestion_cimetiere::db::repositories::CemeteryRepository;
-use gestion_cimetiere::core::models::Cemetery;
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {

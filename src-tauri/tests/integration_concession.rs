@@ -1,6 +1,8 @@
+use gestion_cimetiere::core::models::{Cemetery, Concession, Plot};
 use gestion_cimetiere::db::migrations::run_migrations;
-use gestion_cimetiere::db::repositories::{CemeteryRepository, PlotRepository, ConcessionRepository};
-use gestion_cimetiere::core::models::{Cemetery, Plot, Concession};
+use gestion_cimetiere::db::repositories::{
+    CemeteryRepository, ConcessionRepository, PlotRepository,
+};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -21,8 +23,8 @@ fn test_full_concession_workflow() {
         Some("Paris".to_string()),
         Some(1000),
     );
-    let created_cemetery = CemeteryRepository::create(&conn, &cemetery)
-        .expect("Failed to create cemetery");
+    let created_cemetery =
+        CemeteryRepository::create(&conn, &cemetery).expect("Failed to create cemetery");
 
     let plot = Plot::new(
         created_cemetery.id,
@@ -31,13 +33,12 @@ fn test_full_concession_workflow() {
         Some(1),
         10,
     );
-    let created_plot = PlotRepository::create(&conn, &plot)
-        .expect("Failed to create plot");
+    let created_plot = PlotRepository::create(&conn, &plot).expect("Failed to create plot");
 
     // Create a concession
     let concession = Concession::new(created_cemetery.id, Some(created_plot.id));
-    let created_concession = ConcessionRepository::create(&conn, &concession)
-        .expect("Failed to create concession");
+    let created_concession =
+        ConcessionRepository::create(&conn, &concession).expect("Failed to create concession");
 
     assert!(created_concession.id > 0);
     assert_eq!(created_concession.cemetery_id, created_cemetery.id);
@@ -51,8 +52,8 @@ fn test_full_concession_workflow() {
     assert_eq!(list[0].id, created_concession.id);
 
     // Get concession by id
-    let retrieved = ConcessionRepository::get(&conn, created_concession.id)
-        .expect("Failed to get concession");
+    let retrieved =
+        ConcessionRepository::get(&conn, created_concession.id).expect("Failed to get concession");
     assert_eq!(retrieved.id, created_concession.id);
     assert_eq!(retrieved.cemetery_id, created_cemetery.id);
 }
@@ -148,7 +149,6 @@ fn test_concession_update() {
     let retrieved = ConcessionRepository::get(&conn, id).unwrap();
     assert_eq!(retrieved.status, "expired");
 }
-
 
 #[test]
 fn test_concession_with_plot() {

@@ -22,11 +22,13 @@ impl AlertService {
 
         for (concession_id, expires_at) in concessions {
             // Calculate days until expiry
-            let days_until: i32 = conn.query_row(
-                "SELECT CAST((julianday(?) - julianday('now')) AS INTEGER)",
-                rusqlite::params![&expires_at],
-                |row| row.get(0),
-            ).unwrap_or(-1);
+            let days_until: i32 = conn
+                .query_row(
+                    "SELECT CAST((julianday(?) - julianday('now')) AS INTEGER)",
+                    rusqlite::params![&expires_at],
+                    |row| row.get(0),
+                )
+                .unwrap_or(-1);
 
             if days_until < 0 {
                 continue; // Already expired, skip
@@ -120,8 +122,13 @@ mod tests {
         let conn = setup();
         conn.execute(
             "INSERT INTO cemeteries (name, created_at, updated_at) VALUES (?, ?, ?)",
-            rusqlite::params!["Test Cemetery", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],
-        ).unwrap();
+            rusqlite::params![
+                "Test Cemetery",
+                "2026-06-16 10:00:00",
+                "2026-06-16 10:00:00"
+            ],
+        )
+        .unwrap();
         conn.execute(
             "INSERT INTO concessions (cemetery_id, status, created_at, updated_at) VALUES (?, ?, ?, ?)",
             rusqlite::params![1, "active", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],

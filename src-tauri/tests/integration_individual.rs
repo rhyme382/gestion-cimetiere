@@ -1,6 +1,6 @@
+use gestion_cimetiere::core::models::Individual;
 use gestion_cimetiere::db::migrations::run_migrations;
 use gestion_cimetiere::db::repositories::IndividualRepository;
-use gestion_cimetiere::core::models::Individual;
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -23,8 +23,8 @@ fn test_full_individual_workflow() {
         "family_member".to_string(),
     );
 
-    let created = IndividualRepository::create(&conn, &individual)
-        .expect("Failed to create individual");
+    let created =
+        IndividualRepository::create(&conn, &individual).expect("Failed to create individual");
     assert!(created.id > 0);
     assert_eq!(created.name, "Jean Dupont");
     assert_eq!(created.email, Some("jean@example.com".to_string()));
@@ -37,8 +37,7 @@ fn test_full_individual_workflow() {
     assert_eq!(list[0].id, created.id);
 
     // Get individual by id
-    let retrieved = IndividualRepository::get(&conn, created.id)
-        .expect("Failed to get individual");
+    let retrieved = IndividualRepository::get(&conn, created.id).expect("Failed to get individual");
     assert_eq!(retrieved.id, created.id);
     assert_eq!(retrieved.name, created.name);
     assert_eq!(retrieved.email, created.email);
@@ -115,7 +114,6 @@ fn test_individual_update() {
     assert_eq!(retrieved.email, Some("updated@example.com".to_string()));
 }
 
-
 #[test]
 fn test_individual_search() {
     let conn = setup_db();
@@ -132,12 +130,7 @@ fn test_individual_search() {
         Some("06 12 34 56 78".to_string()),
         "owner".to_string(),
     );
-    let individual3 = Individual::new(
-        "Frank Davis".to_string(),
-        None,
-        None,
-        "visitor".to_string(),
-    );
+    let individual3 = Individual::new("Frank Davis".to_string(), None, None, "visitor".to_string());
 
     IndividualRepository::create(&conn, &individual1).unwrap();
     IndividualRepository::create(&conn, &individual2).unwrap();

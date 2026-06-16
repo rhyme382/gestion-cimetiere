@@ -1,9 +1,9 @@
+use gestion_cimetiere::core::models::{Burial, Cemetery, Concession, Individual, Plot};
 use gestion_cimetiere::db::migrations::run_migrations;
 use gestion_cimetiere::db::repositories::{
-    CemeteryRepository, PlotRepository, ConcessionRepository, IndividualRepository,
-    BurialRepository,
+    BurialRepository, CemeteryRepository, ConcessionRepository, IndividualRepository,
+    PlotRepository,
 };
-use gestion_cimetiere::core::models::{Cemetery, Plot, Concession, Individual, Burial};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -24,8 +24,8 @@ fn test_full_burial_workflow() {
         Some("Paris".to_string()),
         Some(1000),
     );
-    let created_cemetery = CemeteryRepository::create(&conn, &cemetery)
-        .expect("Failed to create cemetery");
+    let created_cemetery =
+        CemeteryRepository::create(&conn, &cemetery).expect("Failed to create cemetery");
 
     // Create plot
     let plot = Plot::new(
@@ -35,13 +35,12 @@ fn test_full_burial_workflow() {
         Some(1),
         10,
     );
-    let created_plot = PlotRepository::create(&conn, &plot)
-        .expect("Failed to create plot");
+    let created_plot = PlotRepository::create(&conn, &plot).expect("Failed to create plot");
 
     // Create concession
     let concession = Concession::new(created_cemetery.id, Some(created_plot.id));
-    let created_concession = ConcessionRepository::create(&conn, &concession)
-        .expect("Failed to create concession");
+    let created_concession =
+        ConcessionRepository::create(&conn, &concession).expect("Failed to create concession");
 
     // Create individual
     let individual = Individual::new(
@@ -50,21 +49,19 @@ fn test_full_burial_workflow() {
         Some("06 12 34 56 78".to_string()),
         "deceased".to_string(),
     );
-    let created_individual = IndividualRepository::create(&conn, &individual)
-        .expect("Failed to create individual");
+    let created_individual =
+        IndividualRepository::create(&conn, &individual).expect("Failed to create individual");
 
     // Create burial
     let burial = Burial::new(created_concession.id, created_individual.id);
-    let created_burial = BurialRepository::create(&conn, &burial)
-        .expect("Failed to create burial");
+    let created_burial = BurialRepository::create(&conn, &burial).expect("Failed to create burial");
 
     assert!(created_burial.id > 0);
     assert_eq!(created_burial.concession_id, created_concession.id);
     assert_eq!(created_burial.individual_id, created_individual.id);
 
     // Get burial by id
-    let retrieved = BurialRepository::get(&conn, created_burial.id)
-        .expect("Failed to get burial");
+    let retrieved = BurialRepository::get(&conn, created_burial.id).expect("Failed to get burial");
     assert_eq!(retrieved.id, created_burial.id);
     assert_eq!(retrieved.concession_id, created_concession.id);
     assert_eq!(retrieved.individual_id, created_individual.id);
@@ -100,18 +97,8 @@ fn test_burial_create_and_list() {
     let concession = Concession::new(created_cemetery.id, Some(created_plot.id));
     let created_concession = ConcessionRepository::create(&conn, &concession).unwrap();
 
-    let individual1 = Individual::new(
-        "Person 1".to_string(),
-        None,
-        None,
-        "deceased".to_string(),
-    );
-    let individual2 = Individual::new(
-        "Person 2".to_string(),
-        None,
-        None,
-        "deceased".to_string(),
-    );
+    let individual1 = Individual::new("Person 1".to_string(), None, None, "deceased".to_string());
+    let individual2 = Individual::new("Person 2".to_string(), None, None, "deceased".to_string());
 
     let created_individual1 = IndividualRepository::create(&conn, &individual1).unwrap();
     let created_individual2 = IndividualRepository::create(&conn, &individual2).unwrap();
@@ -131,7 +118,6 @@ fn test_burial_create_and_list() {
     assert!(list[0].id > 0);
     assert!(list[1].id > 0);
 }
-
 
 #[test]
 fn test_burial_multiple_individuals_same_concession() {
@@ -153,12 +139,7 @@ fn test_burial_multiple_individuals_same_concession() {
     let mut created_individuals = Vec::new();
 
     for name in individuals_names {
-        let individual = Individual::new(
-            name.to_string(),
-            None,
-            None,
-            "deceased".to_string(),
-        );
+        let individual = Individual::new(name.to_string(), None, None, "deceased".to_string());
         let created = IndividualRepository::create(&conn, &individual).unwrap();
         created_individuals.push(created);
     }
@@ -179,11 +160,7 @@ fn test_burial_get_by_id() {
     let conn = setup_db();
 
     // Setup
-    let cemetery = Cemetery::new(
-        "Test Cemetery".to_string(),
-        Some("Nice".to_string()),
-        None,
-    );
+    let cemetery = Cemetery::new("Test Cemetery".to_string(), Some("Nice".to_string()), None);
     let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
     let concession = Concession::new(created_cemetery.id, None);

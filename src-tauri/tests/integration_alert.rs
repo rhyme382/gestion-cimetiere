@@ -23,8 +23,13 @@ fn test_integration_alert_creation_and_retrieval() {
     // Setup: create cemetery and concession
     conn.execute(
         "INSERT INTO cemeteries (name, created_at, updated_at) VALUES (?, ?, ?)",
-        rusqlite::params!["Test Cemetery", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],
-    ).unwrap();
+        rusqlite::params![
+            "Test Cemetery",
+            "2026-06-16 10:00:00",
+            "2026-06-16 10:00:00"
+        ],
+    )
+    .unwrap();
 
     conn.execute(
         "INSERT INTO plots (cemetery_id, capacity, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -44,11 +49,13 @@ fn test_integration_alert_creation_and_retrieval() {
     ).unwrap();
 
     // Verify: Alert was created
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM alerts WHERE concession_id = 1",
-        [],
-        |row| row.get(0),
-    ).unwrap();
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM alerts WHERE concession_id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
 
     assert_eq!(count, 1);
 }
@@ -60,8 +67,13 @@ fn test_integration_alert_types_trigger_correctly() {
     // Setup: create infrastructure
     conn.execute(
         "INSERT INTO cemeteries (name, created_at, updated_at) VALUES (?, ?, ?)",
-        rusqlite::params!["Test Cemetery", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],
-    ).unwrap();
+        rusqlite::params![
+            "Test Cemetery",
+            "2026-06-16 10:00:00",
+            "2026-06-16 10:00:00"
+        ],
+    )
+    .unwrap();
 
     // Create three plots for the three concessions
     for _ in 1..=3 {
@@ -93,11 +105,13 @@ fn test_integration_alert_types_trigger_correctly() {
 
     // Verify: Each alert type is stored
     for alert_type in &alert_types {
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM alerts WHERE alert_type = ?",
-            rusqlite::params![alert_type],
-            |row| row.get(0),
-        ).unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM alerts WHERE alert_type = ?",
+                rusqlite::params![alert_type],
+                |row| row.get(0),
+            )
+            .unwrap();
 
         assert_eq!(count, 1, "Expected to find 1 {} alert", alert_type);
     }
@@ -110,8 +124,13 @@ fn test_integration_alert_acknowledgment() {
     // Setup: create infrastructure and alert
     conn.execute(
         "INSERT INTO cemeteries (name, created_at, updated_at) VALUES (?, ?, ?)",
-        rusqlite::params!["Test Cemetery", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],
-    ).unwrap();
+        rusqlite::params![
+            "Test Cemetery",
+            "2026-06-16 10:00:00",
+            "2026-06-16 10:00:00"
+        ],
+    )
+    .unwrap();
 
     conn.execute(
         "INSERT INTO plots (cemetery_id, capacity, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -130,19 +149,23 @@ fn test_integration_alert_acknowledgment() {
     ).unwrap();
 
     // Test: Acknowledge the alert
-    let affected = conn.execute(
-        "UPDATE alerts SET acknowledged_at = datetime('now') WHERE id = 1",
-        [],
-    ).unwrap();
+    let affected = conn
+        .execute(
+            "UPDATE alerts SET acknowledged_at = datetime('now') WHERE id = 1",
+            [],
+        )
+        .unwrap();
 
     assert_eq!(affected, 1);
 
     // Verify: Alert is no longer in unacknowledged list
-    let unacknowledged: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM alerts WHERE acknowledged_at IS NULL",
-        [],
-        |row| row.get(0),
-    ).unwrap();
+    let unacknowledged: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM alerts WHERE acknowledged_at IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
 
     assert_eq!(unacknowledged, 0);
 }
@@ -154,8 +177,13 @@ fn test_integration_alert_foreign_key_cascade() {
     // Setup: create infrastructure and alert
     conn.execute(
         "INSERT INTO cemeteries (name, created_at, updated_at) VALUES (?, ?, ?)",
-        rusqlite::params!["Test Cemetery", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],
-    ).unwrap();
+        rusqlite::params![
+            "Test Cemetery",
+            "2026-06-16 10:00:00",
+            "2026-06-16 10:00:00"
+        ],
+    )
+    .unwrap();
 
     conn.execute(
         "INSERT INTO plots (cemetery_id, capacity, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
@@ -174,19 +202,16 @@ fn test_integration_alert_foreign_key_cascade() {
     ).unwrap();
 
     // Test: Delete the concession (should cascade delete the alert)
-    let affected = conn.execute(
-        "DELETE FROM concessions WHERE id = 1",
-        [],
-    ).unwrap();
+    let affected = conn
+        .execute("DELETE FROM concessions WHERE id = 1", [])
+        .unwrap();
 
     assert_eq!(affected, 1);
 
     // Verify: Alert was also deleted
-    let alert_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM alerts",
-        [],
-        |row| row.get(0),
-    ).unwrap();
+    let alert_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM alerts", [], |row| row.get(0))
+        .unwrap();
 
     assert_eq!(alert_count, 0);
 }

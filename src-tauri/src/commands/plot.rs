@@ -1,5 +1,5 @@
+use crate::{core::models::Plot, db::repositories::PlotRepository, db::DbConnection, dto::*};
 use tauri::State;
-use crate::{db::DbConnection, dto::*, core::models::Plot, db::repositories::PlotRepository};
 
 #[tauri::command]
 pub fn list_plots(state: State<DbConnection>, cemetery_id: i64) -> Result<Vec<PlotDTO>, String> {
@@ -16,12 +16,22 @@ pub fn get_plot(state: State<DbConnection>, id: i64) -> Result<PlotDTO, String> 
 #[tauri::command]
 pub fn create_plot(state: State<DbConnection>, req: CreatePlotRequest) -> Result<PlotDTO, String> {
     let conn = state.lock().map_err(|e| format!("Lock error: {}", e))?;
-    let plot = Plot::new(req.cemetery_id, req.section, req.row, req.number, req.capacity);
+    let plot = Plot::new(
+        req.cemetery_id,
+        req.section,
+        req.row,
+        req.number,
+        req.capacity,
+    );
     PlotRepository::create(&conn, &plot).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn update_plot(state: State<DbConnection>, id: i64, req: UpdatePlotRequest) -> Result<PlotDTO, String> {
+pub fn update_plot(
+    state: State<DbConnection>,
+    id: i64,
+    req: UpdatePlotRequest,
+) -> Result<PlotDTO, String> {
     let conn = state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let existing = PlotRepository::get(&conn, id).map_err(|e| e.to_string())?;
 

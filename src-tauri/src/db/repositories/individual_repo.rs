@@ -1,5 +1,9 @@
+use crate::{
+    core::models::Individual,
+    dto::IndividualDTO,
+    errors::{AppError, AppResult},
+};
 use rusqlite::Connection;
-use crate::{core::models::Individual, dto::IndividualDTO, errors::{AppError, AppResult}};
 
 pub struct IndividualRepository;
 
@@ -22,7 +26,9 @@ impl IndividualRepository {
             })
         })?;
 
-        individuals.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+        individuals
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)
     }
 
     /// Get an individual by id
@@ -108,10 +114,12 @@ impl IndividualRepository {
                     created_at: row.get(5)?,
                     updated_at: row.get(6)?,
                 })
-            }
+            },
         )?;
 
-        individuals.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+        individuals
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)
     }
 }
 

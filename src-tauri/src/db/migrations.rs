@@ -1,5 +1,5 @@
-use rusqlite::Connection;
 use crate::errors::AppResult;
+use rusqlite::Connection;
 
 const INITIAL_SCHEMA: &str = include_str!("../../migrations/001_initial_schema.sql");
 const ALERTS_TABLE: &str = include_str!("../../migrations/0006_create_alerts_table.sql");

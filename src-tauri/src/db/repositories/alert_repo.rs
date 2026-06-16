@@ -42,7 +42,8 @@ impl AlertRepository {
                     created_at: row.get(5)?,
                     acknowledged_at: row.get(6)?,
                 })
-            }).map_err(AppError::from)?
+            })
+            .map_err(AppError::from)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(AppError::from)?;
 
@@ -69,7 +70,8 @@ impl AlertRepository {
                     created_at: row.get(5)?,
                     acknowledged_at: row.get(6)?,
                 })
-            }).map_err(AppError::from)?
+            })
+            .map_err(AppError::from)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(AppError::from)?;
 
@@ -123,7 +125,8 @@ impl AlertRepository {
                     created_at: row.get(5)?,
                     acknowledged_at: row.get(6)?,
                 })
-            }).map_err(AppError::from)?
+            })
+            .map_err(AppError::from)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(AppError::from)?;
 
@@ -142,11 +145,13 @@ impl AlertRepository {
 
     /// Get aggregated alert summary
     pub fn get_summary(conn: &Connection) -> AppResult<AlertSummaryDTO> {
-        let total_alerts: i32 = conn.query_row(
-            "SELECT COUNT(*) FROM alerts WHERE acknowledged_at IS NULL",
-            [],
-            |row| row.get(0),
-        ).map_err(AppError::from)?;
+        let total_alerts: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM alerts WHERE acknowledged_at IS NULL",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(AppError::from)?;
 
         let critical_count: i32 = conn.query_row(
             "SELECT COUNT(*) FROM alerts WHERE acknowledged_at IS NULL AND alert_type = 'CRITICAL'",
@@ -160,11 +165,13 @@ impl AlertRepository {
             |row| row.get(0),
         ).map_err(AppError::from)?;
 
-        let info_count: i32 = conn.query_row(
-            "SELECT COUNT(*) FROM alerts WHERE acknowledged_at IS NULL AND alert_type = 'INFO'",
-            [],
-            |row| row.get(0),
-        ).map_err(AppError::from)?;
+        let info_count: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM alerts WHERE acknowledged_at IS NULL AND alert_type = 'INFO'",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(AppError::from)?;
 
         Ok(AlertSummaryDTO {
             total_alerts,
@@ -202,13 +209,7 @@ mod tests {
             rusqlite::params![1, 1, "active", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],
         ).unwrap();
 
-        let result = AlertRepository::create(
-            &conn,
-            1,
-            AlertType::Critical,
-            "2026-07-15",
-            29,
-        );
+        let result = AlertRepository::create(&conn, 1, AlertType::Critical, "2026-07-15", 29);
 
         assert!(result.is_ok());
         let alert = result.unwrap();
@@ -239,7 +240,8 @@ mod tests {
             rusqlite::params![1, 1, "active", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],
         ).unwrap();
 
-        let alert = AlertRepository::create(&conn, 1, AlertType::Critical, "2026-07-15", 29).unwrap();
+        let alert =
+            AlertRepository::create(&conn, 1, AlertType::Critical, "2026-07-15", 29).unwrap();
         AlertRepository::acknowledge(&conn, alert.id).unwrap();
 
         let alerts = AlertRepository::list_unacknowledged(&conn).unwrap();
@@ -254,7 +256,8 @@ mod tests {
             rusqlite::params![1, 1, "active", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],
         ).unwrap();
 
-        let alert = AlertRepository::create(&conn, 1, AlertType::Critical, "2026-07-15", 29).unwrap();
+        let alert =
+            AlertRepository::create(&conn, 1, AlertType::Critical, "2026-07-15", 29).unwrap();
         let result = AlertRepository::acknowledge(&conn, alert.id);
 
         assert!(result.is_ok());

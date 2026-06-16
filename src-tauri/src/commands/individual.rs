@@ -1,5 +1,9 @@
+use crate::{
+    core::models::Individual,
+    db::{repositories::IndividualRepository, DbConnection},
+    dto::*,
+};
 use tauri::State;
-use crate::{db::{DbConnection, repositories::IndividualRepository}, core::models::Individual, dto::*};
 
 #[tauri::command]
 pub fn list_individuals(state: State<DbConnection>) -> Result<Vec<IndividualDTO>, String> {
@@ -14,14 +18,21 @@ pub fn get_individual(state: State<DbConnection>, id: i64) -> Result<IndividualD
 }
 
 #[tauri::command]
-pub fn create_individual(state: State<DbConnection>, req: CreateIndividualRequest) -> Result<IndividualDTO, String> {
+pub fn create_individual(
+    state: State<DbConnection>,
+    req: CreateIndividualRequest,
+) -> Result<IndividualDTO, String> {
     let conn = state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let individual = Individual::new(req.name, req.email, req.phone, req.role);
     IndividualRepository::create(&conn, &individual).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn update_individual(state: State<DbConnection>, id: i64, req: UpdateIndividualRequest) -> Result<IndividualDTO, String> {
+pub fn update_individual(
+    state: State<DbConnection>,
+    id: i64,
+    req: UpdateIndividualRequest,
+) -> Result<IndividualDTO, String> {
     let conn = state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let existing = IndividualRepository::get(&conn, id).map_err(|e| e.to_string())?;
     let individual = Individual::new(
@@ -34,7 +45,10 @@ pub fn update_individual(state: State<DbConnection>, id: i64, req: UpdateIndivid
 }
 
 #[tauri::command]
-pub fn search_individuals(state: State<DbConnection>, query: String) -> Result<Vec<IndividualDTO>, String> {
+pub fn search_individuals(
+    state: State<DbConnection>,
+    query: String,
+) -> Result<Vec<IndividualDTO>, String> {
     let conn = state.lock().map_err(|e| format!("Lock error: {}", e))?;
     IndividualRepository::search(&conn, &query).map_err(|e| e.to_string())
 }

@@ -1,5 +1,7 @@
+use crate::{
+    core::models::Cemetery, db::repositories::CemeteryRepository, db::DbConnection, dto::*,
+};
 use tauri::State;
-use crate::{db::DbConnection, dto::*, core::models::Cemetery, db::repositories::CemeteryRepository};
 
 #[tauri::command]
 pub fn list_cemeteries(state: State<DbConnection>) -> Result<Vec<CemeteryDTO>, String> {
@@ -14,14 +16,21 @@ pub fn get_cemetery(state: State<DbConnection>, id: i64) -> Result<CemeteryDTO, 
 }
 
 #[tauri::command]
-pub fn create_cemetery(state: State<DbConnection>, req: CreateCemeteryRequest) -> Result<CemeteryDTO, String> {
+pub fn create_cemetery(
+    state: State<DbConnection>,
+    req: CreateCemeteryRequest,
+) -> Result<CemeteryDTO, String> {
     let conn = state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let cemetery = Cemetery::new(req.name, req.commune, req.capacity);
     CemeteryRepository::create(&conn, &cemetery).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn update_cemetery(state: State<DbConnection>, id: i64, req: UpdateCemeteryRequest) -> Result<CemeteryDTO, String> {
+pub fn update_cemetery(
+    state: State<DbConnection>,
+    id: i64,
+    req: UpdateCemeteryRequest,
+) -> Result<CemeteryDTO, String> {
     let conn = state.lock().map_err(|e| format!("Lock error: {}", e))?;
     let existing = CemeteryRepository::get(&conn, id).map_err(|e| e.to_string())?;
 

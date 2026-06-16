@@ -12,12 +12,7 @@ pub struct Individual {
 }
 
 impl Individual {
-    pub fn new(
-        name: String,
-        email: Option<String>,
-        phone: Option<String>,
-        role: String,
-    ) -> Self {
+    pub fn new(name: String, email: Option<String>, phone: Option<String>, role: String) -> Self {
         let now = chrono::Utc::now().to_rfc3339();
         Self {
             id: 0,

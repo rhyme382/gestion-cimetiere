@@ -1,5 +1,9 @@
+use crate::{
+    core::models::Concession,
+    dto::ConcessionDTO,
+    errors::{AppError, AppResult},
+};
 use rusqlite::Connection;
-use crate::{core::models::Concession, dto::ConcessionDTO, errors::{AppError, AppResult}};
 
 pub struct ConcessionRepository;
 
@@ -24,7 +28,9 @@ impl ConcessionRepository {
                         updated_at: row.get(8)?,
                     })
                 })?;
-                concessions.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+                concessions
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(AppError::from)
             }
             None => {
                 let mut stmt = conn.prepare(
@@ -43,7 +49,9 @@ impl ConcessionRepository {
                         updated_at: row.get(8)?,
                     })
                 })?;
-                concessions.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+                concessions
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(AppError::from)
             }
         }
     }
@@ -122,8 +130,8 @@ impl ConcessionRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::migrations::run_migrations;
     use crate::core::models::Cemetery;
+    use crate::db::migrations::run_migrations;
     use crate::db::repositories::CemeteryRepository;
 
     fn setup_db() -> Connection {
@@ -197,7 +205,9 @@ mod tests {
         // List all concessions for the first cemetery
         let concessions = ConcessionRepository::list(&conn, Some(created_cemetery.id)).unwrap();
         assert_eq!(concessions.len(), 2);
-        assert!(concessions.iter().all(|c| c.cemetery_id == created_cemetery.id));
+        assert!(concessions
+            .iter()
+            .all(|c| c.cemetery_id == created_cemetery.id));
 
         // List all concessions (no filter)
         let all_concessions = ConcessionRepository::list(&conn, None).unwrap();

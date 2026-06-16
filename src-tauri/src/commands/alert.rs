@@ -1,5 +1,5 @@
+use crate::{db::repositories::AlertRepository, db::DbConnection, dto::*, services::AlertService};
 use tauri::State;
-use crate::{db::DbConnection, dto::*, db::repositories::AlertRepository, services::AlertService};
 
 /// List all unacknowledged alerts
 #[tauri::command]

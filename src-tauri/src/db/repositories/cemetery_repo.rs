@@ -1,5 +1,9 @@
+use crate::{
+    core::models::Cemetery,
+    dto::CemeteryDTO,
+    errors::{AppError, AppResult},
+};
 use rusqlite::Connection;
-use crate::{core::models::Cemetery, dto::CemeteryDTO, errors::{AppError, AppResult}};
 
 pub struct CemeteryRepository;
 
@@ -21,7 +25,9 @@ impl CemeteryRepository {
             })
         })?;
 
-        cemeteries.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+        cemeteries
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)
     }
 
     /// Get a cemetery by id
@@ -87,10 +93,7 @@ impl CemeteryRepository {
 
     /// Delete a cemetery by id
     pub fn delete(conn: &Connection, id: i64) -> AppResult<bool> {
-        let rows_affected = conn.execute(
-            "DELETE FROM cemeteries WHERE id = ?",
-            [id],
-        )?;
+        let rows_affected = conn.execute("DELETE FROM cemeteries WHERE id = ?", [id])?;
 
         Ok(rows_affected > 0)
     }
@@ -151,11 +154,7 @@ mod tests {
             Some("Lyon".to_string()),
             Some(200),
         );
-        let cemetery3 = Cemetery::new(
-            "Cimetière 3".to_string(),
-            None,
-            None,
-        );
+        let cemetery3 = Cemetery::new("Cimetière 3".to_string(), None, None);
 
         CemeteryRepository::create(&conn, &cemetery1).unwrap();
         CemeteryRepository::create(&conn, &cemetery2).unwrap();

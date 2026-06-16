@@ -1,6 +1,6 @@
+use gestion_cimetiere::core::models::{Cemetery, Plot};
 use gestion_cimetiere::db::migrations::run_migrations;
 use gestion_cimetiere::db::repositories::{CemeteryRepository, PlotRepository};
-use gestion_cimetiere::core::models::{Cemetery, Plot};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -21,8 +21,8 @@ fn test_full_plot_workflow() {
         Some("Paris".to_string()),
         Some(1000),
     );
-    let created_cemetery = CemeteryRepository::create(&conn, &cemetery)
-        .expect("Failed to create cemetery");
+    let created_cemetery =
+        CemeteryRepository::create(&conn, &cemetery).expect("Failed to create cemetery");
 
     // Create a plot
     let plot = Plot::new(
@@ -144,7 +144,6 @@ fn test_plot_update() {
     assert_eq!(retrieved.section, Some("D".to_string()));
     assert_eq!(retrieved.status, "occupied");
 }
-
 
 #[test]
 fn test_plot_empty_list_for_cemetery() {

@@ -1,5 +1,9 @@
+use crate::{
+    core::models::Burial,
+    dto::BurialDTO,
+    errors::{AppError, AppResult},
+};
 use rusqlite::Connection;
-use crate::{core::models::Burial, dto::BurialDTO, errors::{AppError, AppResult}};
 
 pub struct BurialRepository;
 
@@ -46,7 +50,9 @@ impl BurialRepository {
             })
         })?;
 
-        burials.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+        burials
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)
     }
 
     /// Create a new burial
@@ -70,8 +76,8 @@ impl BurialRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::migrations::run_migrations;
     use crate::core::models::{Cemetery, Concession, Individual};
+    use crate::db::migrations::run_migrations;
     use crate::db::repositories::{CemeteryRepository, ConcessionRepository, IndividualRepository};
 
     fn setup_db() -> Connection {
@@ -145,24 +151,12 @@ mod tests {
         let created_concession2 = ConcessionRepository::create(&conn, &concession2).unwrap();
 
         // Create three individuals
-        let individual1 = Individual::new(
-            "Person 1".to_string(),
-            None,
-            None,
-            "deceased".to_string(),
-        );
-        let individual2 = Individual::new(
-            "Person 2".to_string(),
-            None,
-            None,
-            "deceased".to_string(),
-        );
-        let individual3 = Individual::new(
-            "Person 3".to_string(),
-            None,
-            None,
-            "deceased".to_string(),
-        );
+        let individual1 =
+            Individual::new("Person 1".to_string(), None, None, "deceased".to_string());
+        let individual2 =
+            Individual::new("Person 2".to_string(), None, None, "deceased".to_string());
+        let individual3 =
+            Individual::new("Person 3".to_string(), None, None, "deceased".to_string());
         let created_individual1 = IndividualRepository::create(&conn, &individual1).unwrap();
         let created_individual2 = IndividualRepository::create(&conn, &individual2).unwrap();
         let created_individual3 = IndividualRepository::create(&conn, &individual3).unwrap();
@@ -177,12 +171,16 @@ mod tests {
         BurialRepository::create(&conn, &burial3).unwrap();
 
         // List burials for concession 1
-        let burials_1 = BurialRepository::list_by_concession(&conn, created_concession1.id).unwrap();
+        let burials_1 =
+            BurialRepository::list_by_concession(&conn, created_concession1.id).unwrap();
         assert_eq!(burials_1.len(), 2);
-        assert!(burials_1.iter().all(|b| b.concession_id == created_concession1.id));
+        assert!(burials_1
+            .iter()
+            .all(|b| b.concession_id == created_concession1.id));
 
         // List burials for concession 2
-        let burials_2 = BurialRepository::list_by_concession(&conn, created_concession2.id).unwrap();
+        let burials_2 =
+            BurialRepository::list_by_concession(&conn, created_concession2.id).unwrap();
         assert_eq!(burials_2.len(), 1);
         assert_eq!(burials_2[0].concession_id, created_concession2.id);
     }
@@ -215,12 +213,7 @@ mod tests {
         let conn = setup_db();
 
         // Create an individual
-        let individual = Individual::new(
-            "Person".to_string(),
-            None,
-            None,
-            "deceased".to_string(),
-        );
+        let individual = Individual::new("Person".to_string(), None, None, "deceased".to_string());
         let created_individual = IndividualRepository::create(&conn, &individual).unwrap();
 
         // Try to create a burial with non-existent concession_id

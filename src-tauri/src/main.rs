@@ -46,6 +46,9 @@ fn main() {
             commands::create_individual,
             commands::update_individual,
             commands::search_individuals,
+            commands::create_burial,
+            commands::get_burial,
+            commands::list_burials_by_concession,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

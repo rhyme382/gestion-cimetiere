@@ -65,13 +65,43 @@ Fonctionnalités :
 - `list_backups()` → `Result<Vec<String>, String>` : Liste fichiers disponibles, ordre récent d'abord
 - `restore_backup(filename: String)` → `Result<(), String>` : Restaure depuis backup, crée sauvegarde de sécurité
 
+## Isolation des tests — Implémentation TempDir
+
+**Approche :** Chaque test backup utilise un répertoire temporaire unique fourni par le crate `tempfile`.
+
+**Code pattern :**
+```rust
+#[test]
+fn test_restore_backup() {
+    let temp_dir = TempDir::new().unwrap();
+    let test_db = temp_dir.path().join("test.db");
+    
+    // Tous les fichiers de test créés dans temp_dir, automatiquement supprimés
+    // lors du drop de temp_dir = isolation complète, pas de conflits
+}
+```
+
+**Avantages :**
+- ✅ Chaque test a son propre répertoire isolé
+- ✅ Cleanup automatique du système (temp_dir dropped)
+- ✅ Pas de `cleanup_backups()` global qui supprime les fichiers d'autres tests
+- ✅ Compatible avec l'exécution parallèle
+- ✅ Pas de dépendance sur `--test-threads=1`
+
+**Dépendance :**
+- Crate `tempfile` ajouté à dev-dependencies dans `Cargo.toml`
+- Import : `use tempfile::TempDir;`
+
 ## Problèmes connus
 
-### Test isolation (résolu)
-- Exécution parallèle : les tests peuvent échouer en exécution parallèle car ils partagent le répertoire `backups/` 
-- Solution : exécution avec `--test-threads=1` (fonctionnement correct et validé)
-- Impact MVP : acceptable, tests travaillent en production normalement (chaque DB a son répertoire backups adjacent)
-- Notes : les tests unitaires et d'intégration passent tous avec cette configuration
+### Test isolation (résolu ✅)
+- **Problème initial :** Les tests partageaient le répertoire `backups/` global, causant des conflits en exécution parallèle
+- **Solution appliquée :** Tests utilisant `TempDir` du crate `tempfile` pour chaque test
+  - Chaque test obtient un répertoire temporaire unique et isolé
+  - `cleanup_backups()` supprime uniquement le répertoire temporaire de ce test
+  - Pas de conflit entre tests parallèles
+- **Résultat :** Tous les tests passent en exécution parallèle normale, **sans `--test-threads=1`**
+- **Production :** Chaque instance DB a son répertoire `backups/` adjacent, isolation garantie naturellement
 
 ## Résultats des tests
 
@@ -105,9 +135,9 @@ Fonctionnalités :
 - No regressions
 - cargo fmt: ✅ Clean
 - cargo check: ✅ Clean
-- cargo test (--test-threads=1): ✅ All passing
+- cargo test (exécution parallèle normale): ✅ All passing
 
-**Note technique:** Tests exécutés avec `--test-threads=1` pour éviter les conflits d'isolation. En production, chaque DB a son répertoire `backups/` adjacent, donc l'isolation est garantie.
+**Note technique:** Tests exécutés en mode parallèle normal (sans `--test-threads=1`). Isolation complète garantie via `TempDir` pour chaque test backup. En production, chaque DB a son répertoire `backups/` adjacent.
 
 ## Prochaines étapes
 

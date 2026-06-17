@@ -72,9 +72,14 @@ Date de référence : 2026-06-16
 - [x] Exécution MVP-22 — ✅ Packaging Linux AppImage (configuration Tauri multi-cible, documentation AppImage)
 - [x] Exécution MVP-23 — ✅ Packaging Linux .deb (configuration Tauri triple-cible, documentation Debian/Ubuntu)
 
+## Corrections récentes
+
+- **MVP-20 (2026-06-17)** : ✅ Test isolation corrigée — Implémentation TempDir pour isolation par test au lieu de `--test-threads=1`. Tous les 91 tests passent en mode parallèle normal. MVP-24 peut être relancé.
+
 ## Blocages connus
 
-- Aucun blocage fonctionnel identifié à ce stade.
+- ~~Blocage MVP-24 : test_restore_backup échouait due à isolation insuffisante~~ **✅ RÉSOLU** (TempDir isolation appliquée à MVP-20)
+- Aucun autre blocage fonctionnel identifié à ce stade.
 - Aucun prompt spécialisé manquant identifié.
 - **MAPPING DÉBLOQUÉ** : MVP-07 (format cartographique) stabilisé ; MVP-14 (rendu) peut démarrer après MVP-02 ✅ et contrats Tauri stubs.
 - Le lancement parallèle doit respecter les dépendances d’entrée suivantes :
@@ -103,7 +108,7 @@ Date de référence : 2026-06-16
 
 ## Indicateur de readiness
 
-- Projet prêt pour lancer `backend` : **MVP-20 ✅ LIVRÉ** (sauvegarde/restauration locale) ; prochain = MVP-24+ (QA massive tests).
+- Projet prêt pour lancer `backend` : **MVP-20 ✅ LIVRÉ avec correction isolation** (sauvegarde/restauration locale + TempDir test isolation) ; prochain = **MVP-24 relançable** (QA massive tests noyau métier).
 - Projet prêt pour lancer `frontend` : **MVP-19 TERMINÉ ✅** ; prochain lot frontend dépend de nouvelles fonctionnalités roadmap.
 - Projet prêt pour lancer `mapping` : **✅ MVP-14 TERMINÉ**, composant rendu SVG + sélection implémentés avec 25 tests passants ; intégration réelle dépend de MVP-10/11.
 - Projet prêt pour lancer `packaging` : **✅ MVP-21/22/23 LIVRÉ** (Phase 5 Packaging 100% : NSIS ✅ + AppImage ✅ + .deb ✅) ; prêt pour MVP-26 tests E2E.

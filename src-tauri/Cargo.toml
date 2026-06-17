@@ -18,6 +18,9 @@ printpdf = "0.7"
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[dev-dependencies]
+tempfile = "3"
+
 [lib]
 name = "gestion_cimetiere"
 path = "src/lib.rs"

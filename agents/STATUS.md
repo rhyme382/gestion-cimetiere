@@ -72,14 +72,19 @@ Date de référence : 2026-06-16
 - [x] Exécution MVP-22 — ✅ Packaging Linux AppImage (configuration Tauri multi-cible, documentation AppImage)
 - [x] Exécution MVP-23 — ✅ Packaging Linux .deb (configuration Tauri triple-cible, documentation Debian/Ubuntu)
 
-## Corrections récentes
+## Corrections et blocages récents
 
+### Corrections appliquées
 - **MVP-20 (2026-06-17)** : ✅ Test isolation corrigée — Implémentation TempDir pour isolation par test au lieu de `--test-threads=1`. Tous les 91 tests passent en mode parallèle normal. MVP-24 peut être relancé.
 
-## Blocages connus
-
-- ~~Blocage MVP-24 : test_restore_backup échouait due à isolation insuffisante~~ **✅ RÉSOLU** (TempDir isolation appliquée à MVP-20)
-- Aucun autre blocage fonctionnel identifié à ce stade.
+### Blocages actuels
+- **MVP-26 (2026-06-17)** : ⚠️ **BLOCKED_FOR_TRUE_E2E** — Audit documentaire de faisabilité complet (8/9 scénarios faisables), MAIS :
+  - ❌ Playwright NOT installed (@playwright/test absent)
+  - ❌ Aucun test E2E exécuté (validation non effectuée)
+  - ❌ Scénario 7 (backup UI) incomplet
+  - Infrastructure E2E : 30% (à compléter)
+  
+  **Débloquage requis :** Installation Playwright + implémentation tests + exécution réelle
 - Aucun prompt spécialisé manquant identifié.
 - **MAPPING DÉBLOQUÉ** : MVP-07 (format cartographique) stabilisé ; MVP-14 (rendu) peut démarrer après MVP-02 ✅ et contrats Tauri stubs.
 - Le lancement parallèle doit respecter les dépendances d’entrée suivantes :

@@ -89,23 +89,23 @@ Date de référence : 2026-06-16
   - `mapping` peut démarrer sur MVP-14 dès que MVP-07 ✅ + MVP-02 ✅ en place ;
   - `packaging` peut cadrer sa stratégie après MVP-01 et lancer les builds sur squelette après MVP-02.
 
-## Prochain lancement recommandé
+## Prochaine étape recommandée
 
-1. ~~Lancer `backend` sur MVP-00 puis MVP-01~~ **✅ MVP-00 à MVP-11 TERMINÉ**
-2. **✅ LIVRÉ : `backend` sur MVP-10 et MVP-11** — Commandes Tauri pour cemeteries, plots, concessions, individuals, burials (21 handlers, 27+ unit tests)
-3. ~~Lancer `packaging` sur MVP-08~~ **✅ MVP-08/MVP-21 TERMINÉ**
-4. ~~Lancer `qa` sur MVP-03~~ **✅ MVP-03 livré** → stratégie QA en place, prêt pour Phase 1 (MVP-24, MVP-25, MVP-26, MVP-27).
-5. **✅ LIVRÉ : `backend` sur MVP-16** — Alertes d’échéance MVP (3 tests service, 6 tests repository, 4 tests integration)
-6. **✅ LIVRÉ : `frontend` sur MVP-17** — Centre d’alertes minimal intégré (widget dashboard, tableau, acquittement)
-7. **✅ LIVRÉ : `backend` sur MVP-18** — Génération PDF administratif simple (service, command, 3 integration tests, 54 total tests passing)
-8. **✅ LIVRÉ : `frontend` sur MVP-19** — Intégration bouton génération PDF dans écrans concession, hook usePdfGeneration, affichage chemin fichier et états d'erreur
-9. **✅ LIVRÉ : `backend` sur MVP-20** — Sauvegarde/restauration locale (service, commands, 8 integration tests, 68 total tests passing)
-10. **✅ LIVRÉ : `packaging` sur MVP-21** — Configuration Tauri NSIS, icônes .ico multi-résolution, documentation build Windows
-11. **✅ LIVRÉ : `packaging` sur MVP-22** — Configuration Tauri AppImage, build Linux multi-cible, documentation déploiement AppImage
-12. **✅ LIVRÉ : `packaging` sur MVP-23** — Configuration Tauri triple-cible (NSIS + AppImage + .deb), documentation Debian/Ubuntu, Phase 5 100% ✅
-13. **✅ LIVRÉ : `frontend` sur MVP-26A** — Infrastructure E2E Playwright (playwright.config.ts ✅), SauvegardesPage UI ✅, hook useBackups ✅, navigation ✅
-14. **🚀 PROCHAIN : Lancer `qa` sur MVP-26** — Tests E2E 9 scénarios (Playwright), dépendance MVP-26A ✅
-14. ~~Lancer `mapping` sur MVP-14~~ **✅ MVP-14 TERMINÉ** → Rendu + sélection ✅, intégration avec API Tauri réelle (MVP-10/11 ✅) peut démarrer.
+**🎯 MVP-27 TERMINÉ — PROJECT RELEASE READY 🎯**
+
+All phases complete:
+1. ✅ Phase 0 — Socle (MVP-00 à MVP-08)
+2. ✅ Phase 1 — Noyau métier (MVP-09 à MVP-11)
+3. ✅ Phase 2 — Interface (MVP-12 à MVP-13)
+4. ✅ Phase 3 — Cartographie (MVP-14 à MVP-15)
+5. ✅ Phase 4 — Documents/alertes/sauvegarde (MVP-16 à MVP-20)
+6. ✅ Phase 5 — Packaging (MVP-21 à MVP-23)
+7. ✅ Validation E2E (MVP-26A à MVP-26B)
+8. ✅ Audit final release (MVP-27)
+
+**Verdict :** 🟢 **MVP_RELEASE_READY_FOR_PILOT**
+
+Voir reports/qa/mvp27_final_release_audit.md pour audit complet (10/10 critères passants).
 
 ## Indicateur de readiness
 

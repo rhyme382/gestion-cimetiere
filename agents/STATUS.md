@@ -7,7 +7,7 @@ Date de référence : 2026-06-16
 | Agent | Domaine | Statut | Livrable attendu | Dépendances |
 | --- | --- | --- | --- | --- |
 | orchestrator | Pilotage | En cours | Roadmap MVP, backlog atomique, dépendances, suivi global | SPEC.md |
-| frontend | Interface React/Tauri | ✅ MVP-12/13/15/17/19 livré | Shell ✅, UI ✅, API ✅, dashboard ✅, listes ✅, fiches ✅, recherche ✅, cartographie ✅, alertes ✅, PDF export ✅ | MVP-01 ✅, MVP-05A ✅, MVP-10 ✅, MVP-11 ✅, MVP-14 ✅, MVP-16 ✅, MVP-18 ✅ |
+| frontend | Interface React/Tauri | ✅ MVP-12/13/15/17/19/26A livré | Shell ✅, UI ✅, API ✅, dashboard ✅, listes ✅, fiches ✅, recherche ✅, cartographie ✅, alertes ✅, PDF export ✅, E2E infrastructure ✅ | MVP-01 ✅, MVP-05A ✅, MVP-10 ✅, MVP-11 ✅, MVP-14 ✅, MVP-16 ✅, MVP-18 ✅, MVP-20 ✅ |
 | backend | Modèle métier et persistance | ✅ MVP-10/11/16/18/20 livré | Commandes Tauri CRUD ✅, alertes d'échéance ✅, PDF administratif ✅, sauvegarde/restauration ✅, vues métier complètes ✅ | MVP-05 ✅, MVP-09 (migrations) ✅ |
 | mapping | Cartographie cimetière | ✅ Phase 3 terminée | Format de plan MVP ✅, rendu simple ✅, sélection d’emplacement ✅ | MVP-04 ✅, MVP-07 ✅, MVP-14 ✅ |
 | packaging | Distribution poste mairie | **✅ MVP-21/22/23 LIVRÉ** | Config Tauri NSIS ✅, AppImage ✅, .deb ✅ ; docs packaging multi-plateforme ✅ | MVP-01 ✅, MVP-02 ✅, MVP-20 ✅ |
@@ -45,7 +45,7 @@ Date de référence : 2026-06-16
 - [x] SPEC.md complète et validée
 - [x] ROADMAP.md avec backlog priorisé
 - [x] `agents/STATUS.md` défini comme suivi officiel
-- [x] Rapports MVP-00, MVP-01, MVP-02, MVP-03, MVP-04, MVP-05, MVP-05A, MVP-06, MVP-07, MVP-08, MVP-10, MVP-11, MVP-12, MVP-13, MVP-14, MVP-15, MVP-16, MVP-17, MVP-18, MVP-19, MVP-20, MVP-21, MVP-22, MVP-23
+- [x] Rapports MVP-00, MVP-01, MVP-02, MVP-03, MVP-04, MVP-05, MVP-05A, MVP-06, MVP-07, MVP-08, MVP-10, MVP-11, MVP-12, MVP-13, MVP-14, MVP-15, MVP-16, MVP-17, MVP-18, MVP-19, MVP-20, MVP-21, MVP-22, MVP-23, MVP-26A
 - [x] Exécution MVP-00 — ✅ Socle Rust/Tauri
 - [x] Exécution MVP-01 — ✅ Architecture applicative (modules, layering)
 - [x] Exécution MVP-04 — ✅ Schéma SQLite + migrations compilables
@@ -71,6 +71,7 @@ Date de référence : 2026-06-16
 - [x] Exécution MVP-21 — ✅ Packaging Windows NSIS (configuration Tauri, icônes .ico, documentation build)
 - [x] Exécution MVP-22 — ✅ Packaging Linux AppImage (configuration Tauri multi-cible, documentation AppImage)
 - [x] Exécution MVP-23 — ✅ Packaging Linux .deb (configuration Tauri triple-cible, documentation Debian/Ubuntu)
+- [x] Exécution MVP-26A — ✅ Infrastructure E2E Playwright + SauvegardesPage UI (déverrouille MVP-26)
 
 ## Corrections et blocages récents
 
@@ -78,13 +79,7 @@ Date de référence : 2026-06-16
 - **MVP-20 (2026-06-17)** : ✅ Test isolation corrigée — Implémentation TempDir pour isolation par test au lieu de `--test-threads=1`. Tous les 91 tests passent en mode parallèle normal. MVP-24 peut être relancé.
 
 ### Blocages actuels
-- **MVP-26 (2026-06-17)** : ⚠️ **BLOCKED_FOR_TRUE_E2E** — Audit documentaire de faisabilité complet (8/9 scénarios faisables), MAIS :
-  - ❌ Playwright NOT installed (@playwright/test absent)
-  - ❌ Aucun test E2E exécuté (validation non effectuée)
-  - ❌ Scénario 7 (backup UI) incomplet
-  - Infrastructure E2E : 30% (à compléter)
-  
-  **Débloquage requis :** Installation Playwright + implémentation tests + exécution réelle
+- **MVP-26 (2026-06-17)** : ✅ **DÉVERROUILLÉ par MVP-26A** — Infrastructure E2E (Playwright 1.61.0 ✅) + SauvegardesPage UI ✅ + Navigation ✅ maintenant en place. Prêt pour écrire les 9 tests E2E (MVP-26).
 - Aucun prompt spécialisé manquant identifié.
 - **MAPPING DÉBLOQUÉ** : MVP-07 (format cartographique) stabilisé ; MVP-14 (rendu) peut démarrer après MVP-02 ✅ et contrats Tauri stubs.
 - Le lancement parallèle doit respecter les dépendances d’entrée suivantes :
@@ -108,7 +103,8 @@ Date de référence : 2026-06-16
 10. **✅ LIVRÉ : `packaging` sur MVP-21** — Configuration Tauri NSIS, icônes .ico multi-résolution, documentation build Windows
 11. **✅ LIVRÉ : `packaging` sur MVP-22** — Configuration Tauri AppImage, build Linux multi-cible, documentation déploiement AppImage
 12. **✅ LIVRÉ : `packaging` sur MVP-23** — Configuration Tauri triple-cible (NSIS + AppImage + .deb), documentation Debian/Ubuntu, Phase 5 100% ✅
-13. **🚀 PROCHAIN : Lancer `qa` sur MVP-26** — Tests E2E packaging (Windows NSIS, Linux AppImage, Linux .deb), dépendance MVP-21/22/23 ✅
+13. **✅ LIVRÉ : `frontend` sur MVP-26A** — Infrastructure E2E Playwright (playwright.config.ts ✅), SauvegardesPage UI ✅, hook useBackups ✅, navigation ✅
+14. **🚀 PROCHAIN : Lancer `qa` sur MVP-26** — Tests E2E 9 scénarios (Playwright), dépendance MVP-26A ✅
 14. ~~Lancer `mapping` sur MVP-14~~ **✅ MVP-14 TERMINÉ** → Rendu + sélection ✅, intégration avec API Tauri réelle (MVP-10/11 ✅) peut démarrer.
 
 ## Indicateur de readiness

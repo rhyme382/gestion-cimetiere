@@ -1,6 +1,6 @@
 import { NavLink } from "react-router-dom";
 import {
-  LayoutDashboard, Building2, MapPin, FileText, Users, Bell, Search, Settings,
+  LayoutDashboard, Building2, MapPin, FileText, Users, Bell, Search, HardDrive, Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +15,7 @@ const navItems = [
 ];
 
 const bottomItems = [
+  { to: "/sauvegardes", icon: HardDrive, label: "Sauvegardes" },
   { to: "/parametres", icon: Settings, label: "Paramètres" },
 ];
 

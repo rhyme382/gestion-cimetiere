@@ -11,6 +11,7 @@ const DefuntDetailPage = lazy(() => import("@/pages/DefuntDetailPage"));
 const EmplacementsPage = lazy(() => import("@/pages/EmplacementsPage"));
 const RecherchePage = lazy(() => import("@/pages/RecherchePage"));
 const AlertesPage = lazy(() => import("@/pages/AlertesPage"));
+const SauvegardesPage = lazy(() => import("@/pages/SauvegardesPage"));
 const ParametresPage = lazy(() => import("@/pages/ParametresPage"));
 
 function PageLoader() {
@@ -35,6 +36,7 @@ const router = createBrowserRouter([
       { path: "defunts/:id", element: <Suspense fallback={<PageLoader />}><DefuntDetailPage /></Suspense> },
       { path: "alertes", element: <Suspense fallback={<PageLoader />}><AlertesPage /></Suspense> },
       { path: "recherche", element: <Suspense fallback={<PageLoader />}><RecherchePage /></Suspense> },
+      { path: "sauvegardes", element: <Suspense fallback={<PageLoader />}><SauvegardesPage /></Suspense> },
       { path: "parametres", element: <Suspense fallback={<PageLoader />}><ParametresPage /></Suspense> },
     ],
   },

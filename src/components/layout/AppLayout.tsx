@@ -10,6 +10,7 @@ const PAGE_TITLES: Record<string, { title: string; subtitle?: string }> = {
   "/defunts": { title: "Défunts", subtitle: "Registre des défunts" },
   "/alertes": { title: "Alertes", subtitle: "Alertes et échéances" },
   "/recherche": { title: "Recherche", subtitle: "Recherche globale" },
+  "/sauvegardes": { title: "Sauvegardes", subtitle: "Gestion des sauvegardes et restaurations" },
   "/parametres": { title: "Paramètres", subtitle: "Configuration de l'application" },
 };
 

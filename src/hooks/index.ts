@@ -7,3 +7,4 @@ export { useIndividuals, useIndividual, useSearchIndividuals, createIndividualAs
 export { createBurialAsync } from "./useBurials";
 export { useAlerts, useAlertSummary, refreshAlertsAsync, acknowledgeAlertAsync } from "./useAlerts";
 export { usePdfGeneration } from "./usePdfGeneration";
+export { useBackups, type BackupInfo } from "./useBackups";

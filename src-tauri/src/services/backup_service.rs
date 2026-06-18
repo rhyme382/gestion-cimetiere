@@ -175,15 +175,13 @@ mod tests {
 
     #[test]
     fn test_validate_sqlite_header() {
-        // Create a test file with SQLite header
-        let test_path = PathBuf::from("/tmp/test_sqlite.db");
+        let temp_dir = tempfile::tempdir().unwrap();
+        let test_path = temp_dir.path().join("test_sqlite.db");
+
         let mut header = vec![0; 16];
         header[..16].copy_from_slice(b"SQLite format 3\x00");
         fs::write(&test_path, header).unwrap();
 
         assert!(BackupService::validate_sqlite_file(&test_path).is_ok());
-
-        // Cleanup
-        let _ = fs::remove_file(&test_path);
     }
 }

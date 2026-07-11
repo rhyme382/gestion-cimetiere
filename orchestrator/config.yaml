@@ -1,0 +1,32 @@
+project:
+  name: gestion-cimetiere
+  base_branch: develop/alpha-complete
+  integration_branch: integration/alpha-complete
+  repository_root: .
+  worktrees_root: worktrees
+
+execution:
+  max_parallel_agents: 3
+  max_retries: 2
+  task_timeout_minutes: 90
+  auto_commit: true
+  auto_push: true
+  auto_merge: false
+
+permissions:
+  allow_code_changes: true
+  allow_test_execution: true
+  allow_branch_creation: true
+  allow_push: true
+  allow_merge_to_integration: false
+  allow_release_publish: false
+  allow_branch_delete: false
+  allow_destructive_migrations: false
+
+quality_gates:
+  require_dev_report: true
+  require_qa_report: true
+  require_unit_tests: true
+  require_build: true
+  require_user_journey_test: true
+  require_clean_worktree: true

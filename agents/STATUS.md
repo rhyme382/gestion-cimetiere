@@ -6,7 +6,7 @@ Date de référence : 2026-06-16
 
 | Agent | Domaine | Statut | Livrable attendu | Dépendances |
 | --- | --- | --- | --- | --- |
-| orchestrator | Pilotage | En cours | Roadmap MVP, backlog atomique, dépendances, suivi global | SPEC.md |
+| orchestrator | Pilotage | En cours | Roadmap MVP, backlog atomique, dépendances, suivi global, socle LangGraph/SQLite/CLI livré | SPEC.md |
 | frontend | Interface React/Tauri | ✅ MVP-12/13/15/17/19/26A livré | Shell ✅, UI ✅, API ✅, dashboard ✅, listes ✅, fiches ✅, recherche ✅, cartographie ✅, alertes ✅, PDF export ✅, E2E infrastructure ✅ | MVP-01 ✅, MVP-05A ✅, MVP-10 ✅, MVP-11 ✅, MVP-14 ✅, MVP-16 ✅, MVP-18 ✅, MVP-20 ✅ |
 | backend | Modèle métier et persistance | ✅ MVP-10/11/16/18/20 livré | Commandes Tauri CRUD ✅, alertes d'échéance ✅, PDF administratif ✅, sauvegarde/restauration ✅, vues métier complètes ✅ | MVP-05 ✅, MVP-09 (migrations) ✅ |
 | mapping | Cartographie cimetière | ✅ Phase 3 terminée | Format de plan MVP ✅, rendu simple ✅, sélection d’emplacement ✅ | MVP-04 ✅, MVP-07 ✅, MVP-14 ✅ |
@@ -74,6 +74,9 @@ Date de référence : 2026-06-16
 - [x] Exécution MVP-26A — ✅ Infrastructure E2E Playwright + SauvegardesPage UI (déverrouille MVP-26)
 
 ## Corrections et blocages récents
+
+### Mise à jour orchestrateur
+- **ORCHESTRATOR-FOUNDATION (2026-07-11)** : ✅ Socle technique LangGraph livré sous `orchestrator/` avec état typé, backlog JSON atomique, wrappers Codex/Claude/QA mockables, gestionnaire Git worktrees, CLI et 17 tests unitaires passants. Aucun agent métier lancé.
 
 ### Corrections appliquées
 - **MVP-20 (2026-06-17)** : ✅ Test isolation corrigée — Implémentation TempDir pour isolation par test au lieu de `--test-threads=1`. Tous les 91 tests passent en mode parallèle normal. MVP-24 peut être relancé.

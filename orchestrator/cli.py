@@ -7,14 +7,32 @@ from uuid import uuid4
 
 import yaml
 
+from orchestrator.audit import (
+    AUDIT_STATUSES,
+    archive_existing_outputs,
+    build_audit_prompt,
+    collect_source_inventory,
+    detect_repo_root,
+    detect_unauthorized_changes,
+    ensure_outputs_absent,
+    required_output_paths,
+    resolve_output_root,
+    snapshot_git_status,
+    validate_backlog_file,
+    validate_required_outputs,
+    parse_critical_gap_count,
+    parse_domain_count,
+)
 from orchestrator.graph.build_graph import build_initial_run_state, build_orchestrator_graph, create_sqlite_checkpointer
 from orchestrator.models.task import TaskStatus
+from orchestrator.runners.codex_runner import CodexRunner
 from orchestrator.storage.task_store import TaskStore
 
 
 DEFAULT_BACKLOG_PATH = Path("orchestrator/runtime/backlog.json")
 DEFAULT_DB_PATH = Path("orchestrator/runtime/langgraph.sqlite")
 DEFAULT_CONFIG_PATH = Path("orchestrator/config.yaml")
+DEFAULT_AUDIT_PROMPT_PATH = Path("orchestrator/prompts/product_audit.md")
 
 
 def load_config(path: str | Path = DEFAULT_CONFIG_PATH) -> dict:
@@ -31,7 +49,17 @@ def create_parser() -> argparse.ArgumentParser:
     init_parser.add_argument("--backlog", default=str(DEFAULT_BACKLOG_PATH))
     init_parser.add_argument("--db", default=str(DEFAULT_DB_PATH))
 
-    for name in ("audit", "run", "resume", "status", "cleanup"):
+    audit_parser = subparsers.add_parser("audit")
+    audit_parser.add_argument("--backlog", default=str(DEFAULT_BACKLOG_PATH))
+    audit_parser.add_argument("--db", default=str(DEFAULT_DB_PATH))
+    audit_parser.add_argument("--dry-run", action="store_true")
+    audit_parser.add_argument("--force", action="store_true")
+    audit_parser.add_argument("--timeout", type=int, default=1800)
+    audit_parser.add_argument("--verbose", action="store_true")
+    audit_parser.add_argument("--prompt", default=str(DEFAULT_AUDIT_PROMPT_PATH))
+    audit_parser.add_argument("--output-root")
+
+    for name in ("run", "resume", "status", "cleanup"):
         command_parser = subparsers.add_parser(name)
         command_parser.add_argument("--backlog", default=str(DEFAULT_BACKLOG_PATH))
         command_parser.add_argument("--db", default=str(DEFAULT_DB_PATH))
@@ -53,7 +81,17 @@ def main(argv: list[str] | None = None) -> int:
     if command == "init":
         return command_init(Path(args.backlog), Path(args.db), config)
     if command == "audit":
-        return command_audit(Path(args.backlog), Path(args.db), config)
+        return command_audit(
+            Path(args.backlog),
+            Path(args.db),
+            config,
+            dry_run=args.dry_run,
+            force=args.force,
+            timeout=args.timeout,
+            verbose=args.verbose,
+            prompt_path=Path(args.prompt),
+            output_root=Path(args.output_root).resolve() if args.output_root else None,
+        )
     if command == "run":
         return command_run(Path(args.backlog), Path(args.db), config)
     if command == "resume":
@@ -86,15 +124,127 @@ def command_init(backlog_path: Path, db_path: Path, config: dict) -> int:
     return 0
 
 
-def command_audit(backlog_path: Path, db_path: Path, config: dict) -> int:
-    tasks = TaskStore(backlog_path).load_tasks()
+def command_audit(
+    backlog_path: Path,
+    db_path: Path,
+    config: dict,
+    *,
+    dry_run: bool = False,
+    force: bool = False,
+    timeout: int = 1800,
+    verbose: bool = False,
+    prompt_path: Path = DEFAULT_AUDIT_PROMPT_PATH,
+    output_root: Path | None = None,
+    codex_runner: CodexRunner | None = None,
+) -> int:
+    del config
+    del backlog_path, db_path
+    repo_root = detect_repo_root(Path.cwd())
+    resolved_output_root = resolve_output_root(repo_root, output_root)
+    prompt_file = (repo_root / prompt_path).resolve() if not prompt_path.is_absolute() else prompt_path
+    run_id = str(uuid4())
+    inventory = collect_source_inventory(repo_root)
+    template = prompt_file.read_text(encoding="utf-8")
+    full_prompt = build_audit_prompt(template, inventory, resolved_output_root)
+    required_outputs = required_output_paths(resolved_output_root)
+    log_dir = repo_root / "orchestrator" / "logs" / "audit" / run_id
+    log_dir.mkdir(parents=True, exist_ok=True)
+    (log_dir / "prompt.md").write_text(full_prompt, encoding="utf-8")
+    (log_dir / "sources.json").write_text(
+        json.dumps({"summary": inventory.summary(), "categories": inventory.categories}, ensure_ascii=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    if dry_run:
+        output = {
+            "status": AUDIT_STATUSES["dry_run"],
+            "run_id": run_id,
+            "repo_root": str(repo_root),
+            "prompt_path": str(prompt_file),
+            "log_dir": str(log_dir),
+            "required_outputs": list(required_outputs),
+        }
+        if verbose:
+            output["source_summary"] = inventory.summary()
+            output["sources"] = inventory.categories
+        print(json.dumps(output, ensure_ascii=True))
+        return 0
+
+    try:
+        if force:
+            archive_root = resolved_output_root / "reports" / "product" / "archive"
+            archive_path = archive_existing_outputs(resolved_output_root, archive_root, required_outputs)
+        else:
+            archive_path = None
+            ensure_outputs_absent(required_outputs)
+    except Exception as exc:
+        output = _render_audit_error(exc, run_id=run_id, log_dir=log_dir)
+        print(json.dumps(output, ensure_ascii=True))
+        return 1
+
+    before = snapshot_git_status(repo_root)
+    runner = codex_runner or CodexRunner()
+    result = runner.run(
+        full_prompt,
+        cwd=repo_root,
+        timeout=timeout,
+        log_dir=log_dir,
+    )
+    after = snapshot_git_status(repo_root)
+    unauthorized_changes = detect_unauthorized_changes(before, after)
+    if unauthorized_changes:
+        output = {
+            "status": AUDIT_STATUSES["unauthorized_changes"],
+            "run_id": run_id,
+            "unauthorized_changes": unauthorized_changes,
+            "log_dir": str(log_dir),
+        }
+        print(json.dumps(output, ensure_ascii=True))
+        return 1
+
+    if result.timed_out:
+        output = {
+            "status": AUDIT_STATUSES["timeout"],
+            "run_id": run_id,
+            "returncode": result.returncode,
+            "log_dir": str(log_dir),
+        }
+        print(json.dumps(output, ensure_ascii=True))
+        return 1
+
+    if not result.ok:
+        output = {
+            "status": AUDIT_STATUSES["codex_failed"],
+            "run_id": run_id,
+            "returncode": result.returncode,
+            "log_dir": str(log_dir),
+        }
+        print(json.dumps(output, ensure_ascii=True))
+        return 1
+
+    try:
+        validate_required_outputs(required_outputs)
+        backlog = validate_backlog_file(required_outputs["tasks/backlog.json"])
+    except Exception as exc:
+        output = _render_audit_error(exc, run_id=run_id, log_dir=log_dir)
+        print(json.dumps(output, ensure_ascii=True))
+        return 1
+
     output = {
-        "status": "ok",
-        "backlog_exists": backlog_path.exists(),
-        "db_exists": db_path.exists(),
-        "task_count": len(tasks),
-        "max_parallel_agents": config.get("execution", {}).get("max_parallel_agents"),
+        "status": AUDIT_STATUSES["completed"],
+        "run_id": run_id,
+        "task_count": len(backlog.tasks),
+        "domain_count": parse_domain_count(backlog),
+        "critical_gap_count": parse_critical_gap_count(backlog),
+        "outputs": [str(path) for path in required_outputs.values()],
+        "log_dir": str(log_dir),
     }
+    if archive_path is not None:
+        output["archive_path"] = str(archive_path)
+    if verbose:
+        output["source_summary"] = inventory.summary()
+        output["session_id"] = result.session_id
+        output["duration_seconds"] = result.duration_seconds
     print(json.dumps(output, ensure_ascii=True))
     return 0
 
@@ -155,6 +305,20 @@ def command_cleanup(backlog_path: Path, db_path: Path) -> int:
             removed.append(str(path))
     print(json.dumps({"status": "cleaned", "removed": removed}, ensure_ascii=True))
     return 0
+
+
+def _render_audit_error(exc: Exception, *, run_id: str, log_dir: Path) -> dict:
+    status = getattr(exc, "status", "AUDIT_FAILED_CODEX")
+    output = {
+        "status": status,
+        "run_id": run_id,
+        "log_dir": str(log_dir),
+        "error": str(exc),
+    }
+    details = getattr(exc, "details", None)
+    if details:
+        output.update(details)
+    return output
 
 
 if __name__ == "__main__":

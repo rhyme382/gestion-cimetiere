@@ -45,7 +45,9 @@ def test_codex_runner_parses_json_payload():
     result = codex.run("prompt", cwd="/tmp", expect_json=True)
 
     assert result.json_payload == {"status": "accepted"}
-    assert runner.calls[0][:2] == ["codex", "exec"]
+    assert runner.calls[0][:6] == ["codex", "exec", "--sandbox", "workspace-write", "--cd", "/tmp"]
+    assert result.prompt == "prompt"
+    assert result.duration_seconds >= 0
 
 
 def test_claude_runner_builds_non_interactive_command():
@@ -67,3 +69,14 @@ def test_qa_runner_returns_structured_result():
     assert result.task_id == "T-1"
     assert result.status == "accepted"
     assert result.raw_json["summary"] == "Looks good"
+
+
+def test_codex_runner_writes_logs(tmp_path):
+    runner = FakeRunner(stdout="session_id: abc123", stderr="")
+    codex = CodexRunner(runner=runner)
+
+    result = codex.run("prompt", cwd="/tmp", log_dir=tmp_path)
+
+    assert result.session_id == "abc123"
+    assert (tmp_path / "prompt.md").read_text(encoding="utf-8") == "prompt"
+    assert json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))["session_id"] == "abc123"

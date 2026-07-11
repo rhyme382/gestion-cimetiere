@@ -77,6 +77,7 @@ Date de référence : 2026-06-16
 
 ### Mise à jour orchestrateur
 - **ORCHESTRATOR-FOUNDATION (2026-07-11)** : ✅ Socle technique LangGraph livré sous `orchestrator/` avec état typé, backlog JSON atomique, wrappers Codex/Claude/QA mockables, gestionnaire Git worktrees, CLI et 17 tests unitaires passants. Aucun agent métier lancé.
+- **ORCHESTRATOR-PRODUCT-AUDIT (2026-07-11)** : ✅ Workflow `audit` réel livré avec inventaire de sources, prompt produit, exécution `codex exec` sécurisée, validation Pydantic du backlog, archivage `--force`, logs structurés et 30 tests unitaires passants. Validation finale effectuée en `--dry-run` uniquement.
 
 ### Corrections appliquées
 - **MVP-20 (2026-06-17)** : ✅ Test isolation corrigée — Implémentation TempDir pour isolation par test au lieu de `--test-threads=1`. Tous les 91 tests passent en mode parallèle normal. MVP-24 peut être relancé.

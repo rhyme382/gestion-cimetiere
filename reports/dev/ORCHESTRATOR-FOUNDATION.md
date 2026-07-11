@@ -30,6 +30,7 @@ Construire le socle technique de l'ordonnanceur LangGraph sans lancer d'agents m
 - Limiter le graphe à un flux minimal compilable avec `LangGraph` et un checkpoint SQLite configurable.
 - Stocker le backlog dans un JSON versionné avec écriture atomique via fichier temporaire + `os.replace`.
 - Faire des commandes CLI en JSON pour faciliter l'automatisation inter-agents.
+- Le workflow `audit` est désormais séparé et détaillé dans `reports/dev/ORCHESTRATOR-PRODUCT-AUDIT.md` pour conserver ce rapport centré sur le socle initial.
 
 ## problèmes connus
 
@@ -44,4 +45,4 @@ Construire le socle technique de l'ordonnanceur LangGraph sans lancer d'agents m
 
 ## prochaine étape
 
-Connecter ce socle au backlog réel, formaliser le schéma JSON de contrat inter-agents, puis intégrer la logique de reprise/approbation autour du checkpoint SQLite.
+Étendre l'orchestrateur au dispatch réel d'agents de développement et à la reprise de sessions, tout en gardant le workflow d'audit produit comme porte d'entrée fiable pour régénérer le backlog métier.

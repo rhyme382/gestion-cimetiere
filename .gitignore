@@ -92,3 +92,10 @@ orchestration/state/
 !.vscode/launch.json
 !.vscode/tasks.json
 .archive/
+
+# AI orchestrator runtime
+.venv-orchestrator/
+worktrees/
+orchestrator-state.sqlite
+orchestrator/logs/
+tasks/runtime/

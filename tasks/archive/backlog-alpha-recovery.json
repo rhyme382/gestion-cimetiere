@@ -1,0 +1,507 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-07-11T10:40:00Z",
+  "tasks": [
+    {
+      "id": "ALPHA-001",
+      "domain": "frontend",
+      "title": "Livrer une vraie page de liste des cimetières",
+      "user_story": "En tant qu'agent de mairie, je peux ouvrir la page Cimetières et voir les cimetières enregistrés dans l'application.",
+      "priority": "critical",
+      "status": "todo",
+      "dependencies": [],
+      "recommended_agent": "frontend",
+      "likely_files": [
+        "src/pages/CemeteriesPage.tsx",
+        "src/hooks/useCemeteries.ts",
+        "src/components/ui/data-loader.tsx",
+        "tests/e2e/10-cemeteries-list.spec.ts"
+      ],
+      "acceptance_criteria": [
+        "Depuis l'ecran Cimetières, un agent de mairie voit la liste réelle des cimetières stockés dans l'application.",
+        "Depuis l'ecran Cimetières, un agent de mairie voit un message vide propre quand aucun cimetière n'existe.",
+        "Depuis l'ecran Cimetières, un agent de mairie peut relancer le chargement après une erreur sans terminal."
+      ],
+      "required_unit_tests": [
+        "Test React de rendu de la page Cimetières avec état loading, état vide et données réelles simulées."
+      ],
+      "required_e2e_test": "Ouvrir l'application, aller sur Cimetières et constater la liste réelle ou l'état vide.",
+      "required_ui_evidence": "Capture de la page Cimetières avec au moins un cimetière réel chargé.",
+      "definition_of_done": [
+        "La page n'est plus un placeholder.",
+        "La liste affiche les données du backend.",
+        "Le test unitaire et le test E2E passent."
+      ]
+    },
+    {
+      "id": "ALPHA-002",
+      "domain": "frontend",
+      "title": "Permettre la création d'un cimetière depuis l'interface",
+      "user_story": "En tant qu'agent de mairie, je peux créer un cimetière sans utiliser le terminal.",
+      "priority": "critical",
+      "status": "todo",
+      "dependencies": [
+        "ALPHA-001"
+      ],
+      "recommended_agent": "frontend",
+      "likely_files": [
+        "src/pages/CemeteriesPage.tsx",
+        "src/hooks/useCemeteries.ts",
+        "src/lib/tauri.ts",
+        "tests/e2e/11-create-cemetery.spec.ts"
+      ],
+      "acceptance_criteria": [
+        "Depuis l'ecran Cimetières, un agent de mairie peut ouvrir un formulaire de création.",
+        "Depuis l'ecran Cimetières, un agent de mairie peut saisir au minimum nom, commune et capacité puis enregistrer.",
+        "Après validation, le nouveau cimetière apparaît dans la liste sans terminal."
+      ],
+      "required_unit_tests": [
+        "Test React du formulaire de création avec succès et erreur utilisateur visible."
+      ],
+      "required_e2e_test": "Créer un cimetière depuis l'UI et vérifier sa présence dans la liste.",
+      "required_ui_evidence": "Capture avant et après création d'un cimetière dans l'application.",
+      "definition_of_done": [
+        "Le formulaire de création est accessible en UI.",
+        "Le contrat Tauri utilisé côté frontend fonctionne réellement.",
+        "Le test unitaire et le test E2E passent."
+      ]
+    },
+    {
+      "id": "ALPHA-003",
+      "domain": "frontend",
+      "title": "Permettre la création d'un emplacement depuis l'interface",
+      "user_story": "En tant qu'agent de mairie, je peux ajouter un emplacement à un cimetière depuis l'application.",
+      "priority": "critical",
+      "status": "todo",
+      "dependencies": [
+        "ALPHA-002"
+      ],
+      "recommended_agent": "frontend",
+      "likely_files": [
+        "src/pages/EmplacementsPage.tsx",
+        "src/hooks/usePlots.ts",
+        "src/lib/tauri.ts",
+        "tests/e2e/12-create-plot.spec.ts"
+      ],
+      "acceptance_criteria": [
+        "Depuis l'ecran Emplacements, un agent de mairie peut choisir un cimetière réel.",
+        "Depuis l'ecran Emplacements, un agent de mairie peut créer un emplacement avec secteur, rangée, numéro et capacité.",
+        "Après enregistrement, l'emplacement apparaît dans la liste ou la cartographie réelle du cimetière."
+      ],
+      "required_unit_tests": [
+        "Test React du formulaire emplacement et du rafraîchissement de la vue après création."
+      ],
+      "required_e2e_test": "Créer un emplacement lié à un cimetière existant et le voir apparaître à l'écran.",
+      "required_ui_evidence": "Capture de l'ajout d'un emplacement et de son affichage dans l'interface.",
+      "definition_of_done": [
+        "L'ajout d'emplacement est réalisable sans terminal.",
+        "L'écran Emplacements n'utilise plus uniquement des données mockées.",
+        "Le test unitaire et le test E2E passent."
+      ]
+    },
+    {
+      "id": "ALPHA-004",
+      "domain": "mapping",
+      "title": "Brancher la cartographie sur les données réelles",
+      "user_story": "En tant qu'agent de mairie, je peux consulter le plan réel du cimetière et sélectionner un emplacement enregistré.",
+      "priority": "critical",
+      "status": "todo",
+      "dependencies": [
+        "ALPHA-003"
+      ],
+      "recommended_agent": "mapping",
+      "likely_files": [
+        "src/pages/EmplacementsPage.tsx",
+        "src/components/map/CemeteryMap.tsx",
+        "src/hooks/usePlots.ts",
+        "tests/e2e/13-real-map-selection.spec.ts"
+      ],
+      "acceptance_criteria": [
+        "Depuis l'ecran Emplacements, un agent de mairie voit les emplacements réellement stockés et non une maquette fixe.",
+        "Depuis l'ecran Emplacements, un agent de mairie peut cliquer un emplacement et voir ses informations réelles.",
+        "Depuis l'ecran Emplacements, un agent de mairie peut constater clairement qu'un emplacement inexistant n'est pas affiché."
+      ],
+      "required_unit_tests": [
+        "Test composant de rendu cartographique sur jeu de données réel simulé et sélection d'un plot."
+      ],
+      "required_e2e_test": "Créer un emplacement puis le sélectionner sur la carte réelle.",
+      "required_ui_evidence": "Capture d'une carte réelle reflétant la base, avec un emplacement sélectionné.",
+      "definition_of_done": [
+        "Les mocks ne pilotent plus l'écran principal Emplacements.",
+        "La sélection affiche des données réelles.",
+        "Le test unitaire et le test E2E passent."
+      ]
+    },
+    {
+      "id": "ALPHA-005",
+      "domain": "frontend",
+      "title": "Permettre la création d'une concession depuis l'interface",
+      "user_story": "En tant qu'agent de mairie, je peux enregistrer une concession sans passer par le terminal.",
+      "priority": "critical",
+      "status": "todo",
+      "dependencies": [
+        "ALPHA-002",
+        "ALPHA-003"
+      ],
+      "recommended_agent": "frontend",
+      "likely_files": [
+        "src/pages/ConcessionsPage.tsx",
+        "src/hooks/useConcessions.ts",
+        "src/lib/tauri.ts",
+        "tests/e2e/14-create-concession.spec.ts"
+      ],
+      "acceptance_criteria": [
+        "Depuis l'ecran Concessions, un agent de mairie peut ouvrir un formulaire de création.",
+        "Depuis l'ecran Concessions, un agent de mairie peut choisir un cimetière et un emplacement existants.",
+        "Après validation, la concession apparaît dans la liste puis dans sa fiche sans terminal."
+      ],
+      "required_unit_tests": [
+        "Test React du formulaire concession avec succès et affichage d'erreur utilisateur."
+      ],
+      "required_e2e_test": "Créer une concession depuis l'UI puis ouvrir sa fiche.",
+      "required_ui_evidence": "Capture de la liste des concessions avec la nouvelle concession visible.",
+      "definition_of_done": [
+        "La création est faisable depuis l'application.",
+        "Le flux liste -> création -> fiche fonctionne.",
+        "Le test unitaire et le test E2E passent."
+      ]
+    },
+    {
+      "id": "ALPHA-006",
+      "domain": "frontend",
+      "title": "Permettre la création d'une personne métier depuis l'interface",
+      "user_story": "En tant qu'agent de mairie, je peux créer un concessionnaire, un ayant droit ou un défunt depuis l'application.",
+      "priority": "critical",
+      "status": "todo",
+      "dependencies": [],
+      "recommended_agent": "frontend",
+      "likely_files": [
+        "src/pages/DefuntsPage.tsx",
+        "src/pages/DefuntDetailPage.tsx",
+        "src/hooks/useIndividuals.ts",
+        "tests/e2e/15-create-individual.spec.ts"
+      ],
+      "acceptance_criteria": [
+        "Depuis l'application, un agent de mairie peut créer au moins un défunt et un concessionnaire avec des champs lisibles en UI.",
+        "Depuis l'application, un agent de mairie voit immédiatement la fiche créée.",
+        "Depuis l'application, un agent de mairie peut distinguer clairement le type de personne créé."
+      ],
+      "required_unit_tests": [
+        "Test React du formulaire personne avec variation de rôles et rendu de la fiche."
+      ],
+      "required_e2e_test": "Créer un défunt et un concessionnaire depuis l'UI puis vérifier leurs fiches.",
+      "required_ui_evidence": "Capture des formulaires et des fiches créées dans l'application.",
+      "definition_of_done": [
+        "Le produit permet au moins la saisie minimale des personnes métier.",
+        "Les fiches sont accessibles depuis l'UI.",
+        "Le test unitaire et le test E2E passent."
+      ]
+    },
+    {
+      "id": "ALPHA-007",
+      "domain": "frontend",
+      "title": "Relier concession, concessionnaire et défunt depuis l'interface",
+      "user_story": "En tant qu'agent de mairie, je peux rattacher les bonnes personnes à une concession depuis l'application.",
+      "priority": "critical",
+      "status": "todo",
+      "dependencies": [
+        "ALPHA-005",
+        "ALPHA-006"
+      ],
+      "recommended_agent": "frontend",
+      "likely_files": [
+        "src/pages/ConcessionDetailPage.tsx",
+        "src/hooks/useConcessions.ts",
+        "src/hooks/useBurials.ts",
+        "tests/e2e/16-link-concession-people.spec.ts"
+      ],
+      "acceptance_criteria": [
+        "Depuis la fiche concession, un agent de mairie peut rattacher un concessionnaire existant.",
+        "Depuis la fiche concession, un agent de mairie peut rattacher au moins un défunt.",
+        "Après enregistrement, la fiche concession affiche les rattachements sans terminal."
+      ],
+      "required_unit_tests": [
+        "Test React du rattachement de personnes à une concession et du rafraîchissement de la fiche."
+      ],
+      "required_e2e_test": "Créer les données puis rattacher un défunt et un concessionnaire à une concession depuis l'UI.",
+      "required_ui_evidence": "Capture de la fiche concession affichant les personnes liées.",
+      "definition_of_done": [
+        "Le lien métier est gérable à l'écran.",
+        "L'utilisateur voit le résultat directement sur la fiche.",
+        "Le test unitaire et le test E2E passent."
+      ]
+    },
+    {
+      "id": "ALPHA-008",
+      "domain": "frontend",
+      "title": "Rendre la liste des défunts navigable vers les fiches",
+      "user_story": "En tant qu'agent de mairie, je peux ouvrir la fiche d'un défunt depuis la liste des défunts.",
+      "priority": "high",
+      "status": "todo",
+      "dependencies": [
+        "ALPHA-006"
+      ],
+      "recommended_agent": "frontend",
+      "likely_files": [
+        "src/pages/DefuntsPage.tsx",
+        "src/router.tsx",
+        "tests/e2e/17-open-deceased-detail.spec.ts"
+      ],
+      "acceptance_criteria": [
+        "Depuis l'ecran Défunts, un agent de mairie peut cliquer Détails et ouvrir la bonne fiche.",
+        "Depuis la fiche, un agent de mairie peut revenir à la liste sans perdre le contexte visuel.",
+        "Depuis la liste, un agent de mairie peut ouvrir plusieurs fiches successivement sans terminal."
+      ],
+      "required_unit_tests": [
+        "Test React de navigation depuis la liste des défunts vers la fiche."
+      ],
+      "required_e2e_test": "Ouvrir la fiche d'un défunt depuis la liste puis revenir.",
+      "required_ui_evidence": "Capture de la liste Défunts puis de la fiche ouverte via le bouton Détails.",
+      "definition_of_done": [
+        "Le bouton Détails n'est plus inerte.",
+        "La route affichée correspond à la fiche visée.",
+        "Le test unitaire et le test E2E passent."
+      ]
+    },
+    {
+      "id": "ALPHA-009",
+      "domain": "frontend",
+      "title": "Rendre les résultats de recherche ouvrables et rafraîchissables",
+      "user_story": "En tant qu'agent de mairie, je peux lancer plusieurs recherches successives et ouvrir les fiches depuis les résultats.",
+      "priority": "high",
+      "status": "todo",
+      "dependencies": [
+        "ALPHA-006",
+        "ALPHA-008"
+      ],
+      "recommended_agent": "frontend",
+      "likely_files": [
+        "src/pages/RecherchePage.tsx",
+        "src/hooks/useQuery.ts",
+        "src/hooks/useIndividuals.ts",
+        "tests/e2e/18-search-open-results.spec.ts"
+      ],
+      "acceptance_criteria": [
+        "Depuis la page Recherche, un agent de mairie peut lancer une recherche, puis une seconde différente, et voir les nouveaux résultats.",
+        "Depuis la page Recherche, un agent de mairie peut ouvrir un résultat personne.",
+        "Depuis la page Recherche, un agent de mairie peut ouvrir un résultat concession."
+      ],
+      "required_unit_tests": [
+        "Test hook pour relancer `useQuery` quand la requête change et test React des boutons Voir."
+      ],
+      "required_e2e_test": "Lancer deux recherches successives différentes puis ouvrir un résultat.",
+      "required_ui_evidence": "Capture de deux jeux de résultats distincts et de la fiche ouverte depuis Voir.",
+      "definition_of_done": [
+        "Les recherches successives ne restent plus figées.",
+        "Les boutons Voir ouvrent les fiches attendues.",
+        "Le test unitaire et le test E2E passent."
+      ]
+    },
+    {
+      "id": "ALPHA-010",
+      "domain": "frontend",
+      "title": "Ajouter un recalcul des alertes depuis l'interface",
+      "user_story": "En tant qu'agent de mairie, je peux recalculer les alertes d'échéance depuis l'application et voir le résultat.",
+      "priority": "high",
+      "status": "todo",
+      "dependencies": [
+        "ALPHA-005"
+      ],
+      "recommended_agent": "frontend",
+      "likely_files": [
+        "src/pages/AlertesPage.tsx",
+        "src/components/alerts/AlertWidget.tsx",
+        "src/hooks/useAlerts.ts",
+        "tests/e2e/19-refresh-alerts.spec.ts"
+      ],
+      "acceptance_criteria": [
+        "Depuis l'ecran Alertes ou le dashboard, un agent de mairie peut déclencher un recalcul des alertes.",
+        "Après recalcul, un agent de mairie voit les alertes mises à jour sans terminal.",
+        "Après acquittement, un agent de mairie voit l'alerte disparaître ou changer d'état à l'écran."
+      ],
+      "required_unit_tests": [
+        "Test React du bouton de recalcul et du rafraîchissement du widget/tableau d'alertes."
+      ],
+      "required_e2e_test": "Créer une concession éligible, recalculer les alertes puis acquitter une alerte depuis l'UI.",
+      "required_ui_evidence": "Capture du tableau d'alertes avant et après recalcul puis après acquittement.",
+      "definition_of_done": [
+        "Le backend alertes est pilotable depuis l'UI.",
+        "Le résultat est visible sans rechargement manuel externe.",
+        "Le test unitaire et le test E2E passent."
+      ]
+    },
+    {
+      "id": "ALPHA-011",
+      "domain": "frontend",
+      "title": "Rendre la page Sauvegardes compatible avec le backend réel",
+      "user_story": "En tant qu'agent de mairie, je peux voir les sauvegardes réellement disponibles dans l'application.",
+      "priority": "critical",
+      "status": "todo",
+      "dependencies": [],
+      "recommended_agent": "frontend",
+      "likely_files": [
+        "src/hooks/useBackups.ts",
+        "src/pages/SauvegardesPage.tsx",
+        "src-tauri/src/commands/backup.rs",
+        "tests/e2e/20-list-backups.spec.ts"
+      ],
+      "acceptance_criteria": [
+        "Depuis l'ecran Sauvegardes, un agent de mairie voit une liste lisible des sauvegardes existantes.",
+        "Depuis l'ecran Sauvegardes, un agent de mairie voit pour chaque sauvegarde au minimum un nom et une date lisible à l'écran.",
+        "Depuis l'ecran Sauvegardes, un agent de mairie n'observe pas de ligne vide ni de bouton cassé après création d'une sauvegarde."
+      ],
+      "required_unit_tests": [
+        "Test hook et page Sauvegardes avec la vraie forme de données renvoyée par Tauri."
+      ],
+      "required_e2e_test": "Créer une sauvegarde puis vérifier son apparition correcte dans la liste.",
+      "required_ui_evidence": "Capture de la liste des sauvegardes réellement affichées après création.",
+      "definition_of_done": [
+        "Le contrat front/back de listing est cohérent.",
+        "La page affiche des informations réelles et utiles.",
+        "Le test unitaire et le test E2E passent."
+      ]
+    },
+    {
+      "id": "ALPHA-012",
+      "domain": "frontend",
+      "title": "Permettre la restauration d'une sauvegarde depuis l'interface",
+      "user_story": "En tant qu'agent de mairie, je peux restaurer une sauvegarde sans utiliser le terminal.",
+      "priority": "critical",
+      "status": "todo",
+      "dependencies": [
+        "ALPHA-011"
+      ],
+      "recommended_agent": "frontend",
+      "likely_files": [
+        "src/hooks/useBackups.ts",
+        "src/pages/SauvegardesPage.tsx",
+        "src-tauri/src/commands/backup.rs",
+        "tests/e2e/21-restore-backup.spec.ts"
+      ],
+      "acceptance_criteria": [
+        "Depuis l'ecran Sauvegardes, un agent de mairie peut demander la restauration d'une sauvegarde existante.",
+        "Depuis l'ecran Sauvegardes, un agent de mairie voit une confirmation claire avant restauration.",
+        "Après restauration, un agent de mairie constate que les données attendues sont revenues dans l'application."
+      ],
+      "required_unit_tests": [
+        "Test page Sauvegardes sur le flux confirmation -> restauration -> rafraîchissement."
+      ],
+      "required_e2e_test": "Créer une donnée, sauvegarder, modifier la donnée, restaurer, puis vérifier le retour de l'état sauvegardé.",
+      "required_ui_evidence": "Capture du dialogue de confirmation puis de l'état restauré visible dans l'application.",
+      "definition_of_done": [
+        "Le bon paramètre est envoyé à la commande Tauri.",
+        "La restauration est observable à l'écran par un utilisateur.",
+        "Le test unitaire et le test E2E passent."
+      ]
+    },
+    {
+      "id": "ALPHA-013",
+      "domain": "frontend",
+      "title": "Remplacer les faux boutons d'action par des flux réels ou les retirer",
+      "user_story": "En tant qu'agent de mairie, je vois uniquement des actions que je peux réellement effectuer depuis l'application.",
+      "priority": "high",
+      "status": "todo",
+      "dependencies": [
+        "ALPHA-005",
+        "ALPHA-006"
+      ],
+      "recommended_agent": "product",
+      "likely_files": [
+        "src/pages/ConcessionDetailPage.tsx",
+        "src/pages/DefuntDetailPage.tsx",
+        "src/pages/ParametresPage.tsx",
+        "tests/e2e/22-no-dead-buttons.spec.ts"
+      ],
+      "acceptance_criteria": [
+        "Depuis les fiches métier, un agent de mairie ne voit pas de bouton majeur qui ne fait rien.",
+        "Chaque bouton visible depuis l'application mène soit à une action réelle, soit à un état explicitement non disponible.",
+        "Depuis l'interface, un agent de mairie comprend clairement ce qui est possible aujourd'hui."
+      ],
+      "required_unit_tests": [
+        "Test React de présence conditionnelle des actions réellement disponibles sur les fiches."
+      ],
+      "required_e2e_test": "Parcourir les fiches principales et vérifier qu'aucun bouton majeur n'est inerte.",
+      "required_ui_evidence": "Capture des fiches montrant des actions cohérentes avec l'état réel du produit.",
+      "definition_of_done": [
+        "Les faux affordances ont disparu ou sont devenues de vrais flux.",
+        "Le produit ne trompe plus l'utilisateur sur son niveau de complétude.",
+        "Le test unitaire et le test E2E passent."
+      ]
+    },
+    {
+      "id": "ALPHA-014",
+      "domain": "backend",
+      "title": "Corriger les contrats Tauri utilisés par les créations et mises à jour",
+      "user_story": "En tant qu'agent de mairie, je peux enregistrer mes formulaires depuis l'interface sans erreur invisible liée au transport de données.",
+      "priority": "critical",
+      "status": "todo",
+      "dependencies": [
+        "ALPHA-002",
+        "ALPHA-003",
+        "ALPHA-005",
+        "ALPHA-006"
+      ],
+      "recommended_agent": "backend",
+      "likely_files": [
+        "src/lib/tauri.ts",
+        "src-tauri/src/commands/cemetery.rs",
+        "src-tauri/src/commands/plot.rs",
+        "src-tauri/src/commands/concession.rs",
+        "src-tauri/src/commands/individual.rs",
+        "src-tauri/src/commands/burial.rs"
+      ],
+      "acceptance_criteria": [
+        "Depuis les écrans de saisie de l'application, un agent de mairie peut enregistrer un formulaire sans blocage de commande Tauri.",
+        "Depuis l'application, un agent de mairie voit les nouvelles données apparaître après création ou mise à jour.",
+        "Depuis l'application, un agent de mairie n'a pas besoin d'ouvrir le terminal pour comprendre un échec de sauvegarde."
+      ],
+      "required_unit_tests": [
+        "Tests d'intégration Rust ou frontend validant la forme réelle des arguments Tauri pour create/update."
+      ],
+      "required_e2e_test": "Exécuter un flux complet de création via l'UI et vérifier la persistance réelle.",
+      "required_ui_evidence": "Capture d'un formulaire sauvegardé avec succès et donnée persistée dans la vue suivante.",
+      "definition_of_done": [
+        "Les arguments envoyés par l'UI correspondent aux signatures Tauri réelles.",
+        "Les formulaires essentiels peuvent persister des données.",
+        "Le test d'intégration et le test E2E passent."
+      ]
+    },
+    {
+      "id": "ALPHA-015",
+      "domain": "packaging",
+      "title": "Prouver un parcours packagé sans terminal sur au moins une plateforme cible",
+      "user_story": "En tant qu'agent de mairie, je peux installer l'application et réaliser un parcours métier clé sans terminal.",
+      "priority": "critical",
+      "status": "todo",
+      "dependencies": [
+        "ALPHA-005",
+        "ALPHA-009",
+        "ALPHA-010",
+        "ALPHA-012"
+      ],
+      "recommended_agent": "packaging",
+      "likely_files": [
+        "src-tauri/tauri.conf.json",
+        "docs/PACKAGING_WINDOWS.md",
+        "docs/PACKAGING_LINUX_APPIMAGE.md",
+        "docs/PACKAGING_LINUX_DEB.md",
+        "tests/e2e/23-packaged-smoke.spec.ts"
+      ],
+      "acceptance_criteria": [
+        "Depuis une build installée ou packagée, un agent de mairie peut lancer l'application sans terminal.",
+        "Depuis cette build, un agent de mairie peut créer au moins une concession, rechercher un défunt, générer un PDF et créer une sauvegarde.",
+        "Depuis cette build, un agent de mairie ne dépend pas d'un emplacement de base SQLite non documenté ou non accessible."
+      ],
+      "required_unit_tests": [
+        "Test de smoke packaging ou script de validation automatisé sur la localisation de la base et le lancement."
+      ],
+      "required_e2e_test": "Exécuter un scénario de smoke contre la build packagée réelle.",
+      "required_ui_evidence": "Captures ou enregistrement de la build packagée durant un parcours complet sans terminal.",
+      "definition_of_done": [
+        "Une plateforme cible au moins est prouvée installable et exploitable.",
+        "La preuve porte sur la build packagée réelle, pas seulement sur `tauri dev`.",
+        "Le test de smoke packagé passe."
+      ]
+    }
+  ]
+}

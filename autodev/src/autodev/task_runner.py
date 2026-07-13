@@ -76,35 +76,51 @@ def run_task(
     write_json(run_dir / "task.json", task_record)
     (run_dir / "prompt.md").write_text(prompt, encoding="utf-8")
 
-    claude_runner = claude_runner or run_claude_non_interactive
-    claude_result = claude_runner(worktree=worktree, prompt=prompt)
-    (run_dir / "claude.stdout.log").write_text(claude_result["stdout"], encoding="utf-8")
-    (run_dir / "claude.stderr.log").write_text(claude_result["stderr"], encoding="utf-8")
-
-    modified_paths = changed_paths_since(repo_root, worktree, base_commit)
-    ensure_changes_present(repo_root, worktree, base_commit, modified_paths)
-    ensure_paths_allowed(repo_root, task["allowed_paths"], modified_paths)
-
-    produced_commit = None
-    if commit_count_since(repo_root, worktree, base_commit) <= 0:
-        raise RunTaskError("Aucun commit final n'existe au-dessus du commit de départ.")
-    produced_commit = head_commit(repo_root, worktree)
-
-    validations = run_validation_commands(worktree, task["validation_commands"])
-    (run_dir / "diff.patch").write_text(diff_patch(repo_root, worktree, base_commit), encoding="utf-8")
-
-    result = {
+    result: dict[str, Any] = {
         "task_id": task_id,
+        "status": "running",
+        "claude_exit_code": None,
+        "error": None,
         "branch": branch,
         "worktree": str(worktree),
         "run_dir": str(run_dir),
         "base_commit": base_commit,
-        "produced_commit": produced_commit,
-        "modified_paths": modified_paths,
-        "claude": claude_result,
-        "validations": validations,
-        "validation_summary": summarize_validations(validations),
+        "produced_commit": None,
+        "modified_paths": [],
+        "validations": [],
+        "validation_summary": [],
     }
+    claude_runner = claude_runner or run_claude_non_interactive
+    try:
+        claude_result = claude_runner(worktree=worktree, prompt=prompt)
+        result["claude"] = claude_result
+        result["claude_exit_code"] = claude_result["returncode"]
+        (run_dir / "claude.stdout.log").write_text(claude_result["stdout"], encoding="utf-8")
+        (run_dir / "claude.stderr.log").write_text(claude_result["stderr"], encoding="utf-8")
+
+        if claude_result["returncode"] != 0:
+            raise RunTaskError(format_claude_failure(claude_result))
+
+        modified_paths = changed_paths_since(repo_root, worktree, base_commit)
+        result["modified_paths"] = modified_paths
+        ensure_changes_present(repo_root, worktree, base_commit, modified_paths)
+        ensure_paths_allowed(repo_root, task["allowed_paths"], modified_paths)
+
+        if commit_count_since(repo_root, worktree, base_commit) <= 0:
+            raise RunTaskError("Aucun commit final n'existe au-dessus du commit de départ.")
+        result["produced_commit"] = head_commit(repo_root, worktree)
+
+        validations = run_validation_commands(worktree, task["validation_commands"])
+        result["validations"] = validations
+        result["validation_summary"] = summarize_validations(validations)
+        (run_dir / "diff.patch").write_text(diff_patch(repo_root, worktree, base_commit), encoding="utf-8")
+    except RunTaskError as exc:
+        result["status"] = "failed"
+        result["error"] = str(exc)
+        write_json(run_dir / "result.json", result)
+        raise
+
+    result["status"] = "success"
     write_json(run_dir / "result.json", result)
     return result
 
@@ -241,11 +257,11 @@ def run_claude_non_interactive(worktree: Path, prompt: str) -> dict[str, Any]:
         "text",
         "--add-dir",
         str(worktree),
-        prompt,
     ]
     result = subprocess.run(
         command,
         cwd=worktree,
+        input=prompt,
         capture_output=True,
         text=True,
         check=False,
@@ -256,6 +272,13 @@ def run_claude_non_interactive(worktree: Path, prompt: str) -> dict[str, Any]:
         "stdout": result.stdout,
         "stderr": result.stderr,
     }
+
+
+def format_claude_failure(claude_result: dict[str, Any]) -> str:
+    stderr = str(claude_result.get("stderr", "")).strip()
+    stdout = str(claude_result.get("stdout", "")).strip()
+    detail = stderr or stdout or "erreur Claude inconnue"
+    return f"Claude a échoué (code {claude_result['returncode']}) : {detail}"
 
 
 def ensure_changes_present(

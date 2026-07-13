@@ -7,6 +7,7 @@ from rich.console import Console
 from rich.table import Table
 
 from autodev.planner import PlanningError, plan_feature
+from autodev.review_task import ReviewTaskError, review_task
 from autodev.task_runner import RunTaskError, run_task
 
 app = typer.Typer(
@@ -158,6 +159,38 @@ def run_task_command(
 
     if dry_run:
         console.print("\n[bold yellow]Dry-run :[/bold yellow] aucun worktree créé.")
+
+
+@app.command("review-task")
+def review_task_command(
+    backlog_json: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
+        help="Chemin du backlog JSON.",
+    ),
+    task_id: str = typer.Argument(..., help="Identifiant de tâche à relire."),
+) -> None:
+    """Relit une tâche développée avec Codex en lecture seule."""
+    try:
+        summary = review_task(backlog_json=backlog_json, task_id=task_id)
+    except ReviewTaskError as exc:
+        console.print(f"\n[bold red]Échec :[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    table = Table(title="Résumé review-task")
+    table.add_column("Champ")
+    table.add_column("Valeur")
+    table.add_row("Tâche", summary["task_id"])
+    table.add_row("Verdict", summary["verdict"])
+    table.add_row("Tests", summary["tests"]["status"])
+    table.add_row("Scope", summary["scope"]["status"])
+    table.add_row("Issues", str(len(summary["issues"])))
+    table.add_row("Résumé", summary["summary"])
+    console.print(table)
 
 
 if __name__ == "__main__":

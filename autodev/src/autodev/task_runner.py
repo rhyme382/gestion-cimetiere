@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -20,6 +21,7 @@ from autodev.git_tools import (
     head_commit,
     worktree_registered,
 )
+from autodev.path_rules import normalize_repo_relative_path
 from autodev.planner import PlanningError, find_repo_root, load_json, validate_backlog_consistency
 
 COMPLETED_STATUSES = {"completed", "done", "finished", "terminated", "terminee", "terminée"}
@@ -329,7 +331,7 @@ def ensure_changes_present(
 
 
 def ensure_paths_allowed(repo_root: Path, allowed_paths: list[str], modified_paths: list[str]) -> None:
-    allowed = [normalize_allowed_path(repo_root, item) for item in allowed_paths]
+    allowed = [normalize_allowed_path(item) for item in allowed_paths]
     unauthorized: list[str] = []
 
     for modified_path in modified_paths:
@@ -342,15 +344,11 @@ def ensure_paths_allowed(repo_root: Path, allowed_paths: list[str], modified_pat
         raise RunTaskError(f"Chemins modifiés hors périmètre autorisé : {joined}")
 
 
-def normalize_allowed_path(repo_root: Path, allowed_path: str) -> Path:
-    path = Path(allowed_path)
+def normalize_allowed_path(allowed_path: str) -> Path:
     try:
-        relative = path.resolve().relative_to(repo_root.resolve())
-    except ValueError:
-        if path.is_absolute():
-            raise RunTaskError(f"Chemin autorisé hors dépôt : {allowed_path}")
-        relative = path
-    return relative
+        return normalize_repo_relative_path(allowed_path)
+    except ValueError as exc:
+        raise RunTaskError(str(exc)) from exc
 
 
 def is_relative_to(path: Path, parent: Path) -> bool:
@@ -367,7 +365,11 @@ def validate_command_safe(command: str) -> list[str]:
     return shlex.split(command)
 
 
-def run_validation_commands(worktree: Path, commands: list[str]) -> list[dict[str, Any]]:
+def run_validation_commands(
+    worktree: Path,
+    commands: list[str],
+    extra_env: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for command in commands:
         argv = validate_command_safe(command)
@@ -377,6 +379,7 @@ def run_validation_commands(worktree: Path, commands: list[str]) -> list[dict[st
             capture_output=True,
             text=True,
             check=False,
+            env=None if extra_env is None else {**os.environ, **extra_env},
         )
         results.append(
             {

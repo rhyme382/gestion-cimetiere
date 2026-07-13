@@ -82,6 +82,11 @@ def changed_paths_since(repo_root: Path, worktree_path: Path, base_commit: str) 
     return sorted(paths)
 
 
+def changed_paths_between(repo_root: Path, start_commit: str, end_commit: str) -> list[str]:
+    output = git_output(repo_root, ["diff", "--name-only", start_commit, end_commit])
+    return sorted(line.strip() for line in output.splitlines() if line.strip())
+
+
 def commit_count_since(repo_root: Path, worktree_path: Path, base_commit: str) -> int:
     count = git_output(repo_root, ["rev-list", "--count", f"{base_commit}..HEAD"], cwd=worktree_path)
     return int(count)
@@ -93,3 +98,11 @@ def head_commit(repo_root: Path, worktree_path: Path) -> str:
 
 def diff_patch(repo_root: Path, worktree_path: Path, base_commit: str) -> str:
     return git_output(repo_root, ["diff", "--binary", base_commit, "HEAD"], cwd=worktree_path)
+
+
+def diff_patch_between(repo_root: Path, start_commit: str, end_commit: str) -> str:
+    return git_output(repo_root, ["diff", "--binary", start_commit, end_commit])
+
+
+def git_status_porcelain(repo_root: Path, cwd: Path | None = None) -> str:
+    return git_output(repo_root, ["status", "--short"], cwd=cwd)

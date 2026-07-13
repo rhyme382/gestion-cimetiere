@@ -7,6 +7,7 @@
     "feature_id",
     "feature_title",
     "summary",
+    "specification_path",
     "requirements",
     "tasks"
   ],
@@ -22,6 +23,10 @@
     "summary": {
       "type": "string",
       "minLength": 10
+    },
+    "specification_path": {
+      "type": "string",
+      "minLength": 1
     },
     "requirements": {
       "type": "array",
@@ -114,7 +119,8 @@
             "type": "array",
             "minItems": 1,
             "items": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+"
             }
           },
           "validation_commands": {

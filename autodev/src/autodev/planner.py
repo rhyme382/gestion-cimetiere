@@ -5,6 +5,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from autodev.path_rules import normalize_repo_relative_path
+
 
 class PlanningError(RuntimeError):
     """Erreur pendant la génération ou la validation du backlog."""
@@ -135,6 +137,7 @@ def validate_backlog_consistency(backlog: dict[str, Any]) -> None:
                 f"{task_id} référence des exigences inconnues : {requirements_list}"
             )
 
+        validate_allowed_paths(task)
         validate_agent_assignment(task)
 
     covered_requirements: set[str] = set()
@@ -178,6 +181,17 @@ def _validate_no_dependency_cycle(tasks: list[dict[str, Any]]) -> None:
 
     for current_task_id in dependencies:
         visit(current_task_id)
+
+
+def validate_allowed_paths(task: dict[str, Any]) -> None:
+    task_id = task["id"]
+    for allowed_path in task["allowed_paths"]:
+        try:
+            normalize_repo_relative_path(allowed_path)
+        except ValueError as exc:
+            raise PlanningError(
+                f"{task_id} contient un allowed_path invalide : {exc}"
+            ) from exc
 
 
 def plan_feature(spec_path: Path) -> tuple[Path, dict[str, Any]]:
@@ -225,6 +239,13 @@ Inspecte également uniquement les fichiers du dépôt nécessaires pour compren
 - les conventions déjà utilisées.
 
 Le backlog doit correspondre au dépôt réel, pas à une arborescence théorique.
+
+Contraintes supplémentaires sur `allowed_paths` :
+
+- utiliser uniquement des chemins relatifs à la racine du dépôt ;
+- ne jamais inclure de chemin absolu ;
+- ne jamais inclure `/home/...` ni aucun chemin dépendant de la machine ;
+- ne jamais inclure de segment `..`.
 """.strip()
 
     command = [
@@ -253,6 +274,7 @@ Le backlog doit correspondre au dépôt réel, pas à une arborescence théoriqu
         )
 
     backlog = load_json(output_path)
+    backlog["specification_path"] = relative_spec.as_posix()
     validate_backlog_consistency(backlog)
 
     formatted = json.dumps(

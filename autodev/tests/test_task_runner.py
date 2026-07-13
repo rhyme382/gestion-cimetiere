@@ -40,6 +40,7 @@ def write_backlog(repo: Path, tasks: list[dict[str, object]]) -> Path:
         "feature_id": "FEATURE-TEST",
         "feature_title": "Feature test",
         "summary": "Résumé de test suffisant pour le backlog.",
+        "specification_path": "SPEC.md",
         "requirements": [
             {
                 "id": "REQ-001",
@@ -62,8 +63,8 @@ def make_task(task_id: str, *, depends_on: list[str] | None = None, status: str 
         "agent": "documentation",
         "depends_on": depends_on or [],
         "requirement_ids": ["REQ-001"],
-        "allowed_paths": ["/repo/src/", "/repo/reports/dev/"],
-        "validation_commands": [f"{sys.executable} -c print('ok')"],
+        "allowed_paths": ["src", "reports/dev"],
+        "validation_commands": [f'{sys.executable} -c "print(\'ok\')"'],
         "acceptance_criteria": ["Accepter"],
     }
     if status is not None:
@@ -75,8 +76,8 @@ def adapt_allowed_paths(repo: Path, backlog_path: Path) -> None:
     data = json.loads(backlog_path.read_text(encoding="utf-8"))
     for task in data["tasks"]:
         task["allowed_paths"] = [
-            str(repo / "src"),
-            str(repo / "reports" / "dev"),
+            "src",
+            "reports/dev",
         ]
     backlog_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -121,7 +122,7 @@ def test_allowed_paths_detection_rejects_outside_changes(tmp_path: Path) -> None
     with pytest.raises(RunTaskError, match="hors périmètre autorisé"):
         ensure_paths_allowed(
             repo,
-            [str(repo / "src")],
+            ["src"],
             ["README.md", "src/ok.py"],
         )
 

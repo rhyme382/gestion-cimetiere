@@ -105,3 +105,10 @@ tasks/runtime/
 .autodev/worktrees/
 .autodev/runs/
 .autodev/plans/
+
+# Autodev local tasks and generated plans
+.autodev/tasks/
+.autodev/plans/
+.autodev/runs/
+.autodev/worktrees/
+.autodev/state/

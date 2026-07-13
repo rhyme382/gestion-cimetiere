@@ -177,17 +177,19 @@ def test_run_claude_non_interactive_sends_prompt_via_stdin(monkeypatch: pytest.M
         "claude",
         "-p",
         "--permission-mode",
-        "dontAsk",
+        "bypassPermissions",
+        "--tools",
+        "Bash,Edit,Write,Read,Glob,Grep",
         "--output-format",
         "text",
-        "--add-dir",
-        str(worktree),
     ]
+    assert "dontAsk" not in command
     assert kwargs["cwd"] == worktree
     assert kwargs["input"] == "prompt complet"
     assert kwargs["text"] is True
     assert kwargs["capture_output"] is True
     assert kwargs["check"] is False
+    assert "shell" not in kwargs
     assert result["returncode"] == 0
 
 
@@ -221,3 +223,29 @@ def test_claude_failure_writes_result_and_logs(tmp_path: Path) -> None:
     assert "Input must be provided either through stdin" in result["error"]
     assert (run_dir / "claude.stdout.log").read_text(encoding="utf-8") == ""
     assert "Input must be provided either through stdin" in (run_dir / "claude.stderr.log").read_text(encoding="utf-8")
+
+
+def test_claude_permission_false_success_is_marked_failed(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    backlog = write_backlog(repo, [make_task("TASK-PERMS")])
+    adapt_allowed_paths(repo, backlog)
+    commit_all(repo, "add backlog")
+
+    def fake_claude_runner(*_: object, **__: object) -> dict[str, object]:
+        return {
+            "command": ["claude", "-p"],
+            "returncode": 0,
+            "stdout": "I do not possess permissions for Read, Bash and Edit/Write in this session.",
+            "stderr": "",
+        }
+
+    with pytest.raises(RunTaskError, match="faux succès"):
+        run_task(backlog, "TASK-PERMS", dry_run=False, claude_runner=fake_claude_runner)
+
+    run_dir = repo / ".autodev" / "runs" / "TASK-PERMS"
+    result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+
+    assert result["status"] == "failed"
+    assert result["claude_exit_code"] == 0
+    assert "demande de permissions détectée" in result["error"]
+    assert "permissions for Read, Bash and Edit/Write" in (run_dir / "claude.stdout.log").read_text(encoding="utf-8")

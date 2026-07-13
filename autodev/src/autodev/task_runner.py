@@ -24,6 +24,11 @@ from autodev.planner import PlanningError, find_repo_root, load_json, validate_b
 
 COMPLETED_STATUSES = {"completed", "done", "finished", "terminated", "terminee", "terminée"}
 FORBIDDEN_COMMAND_TOKENS = (";", "&&", "||", ">", ">>", "<", "|", "`", "$(")
+CLAUDE_ALLOWED_TOOLS = "Bash,Edit,Write,Read,Glob,Grep"
+CLAUDE_PERMISSION_WARNING_PATTERNS = (
+    re.compile(r"\b(?:missing|need|request(?:ing)?|requires?)\b.{0,80}\bpermission", re.IGNORECASE | re.DOTALL),
+    re.compile(r"\b(?:do(?:es)? not|don't|doesn't)\b.{0,40}\b(?:have|possess)\b.{0,40}\bpermissions?\b", re.IGNORECASE | re.DOTALL),
+)
 
 
 class RunTaskError(RuntimeError):
@@ -98,8 +103,7 @@ def run_task(
         (run_dir / "claude.stdout.log").write_text(claude_result["stdout"], encoding="utf-8")
         (run_dir / "claude.stderr.log").write_text(claude_result["stderr"], encoding="utf-8")
 
-        if claude_result["returncode"] != 0:
-            raise RunTaskError(format_claude_failure(claude_result))
+        ensure_claude_completed_successfully(claude_result)
 
         modified_paths = changed_paths_since(repo_root, worktree, base_commit)
         result["modified_paths"] = modified_paths
@@ -252,11 +256,11 @@ def run_claude_non_interactive(worktree: Path, prompt: str) -> dict[str, Any]:
         "claude",
         "-p",
         "--permission-mode",
-        "dontAsk",
+        "bypassPermissions",
+        "--tools",
+        CLAUDE_ALLOWED_TOOLS,
         "--output-format",
         "text",
-        "--add-dir",
-        str(worktree),
     ]
     result = subprocess.run(
         command,
@@ -274,11 +278,39 @@ def run_claude_non_interactive(worktree: Path, prompt: str) -> dict[str, Any]:
     }
 
 
+def ensure_claude_completed_successfully(claude_result: dict[str, Any]) -> None:
+    if claude_result["returncode"] != 0:
+        raise RunTaskError(format_claude_failure(claude_result))
+    if claude_requested_permissions(claude_result):
+        raise RunTaskError(
+            "Claude a signalé un faux succès : code 0 retourné mais demande de permissions détectée dans la sortie."
+        )
+
+
 def format_claude_failure(claude_result: dict[str, Any]) -> str:
     stderr = str(claude_result.get("stderr", "")).strip()
     stdout = str(claude_result.get("stdout", "")).strip()
     detail = stderr or stdout or "erreur Claude inconnue"
     return f"Claude a échoué (code {claude_result['returncode']}) : {detail}"
+
+
+def claude_requested_permissions(claude_result: dict[str, Any]) -> bool:
+    combined_output = "\n".join(
+        part.strip()
+        for part in (
+            str(claude_result.get("stdout", "")),
+            str(claude_result.get("stderr", "")),
+        )
+        if part.strip()
+    )
+    if not combined_output:
+        return False
+    if not any(pattern.search(combined_output) for pattern in CLAUDE_PERMISSION_WARNING_PATTERNS):
+        return False
+
+    allowed_tool_names = [tool.casefold() for tool in CLAUDE_ALLOWED_TOOLS.split(",")]
+    normalized_output = combined_output.casefold()
+    return any(tool_name in normalized_output for tool_name in allowed_tool_names)
 
 
 def ensure_changes_present(

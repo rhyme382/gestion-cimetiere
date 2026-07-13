@@ -2,7 +2,7 @@
 
 ## objectif
 
-Fiabiliser `autodev run-task BACKLOG_JSON TASK_ID` pour que le prompt Claude soit transmis en mode non interactif via stdin, que les artefacts de run soient toujours écrits en cas d’échec Claude et que l’erreur réelle Claude remonte au lieu d’un faux diagnostic Git.
+Fiabiliser `autodev run-task BACKLOG_JSON TASK_ID` pour que Claude Code soit lancé dans le worktree isolé avec les permissions non interactives attendues, que le prompt reste transmis via stdin et qu’un faux succès lié à une demande de permissions soit explicitement détecté.
 
 ## fichiers modifiés
 
@@ -12,10 +12,11 @@ Fiabiliser `autodev run-task BACKLOG_JSON TASK_ID` pour que le prompt Claude soi
 
 ## décisions prises
 
-- L’appel `claude -p` ne reçoit plus le prompt comme argument final ; le texte complet est transmis via `subprocess.run(..., input=prompt, text=True, capture_output=True, check=False)`.
-- Le `cwd` de Claude reste le worktree isolé et `--add-dir` pointe vers ce worktree pour éviter toute écriture dans le dépôt principal.
+- L’appel `claude -p` utilise désormais `--permission-mode bypassPermissions` et restreint explicitement les outils à `Bash,Edit,Write,Read,Glob,Grep`.
+- Le prompt n’est toujours pas passé en argument CLI ; il reste transmis via `subprocess.run(..., input=prompt, text=True, capture_output=True, check=False)`.
+- Le `cwd` de Claude reste le worktree isolé et `--add-dir` est supprimé car il dupliquait ce même répertoire sans apporter de garde-fou supplémentaire.
 - `result.json`, `claude.stdout.log` et `claude.stderr.log` sont écrits même si Claude quitte avec un code non nul.
-- Le contrôle “aucune modification / aucun commit” n’est exécuté que si Claude a quitté avec le code `0`.
+- Un code de sortie `0` ne suffit plus : si la sortie de Claude contient encore une demande de permissions, l’exécution est marquée en échec explicite.
 - Les tests n’appellent jamais réellement `claude`; ils injectent un faux runner ou mockent `subprocess.run`.
 
 ## problèmes connus
@@ -26,9 +27,8 @@ Fiabiliser `autodev run-task BACKLOG_JSON TASK_ID` pour que le prompt Claude soi
 ## résultats des tests
 
 - `python -m compileall -q autodev/src` : OK
-- `pytest -q autodev/tests` : OK, 8 tests passés
-- `autodev run-task --help` : OK
+- `pytest -q autodev/tests` : OK, 9 tests passés
 
 ## prochaine étape
 
-Ajouter, si nécessaire, un test d’intégration contrôlé sur un vrai binaire Claude dans un environnement dédié, distinct de la suite unitaire, pour vérifier le comportement des permissions sans rendre les tests locaux dépendants de Claude.
+Élargir au besoin la détection de faux succès à d’autres formulations de refus de permissions si de nouveaux messages Claude apparaissent en production.

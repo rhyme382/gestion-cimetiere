@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gestion-cimetiere-autodev"
+version = "0.1.0"
+description = "Ordonnanceur de développement autonome du logiciel de gestion de cimetières"
+requires-python = ">=3.12"
+dependencies = [
+    "langgraph",
+    "langgraph-checkpoint-sqlite",
+    "pydantic",
+    "typer",
+    "rich",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+]
+
+[project.scripts]
+autodev = "autodev.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

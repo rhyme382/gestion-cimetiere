@@ -99,3 +99,9 @@ worktrees/
 orchestrator-state.sqlite
 orchestrator/logs/
 tasks/runtime/
+
+# Autodev runtime
+.autodev/state/
+.autodev/worktrees/
+.autodev/runs/
+.autodev/plans/

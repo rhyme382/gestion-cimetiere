@@ -1,0 +1,349 @@
+from __future__ import annotations
+
+import json
+import re
+import shlex
+import subprocess
+from pathlib import Path
+from typing import Any
+
+from autodev.git_tools import (
+    GitError,
+    add_worktree,
+    branch_exists,
+    changed_paths_since,
+    commit_count_since,
+    create_branch,
+    current_head,
+    diff_patch,
+    ensure_clean_worktree,
+    head_commit,
+    worktree_registered,
+)
+from autodev.planner import PlanningError, find_repo_root, load_json, validate_backlog_consistency
+
+COMPLETED_STATUSES = {"completed", "done", "finished", "terminated", "terminee", "terminée"}
+FORBIDDEN_COMMAND_TOKENS = (";", "&&", "||", ">", ">>", "<", "|", "`", "$(")
+
+
+class RunTaskError(RuntimeError):
+    """Erreur pendant la préparation ou l'exécution d'une tâche."""
+
+
+def run_task(
+    backlog_json: Path,
+    task_id: str,
+    dry_run: bool = False,
+    claude_runner: Any | None = None,
+) -> dict[str, Any]:
+    repo_root = find_repo_root(backlog_json.parent)
+    backlog = load_and_validate_backlog(backlog_json)
+    task = find_task(backlog, task_id)
+    ensure_dependencies_completed(backlog, task)
+
+    branch = f"autodev/{task_id}"
+    worktree = repo_root / ".autodev" / "worktrees" / task_id
+    run_dir = repo_root / ".autodev" / "runs" / task_id
+    prompt = build_prompt(repo_root, backlog_json, backlog, task)
+
+    if dry_run:
+        return {
+            "task_id": task_id,
+            "branch": branch,
+            "worktree": str(worktree),
+            "run_dir": str(run_dir),
+            "prompt_preview": prompt,
+            "modified_paths": [],
+            "validation_summary": [],
+            "produced_commit": None,
+        }
+
+    try:
+        ensure_clean_worktree(repo_root)
+    except GitError as exc:
+        raise RunTaskError(str(exc)) from exc
+    base_commit = current_head(repo_root)
+    prepare_isolated_workspace(repo_root, branch, worktree, base_commit)
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    task_record = {
+        "backlog": str(backlog_json),
+        "task": task,
+        "branch": branch,
+        "worktree": str(worktree),
+        "base_commit": base_commit,
+    }
+    write_json(run_dir / "task.json", task_record)
+    (run_dir / "prompt.md").write_text(prompt, encoding="utf-8")
+
+    claude_runner = claude_runner or run_claude_non_interactive
+    claude_result = claude_runner(worktree=worktree, prompt=prompt)
+    (run_dir / "claude.stdout.log").write_text(claude_result["stdout"], encoding="utf-8")
+    (run_dir / "claude.stderr.log").write_text(claude_result["stderr"], encoding="utf-8")
+
+    modified_paths = changed_paths_since(repo_root, worktree, base_commit)
+    ensure_changes_present(repo_root, worktree, base_commit, modified_paths)
+    ensure_paths_allowed(repo_root, task["allowed_paths"], modified_paths)
+
+    produced_commit = None
+    if commit_count_since(repo_root, worktree, base_commit) <= 0:
+        raise RunTaskError("Aucun commit final n'existe au-dessus du commit de départ.")
+    produced_commit = head_commit(repo_root, worktree)
+
+    validations = run_validation_commands(worktree, task["validation_commands"])
+    (run_dir / "diff.patch").write_text(diff_patch(repo_root, worktree, base_commit), encoding="utf-8")
+
+    result = {
+        "task_id": task_id,
+        "branch": branch,
+        "worktree": str(worktree),
+        "run_dir": str(run_dir),
+        "base_commit": base_commit,
+        "produced_commit": produced_commit,
+        "modified_paths": modified_paths,
+        "claude": claude_result,
+        "validations": validations,
+        "validation_summary": summarize_validations(validations),
+    }
+    write_json(run_dir / "result.json", result)
+    return result
+
+
+def load_and_validate_backlog(backlog_json: Path) -> dict[str, Any]:
+    try:
+        backlog = load_json(backlog_json)
+        validate_backlog_consistency(backlog)
+    except PlanningError as exc:
+        raise RunTaskError(str(exc)) from exc
+    return backlog
+
+
+def find_task(backlog: dict[str, Any], task_id: str) -> dict[str, Any]:
+    for task in backlog.get("tasks", []):
+        if task.get("id") == task_id:
+            return task
+    raise RunTaskError(f"Tâche inconnue : {task_id}")
+
+
+def ensure_dependencies_completed(backlog: dict[str, Any], task: dict[str, Any]) -> None:
+    tasks_by_id = {item["id"]: item for item in backlog.get("tasks", [])}
+    incomplete: list[str] = []
+    for dependency_id in task["depends_on"]:
+        dependency = tasks_by_id[dependency_id]
+        status = str(dependency.get("status", "")).strip().lower()
+        if status not in COMPLETED_STATUSES:
+            incomplete.append(dependency_id)
+
+    if incomplete:
+        dependencies = ", ".join(incomplete)
+        raise RunTaskError(
+            f"Dépendances non terminées pour {task['id']} : {dependencies}."
+        )
+
+
+def build_prompt(
+    repo_root: Path,
+    backlog_json: Path,
+    backlog: dict[str, Any],
+    task: dict[str, Any],
+) -> str:
+    spec_path = repo_root / "SPEC.md"
+    requirements = [
+        requirement
+        for requirement in backlog["requirements"]
+        if requirement["id"] in set(task["requirement_ids"])
+    ]
+
+    requirement_lines = "\n".join(
+        f"- {requirement['id']} : {requirement['description']}\n"
+        + "\n".join(f"  - {criterion}" for criterion in requirement["acceptance_criteria"])
+        for requirement in requirements
+    )
+    task_acceptance = "\n".join(f"- {criterion}" for criterion in task["acceptance_criteria"])
+    validation_commands = "\n".join(f"- {command}" for command in task["validation_commands"])
+    allowed_paths = "\n".join(f"- {path}" for path in task["allowed_paths"])
+    specification = spec_path.read_text(encoding="utf-8")
+
+    return f"""# Contexte
+
+Tu travailles dans un worktree Git isolé créé pour la tâche `{task["id"]}`.
+
+Backlog source : `{backlog_json}`
+Feature : `{backlog["feature_id"]}` — {backlog["feature_title"]}
+Résumé feature : {backlog["summary"]}
+
+# Spécification source
+
+Chemin : `{spec_path}`
+
+```md
+{specification}
+```
+
+# Tâche complète
+
+ID : `{task["id"]}`
+Titre : {task["title"]}
+Agent cible : {task["agent"]}
+Description : {task["description"]}
+
+# Exigences liées
+
+{requirement_lines}
+
+# Critères d'acceptation de la tâche
+
+{task_acceptance}
+
+# Chemins autorisés
+
+Tu peux modifier uniquement les chemins suivants :
+{allowed_paths}
+
+Interdiction absolue de modifier des chemins hors de cette liste.
+
+# Validation
+
+Commandes à exécuter et faire passer :
+{validation_commands}
+
+# Contraintes obligatoires
+
+- Ajouter ou adapter les tests nécessaires.
+- Ne pas modifier les spécifications.
+- Ne pas faire de merge.
+- Produire un commit final au-dessus du commit de départ.
+- Ne pas écrire dans le dépôt principal hors du worktree.
+- Respecter strictement les chemins autorisés.
+"""
+
+
+def prepare_isolated_workspace(repo_root: Path, branch: str, worktree: Path, base_commit: str) -> None:
+    if branch_exists(repo_root, branch):
+        raise RunTaskError(f"La branche existe déjà : {branch}")
+    if worktree.exists() or worktree_registered(repo_root, worktree):
+        raise RunTaskError(f"Le worktree existe déjà : {worktree}")
+
+    try:
+        create_branch(repo_root, branch, base_commit)
+        add_worktree(repo_root, worktree, branch)
+    except GitError as exc:
+        raise RunTaskError(str(exc)) from exc
+
+
+def run_claude_non_interactive(worktree: Path, prompt: str) -> dict[str, Any]:
+    command = [
+        "claude",
+        "-p",
+        "--permission-mode",
+        "dontAsk",
+        "--output-format",
+        "text",
+        "--add-dir",
+        str(worktree),
+        prompt,
+    ]
+    result = subprocess.run(
+        command,
+        cwd=worktree,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return {
+        "command": command,
+        "returncode": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
+
+
+def ensure_changes_present(
+    repo_root: Path,
+    worktree: Path,
+    base_commit: str,
+    modified_paths: list[str],
+) -> None:
+    try:
+        commits = commit_count_since(repo_root, worktree, base_commit)
+    except GitError as exc:
+        raise RunTaskError(str(exc)) from exc
+
+    if commits <= 0 and not modified_paths:
+        raise RunTaskError("Le worktree ne contient ni modification ni nouveau commit.")
+
+
+def ensure_paths_allowed(repo_root: Path, allowed_paths: list[str], modified_paths: list[str]) -> None:
+    allowed = [normalize_allowed_path(repo_root, item) for item in allowed_paths]
+    unauthorized: list[str] = []
+
+    for modified_path in modified_paths:
+        candidate = Path(modified_path)
+        if not any(is_relative_to(candidate, allowed_path) for allowed_path in allowed):
+            unauthorized.append(modified_path)
+
+    if unauthorized:
+        joined = ", ".join(unauthorized)
+        raise RunTaskError(f"Chemins modifiés hors périmètre autorisé : {joined}")
+
+
+def normalize_allowed_path(repo_root: Path, allowed_path: str) -> Path:
+    path = Path(allowed_path)
+    try:
+        relative = path.resolve().relative_to(repo_root.resolve())
+    except ValueError:
+        if path.is_absolute():
+            raise RunTaskError(f"Chemin autorisé hors dépôt : {allowed_path}")
+        relative = path
+    return relative
+
+
+def is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def validate_command_safe(command: str) -> list[str]:
+    if any(token in command for token in FORBIDDEN_COMMAND_TOKENS):
+        raise RunTaskError(f"Commande de validation dangereuse refusée : {command}")
+    return shlex.split(command)
+
+
+def run_validation_commands(worktree: Path, commands: list[str]) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for command in commands:
+        argv = validate_command_safe(command)
+        result = subprocess.run(
+            argv,
+            cwd=worktree,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        results.append(
+            {
+                "command": command,
+                "argv": argv,
+                "returncode": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            }
+        )
+    return results
+
+
+def summarize_validations(validations: list[dict[str, Any]]) -> list[str]:
+    return [
+        f"{item['command']}={'OK' if item['returncode'] == 0 else 'ECHEC'}"
+        for item in validations
+    ]
+
+
+def write_json(path: Path, payload: Any) -> None:
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )

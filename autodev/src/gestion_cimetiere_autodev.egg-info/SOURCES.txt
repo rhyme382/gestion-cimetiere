@@ -1,0 +1,7 @@
+pyproject.toml
+src/gestion_cimetiere_autodev.egg-info/PKG-INFO
+src/gestion_cimetiere_autodev.egg-info/SOURCES.txt
+src/gestion_cimetiere_autodev.egg-info/dependency_links.txt
+src/gestion_cimetiere_autodev.egg-info/entry_points.txt
+src/gestion_cimetiere_autodev.egg-info/requires.txt
+src/gestion_cimetiere_autodev.egg-info/top_level.txt

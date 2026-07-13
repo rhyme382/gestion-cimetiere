@@ -2,74 +2,53 @@
 
 Date d'audit : 2026-07-11
 
-Question de référence : un agent de mairie peut-il effectuer l'opération dans l'application packagée, sans terminal ?
+## Positionnement de ce second audit
 
-## Verdict global
+Le premier audit `alpha-recovery` reste valable comme backlog de remise en etat Alpha-0.
+Ce second audit vise autre chose : le produit municipal complet cible, comparable aux logiciels de reference cites dans `SPEC.md`, et non seulement la remise en etat du code actuel.
 
-Le produit actuel est un prototype de consultation partielle, pas une alpha métier exploitable.
+## Regle de preuve retenue
 
-Fonctionnalités réellement utilisables aujourd'hui :
-- consulter le shell de navigation ;
-- consulter une liste de concessions ;
-- ouvrir une fiche concession par lien de détail ;
-- consulter une liste de défunts déjà présents ;
-- lancer une recherche simple sur des personnes ;
-- consulter le centre d'alertes si des alertes existent déjà ;
-- générer un PDF simple depuis une fiche concession ;
-- visualiser une cartographie de démonstration non reliée aux données réelles.
+Une fonctionnalite n'est comptee comme presente que si un agent de mairie peut l'utiliser dans l'application packagee, avec persistance reelle, respect des regles metier, acces sans terminal et preuve utilisateur possible.
 
-Fonctionnalités non réellement utilisables malgré la présence de code backend ou de pages :
-- création, modification et suppression métier ;
-- gestion réelle des cimetières ;
-- gestion réelle des emplacements ;
-- association concessionnaire / ayant droit / défunt depuis l'UI ;
-- restauration de sauvegarde ;
-- exploitation fiable des alertes en production ;
-- parcours packagés prouvés sur installateurs Windows/AppImage/.deb.
+## Matrice cible vs etat observe
 
-## Matrice
-
-| Domaine | Fonctionnalité attendue | État UI packagée | Verdict produit | Preuves lues |
+| Domaine | Portee cible finale | Etat du produit actuel package | Phase dominante | Taches ancrage |
 | --- | --- | --- | --- | --- |
-| Shell | Navigation entre pages principales | Sidebar et header présents | Oui | `src/components/layout/Sidebar.tsx`, `src/components/layout/Header.tsx`, `src/router.tsx` |
-| Dashboard | Voir quelques compteurs | Compteurs partiels, "Alertes actives" figé à `—`, pas de graphiques ni actions | Partiel | `src/pages/DashboardPage.tsx` |
-| Cimetières | Lister les cimetières | Page stub sans données ni actions | Non | `src/pages/CemeteriesPage.tsx` |
-| Cimetières | Créer / modifier / supprimer un cimetière | Aucun formulaire ni bouton branché | Non | `src/pages/CemeteriesPage.tsx`, `src/hooks/useCemeteries.ts` |
-| Emplacements | Voir le plan d'un cimetière réel | Carte basée sur `mockCemeteryMap`, pas sur SQLite | Non | `src/pages/EmplacementsPage.tsx`, `src/mocks/cemetery-map.ts` |
-| Emplacements | Sélectionner un emplacement | Sélection possible sur données mockées | Partiel | `src/components/map/CemeteryMap.tsx`, `src/pages/EmplacementsPage.tsx` |
-| Emplacements | Créer / modifier un emplacement | Aucun écran d'édition | Non | `src/pages/EmplacementsPage.tsx`, `src/hooks/usePlots.ts` |
-| Concessions | Lister les concessions | Tableau affiché, filtres de statut présents | Oui en lecture | `src/pages/ConcessionsPage.tsx`, `src/hooks/useConcessions.ts` |
-| Concessions | Ouvrir une fiche concession | Bouton `Détails` navigue vers la fiche | Oui en lecture | `src/pages/ConcessionsPage.tsx`, `src/pages/ConcessionDetailPage.tsx` |
-| Concessions | Créer une concession | Backend existe mais aucune UI de saisie | Non | `src/hooks/useConcessions.ts`, `src/lib/tauri.ts`, `src/pages/ConcessionsPage.tsx` |
-| Concessions | Modifier / renouveler / archiver / supprimer | Boutons visibles mais non branchés | Non | `src/pages/ConcessionDetailPage.tsx` |
-| Concessions | Voir l'emplacement lié | Mini `PlotViewer` affiché si `plot_id` existe | Oui en lecture partielle | `src/pages/ConcessionDetailPage.tsx`, `src/components/map/PlotViewer.tsx` |
-| Défunts | Lister les défunts | Liste filtrée sur `role === deceased` | Oui en lecture | `src/pages/DefuntsPage.tsx` |
-| Défunts | Ouvrir la fiche depuis la liste | Bouton `Détails` sans navigation | Non | `src/pages/DefuntsPage.tsx` |
-| Défunts | Ouvrir la fiche par URL directe | Route et page existent | Oui, seulement en accès direct | `src/router.tsx`, `src/pages/DefuntDetailPage.tsx` |
-| Personnes | Gérer concessionnaires / ayants droit | Pas de liste dédiée, pas de formulaires, données réduites au strict minimum | Non | `SPEC.md` sections 5.5/8.2, `src/types/bindings.ts`, `src/pages/DefuntsPage.tsx` |
-| Inhumations | Associer un défunt à une concession | Commande backend existante, aucune UI | Non | `src/hooks/useBurials.ts`, `src-tauri/src/commands/burial.rs` |
-| Opérations funéraires | Agenda / planning / autorisations | Aucun écran | Non | `SPEC.md` section 5.7, `src/router.tsx` |
-| Recherche | Chercher une personne | Formulaire fonctionnel pour une première recherche | Oui, limité | `src/pages/RecherchePage.tsx`, `src/hooks/useIndividuals.ts` |
-| Recherche | Chercher une concession par ID | Fonctionne par ID numérique | Oui, limité | `src/pages/RecherchePage.tsx` |
-| Recherche | Refaire plusieurs recherches successives | Hook `useQuery` ne dépend pas de la requête, risque de résultats figés | Non fiable | `src/hooks/useQuery.ts`, `src/pages/RecherchePage.tsx` |
-| Recherche | Ouvrir un résultat depuis `Voir` | Boutons `Voir` non branchés | Non | `src/pages/RecherchePage.tsx` |
-| Alertes | Voir les alertes existantes | Tableau et widget présents | Oui si données déjà calculées | `src/components/alerts/AlertsTable.tsx`, `src/components/alerts/AlertWidget.tsx` |
-| Alertes | Générer / rafraîchir les alertes depuis l'UI | Aucune page n'appelle `refresh_alerts` | Non | `src/hooks/useAlerts.ts`, `src/pages/DashboardPage.tsx`, `src/pages/AlertesPage.tsx` |
-| Alertes | Acquitter une alerte | Bouton branché | Oui | `src/components/alerts/AlertsTable.tsx`, `src/pages/ConcessionDetailPage.tsx` |
-| PDF | Générer un PDF de fiche concession | Bouton branché, chemin retourné affiché | Oui, document simple | `src/hooks/usePdfGeneration.ts`, `src/pages/ConcessionDetailPage.tsx`, `src-tauri/src/services/pdf_service.rs` |
-| PDF | Générer les documents administratifs du cahier des charges | Une seule fiche concession simple, sans modèles ni historique | Non | `SPEC.md` section 5.10, `src-tauri/src/commands/pdf.rs` |
-| Sauvegardes | Créer une sauvegarde | Bouton branché mais contrat UI/back incohérent après création | Partiel et fragile | `src/pages/SauvegardesPage.tsx`, `src/hooks/useBackups.ts`, `src-tauri/src/commands/backup.rs` |
-| Sauvegardes | Lister les sauvegardes | Backend renvoie `Vec<String>`, frontend attend des objets détaillés | Non | `src/hooks/useBackups.ts`, `src-tauri/src/commands/backup.rs`, `src-tauri/src/services/backup_service.rs` |
-| Sauvegardes | Restaurer une sauvegarde | Frontend envoie `{ filename }`, backend attend `backup_filename` | Non | `src/hooks/useBackups.ts`, `src-tauri/src/commands/backup.rs` |
-| Paramètres | Paramétrage communal | Page placeholder | Non | `src/pages/ParametresPage.tsx` |
-| Utilisateurs / droits | Gérer des rôles | Aucun module | Non | `SPEC.md` section 5.19, `src/router.tsx` |
-| Journal d'audit | Voir la traçabilité | Aucun module | Non | `SPEC.md` section 5.20, schéma SQLite actuel |
-| Import | Import CSV / Excel | Aucun module | Non | `SPEC.md` section 5.17, `src/router.tsx` |
-| Documents | Associer et consulter des pièces | Aucun module | Non | `SPEC.md` section 5.9, schéma SQLite actuel |
-| Packaging | Installer et lancer une build municipale validée | Rapports contradictoires ; artefacts finaux non prouvés | Non prouvé | `reports/release/pilot_v0.1_artifacts_report.md`, `reports/release/pilot_v0.1_release_status_final.md`, `reports/release/pilot_v0.1_release_validation.md` |
+| Referentiel communal et cimetieres | Multi-cimetières, identité communale, horaires, règlement, plans, notes et photos. | Page Cimetières placeholder, pas de CRUD packagé. | ALPHA-1, ALPHA-0, BETA-1 | FP-001, FP-002, FP-003 |
+| Sections, carres, rangees et emplacements | Maillage spatial complet, capacités, statuts et disponibilité exploitable. | Structure réduite aux plots simples ; pas de gestion UI réelle. | ALPHA-1 | FP-004, FP-005, FP-006 |
+| Columbariums, cavurnes, ossuaires et jardins du souvenir | Gestion distincte des espaces cinéraires et mémoriels. | Aucun support métier distinct hors type théorique dans SPEC. | ALPHA-1, ALPHA-2 | FP-007, FP-008, FP-009 |
+| Concessions | Cycle de vie complet : création, renouvellement, conversion, clôture, archive. | Lecture partielle seulement ; creation et edition non branchées. | ALPHA-1, ALPHA-0 | FP-010, FP-011, FP-012 |
+| Titulaires, cotitulaires et concessionnaires | Rôles juridiques différenciés et historisés. | Personnes réduites à name/email/phone/role sans lien riche. | ALPHA-1 | FP-013, FP-014, FP-015 |
+| Ayants droit, heritiers et liens familiaux | Réseau familial, preuves et statuts successoraux. | Absent. | ALPHA-2 | FP-016, FP-017, FP-018 |
+| Defunts | Identité civile complète, décès, rattachements et historique. | Lecture partielle ; creation et navigation incomplètes. | ALPHA-1, ALPHA-0 | FP-019, FP-020, FP-021 |
+| Inhumations | Enregistrement réglementé avec contrôles de capacité et autorisations. | Commande minimale existante sans parcours UI complet. | ALPHA-1, ALPHA-0 | FP-022, FP-023, FP-024 |
+| Exhumations | Demande, autorisation, exécution et destination. | Absent. | ALPHA-2 | FP-025, FP-026, FP-027 |
+| Reductions et reunions de corps | Opérations distinctes avec traçabilité des restes. | Absent. | ALPHA-2, BETA-1 | FP-028, FP-029, FP-030 |
+| Urnes, depots, retraits et dispersions | Cycle complet des urnes et dispersions. | Absent. | ALPHA-2 | FP-031, FP-032, FP-033 |
+| Transferts et mouvements funeraires | Journal unifié des mouvements de corps et d urnes. | Absent. | ALPHA-2, BETA-1 | FP-034, FP-035, FP-036 |
+| Cartographie de consultation | Localisation réelle des emplacements, concessions et défunts. | Carte mockée, non connectée à SQLite. | ALPHA-0, ALPHA-1 | FP-037, FP-038, FP-039 |
+| Cartographie editable | Edition des géométries, publication et versioning des plans. | Absent. | BETA-1 | FP-040, FP-041, FP-042 |
+| Echeances et renouvellements | Calcul d échéance, relances, renouvellements et états. | Alertes partielles ; renouvellement UI absent. | ALPHA-1, ALPHA-0 | FP-043, FP-044, FP-045 |
+| Procedures d abandon et de reprise | Dossier réglementaire complet avec délais et arrêtés. | Absent. | ALPHA-2 | FP-046, FP-047, FP-048 |
+| Documents administratifs | Catalogue des documents municipaux générés depuis les dossiers. | Un seul PDF simple de fiche concession. | ALPHA-2 | FP-049, FP-050, FP-051 |
+| Modeles, publipostage et historique documentaire | Modèles, fusion en lot, numérotation et historique. | Absent. | BETA-1 | FP-052, FP-053, FP-054 |
+| Tarifs, redevances et paiements | Grilles tarifaires, encaissement, impayés et reçus. | Absent. | ALPHA-1 | FP-055, FP-056, FP-057 |
+| Recherche multicritere et doublons | Recherche transversale, ouverture des résultats, détection de doublons. | Recherche simple fragile, ouverture résultats incomplète. | ALPHA-1, BETA-1, ALPHA-0 | FP-058, FP-059, FP-060 |
+| Tableaux de bord, statistiques et editions | KPI métier, éditions imprimables et analyses par période. | Dashboard partiel, compteurs incomplets. | ALPHA-1, BETA-1 | FP-061, FP-062, FP-063 |
+| Import CSV/Excel et reprise de donnees | Assistant d import, staging, validation, rollback. | Absent. | BETA-2 | FP-064, FP-065, FP-066 |
+| Documents joints et photographies | Pièces attachées, prévisualisation et sauvegarde avec la base. | Absent. | ALPHA-2 | FP-067, FP-068, FP-069 |
+| Utilisateurs, roles et habilitations | Profils locaux, restrictions d actions et administration. | Absent. | BETA-2 | FP-070, FP-071, FP-072 |
+| Journal d audit et tracabilite | Traçabilité immuable des actions et exports. | Absent. | BETA-2 | FP-073, FP-074, FP-075 |
+| Sauvegarde, restauration et integrite | Sauvegarde locale fiable, restauration validée, preuves d intégrité. | Backend existant mais contrat UI cassé et stockage à fiabiliser. | ALPHA-0 | FP-076, FP-077, FP-078 |
+| Parametrage communal | Identité de la commune, durées, alertes, types, couleurs et modèles. | Page Paramètres placeholder. | ALPHA-1, ALPHA-2 | FP-079, FP-080, FP-081 |
+| Packaging, installation et mises a jour | Installateurs prouvés, premier démarrage guidé, upgrade maîtrisé. | Configuration présente, usage final packagé non prouvé. | ALPHA-1, BETA-2 | FP-082, FP-083, FP-084 |
+| RGPD, export et conservation | Politiques de conservation, export, archivage, anonymisation. | Absent. | BETA-2 | FP-085, FP-086, FP-087 |
+| Aide, documentation et accompagnement utilisateur | Aide embarquée, onboarding et bundle de support. | Documentation technique présente, aide embarquée absente. | POST-BETA | FP-088, FP-089, FP-090 |
 
-## Lecture métier synthétique
+## Lectures transverses majeures
 
-Si une mairie reçoit aujourd'hui l'application packagée, elle peut surtout consulter des données déjà présentes, tester une carte de démonstration, voir quelques alertes et générer un PDF simple.
-
-Elle ne peut pas gérer réellement un cimetière de bout en bout sans terminal, car les parcours de saisie, d'association, de maintenance des données et de restauration ne sont pas opérationnels en UI.
+- Le frontend actuel prouve surtout des parcours de consultation partiels : concessions, defunts, alertes, PDF simple et carte de demonstration.
+- Le backend actuel couvre un noyau CRUD limite a `cemeteries`, `plots`, `concessions`, `individuals`, `burials` et `alerts`.
+- Le schema SQLite actuel ne couvre pas les pieces jointes, les procedures, les utilisateurs, le journal d audit, les tarifs, les imports ni la conservation RGPD.
+- Les rapports QA et release sont utiles comme indices, mais plusieurs se contredisent ou restent documentaires ; ils ne suffisent pas a prouver l usage municipal complet.

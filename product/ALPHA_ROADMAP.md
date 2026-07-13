@@ -1,113 +1,81 @@
-# Alpha Roadmap
+# ALPHA_ROADMAP
 
 Date d'audit : 2026-07-11
 
-## Positionnement proposé
+## Positionnement
 
-Le bon objectif n'est plus "confirmer un MVP déjà prêt". Le bon objectif est "atteindre une alpha réellement exploitable par une mairie pilote sur un poste local".
+Le premier audit `alpha-recovery` reste le backlog de remise en etat immediat. La presente roadmap reprend cette logique pour la phase `ALPHA-0`, puis l etend vers le produit municipal final jusqu a `POST-BETA`.
 
-## Alpha 1
+## Phases de livraison
 
-Nom : saisir les données cœur
+### ALPHA-0 — Reparer les parcours fondamentaux actuels
+- livrer les parcours UI manquants pour cimetières, concessions, défunts, inhumations et recherche ;
+- remplacer la cartographie mockée par une consultation réelle ;
+- fiabiliser sauvegarde/restauration et les chemins de stockage ;
+- rendre utilisables les échéances et le renouvellement minimal.
 
-But :
-- permettre à une mairie vide de démarrer sans terminal.
+### ALPHA-1 — Exploitation metier minimale
+- stabiliser le référentiel communal ;
+- rendre exploitables emplacements, concessions, titulaires, défunts, inhumations et recherche globale ;
+- activer tableau de bord, paramètres communaux et packaging de premier usage.
 
-Livrables attendus :
-- écran réel de liste et création des cimetières ;
-- écran réel de liste et création des emplacements ;
-- création et édition de concessions ;
-- création et édition de personnes et défunts ;
-- navigation fiable liste -> fiche -> retour.
+### ALPHA-2 — Procedures administratives et reglementaires
+- couvrir espaces cinéraires, ayants droit, exhumations, réductions, urnes, mouvements ;
+- livrer procédures de reprise, documents administratifs, pièces jointes et propagation des paramètres ;
+- introduire tarifs, paiements et preuves réglementaires.
 
-Critère de sortie :
-- un agent peut créer un cimetière, un emplacement, une concession et un défunt depuis l'UI.
+### BETA-1 — Fonctions avancees
+- édition cartographique ;
+- modèles documentaires, publipostage, historique ;
+- statistiques avancées, dédoublonnage, historiques de mouvements.
 
-## Alpha 2
+### BETA-2 — Securite, import, audit et deploiement complet
+- utilisateurs, rôles, habilitations ;
+- journal d audit ;
+- import CSV/Excel avec staging ;
+- RGPD, export, conservation ;
+- mise à jour applicative et validation QA des builds Windows/Linux.
 
-Nom : relier les entités métier
+### POST-BETA — Fonctions secondaires ou assistance avancee
+- aide embarquée ;
+- onboarding ;
+- bundle de support et diagnostic administrateur.
 
-But :
-- transformer les objets isolés en dossier cimetière exploitable.
+## Dependances racines
 
-Livrables attendus :
-- association concession <-> emplacement ;
-- association concession <-> concessionnaire / ayant droit ;
-- association concession <-> défunt via inhumation ;
-- ouverture des fiches depuis recherche et listes ;
-- carte branchée aux vraies données.
+- `FP-001` — Modeler le referentiel communal et les fiches cimetieres (Referentiel communal et cimetieres, backend)
+- `FP-013` — Modeler les roles de titulaire cotitulaire et concessionnaire (Titulaires, cotitulaires et concessionnaires, backend)
+- `FP-070` — Modeler les utilisateurs locaux roles et sessions (Utilisateurs, roles et habilitations, security)
+- `FP-076` — Migrer la base et les sauvegardes vers des repertoires applicatifs OS avec metadonnees d integrite (Sauvegarde, restauration et integrite, backend)
 
-Critère de sortie :
-- un agent peut retrouver un défunt, ouvrir sa fiche et le localiser sur le plan réel.
+## Correction explicite du sens des dependances
 
-## Alpha 3
+- `FP-014` (lier titulaires et concessions) precede `FP-015` (UI titulaires).
+- `FP-023` (workflow backend inhumation complet) precede `FP-024` (UI inhumation).
+- `FP-037` (donnees cartographiques reelles) precede `FP-038` (carte reelle) puis `FP-039` (localisation depuis la recherche).
+- `FP-077` (restauration backend fiable) precede `FP-078` (UI de sauvegarde/restauration).
+- `FP-070` et `FP-073` precede toute promesse serieuse de securite, audit et RGPD.
 
-Nom : fiabiliser exploitation et sécurité locale
+## Premier chemin critique recommande
 
-But :
-- rendre le poste de travail administrativement sûr.
+1. `FP-001` — modeler le référentiel communal et les fiches cimetières.
+2. `FP-004` — modeler la hiérarchie sections/carrés/rangées/emplacements.
+3. `FP-005` — implémenter le CRUD backend des emplacements et statuts.
+4. `FP-010` — modeler le contrat de concession et son cycle de vie.
+5. `FP-011` — implémenter les workflows backend des concessions.
+6. `FP-013` — modeler les rôles titulaires/cotitulaires/concessionnaires.
+7. `FP-014` — associer les titulaires aux concessions.
+8. `FP-019` — modeler l identité civile complète des défunts.
+9. `FP-020` — implémenter les workflows backend des défunts.
+10. `FP-022` puis `FP-023` — fiabiliser l inhumation et le lien défunt/concession/emplacement.
+11. `FP-037` puis `FP-038` — brancher la cartographie réelle.
+12. `FP-002`, `FP-006`, `FP-012`, `FP-021`, `FP-024`, `FP-045`, `FP-078` — livrer les parcours UI fondamentaux.
 
-Livrables attendus :
-- sauvegarde et restauration réellement fonctionnelles ;
-- recalcul et traitement des alertes depuis l'UI ;
-- confirmations de suppression et messages de succès/erreur cohérents ;
-- stockage base/sauvegardes dans des emplacements applicatifs OS.
+## Volumetrie du backlog
 
-Critère de sortie :
-- un agent peut créer une sauvegarde, la voir, restaurer, puis vérifier la récupération des données sans terminal.
-
-## Alpha 4
-
-Nom : documents et parcours administratifs
-
-But :
-- couvrir les actions visibles et utiles du quotidien mairie.
-
-Livrables attendus :
-- PDF concession lisible avec titulaire et défunts ;
-- fiche défunt exportable ;
-- statuts concession réellement modifiables ;
-- alertes d'échéance exploitables ;
-- premières preuves UI des parcours de renouvellement.
-
-Critère de sortie :
-- un agent peut traiter une concession arrivant à échéance et produire un document simple.
-
-## Alpha 5
-
-Nom : preuve packagée
-
-But :
-- cesser de raisonner sur la théorie du dépôt et prouver l'usage packagé.
-
-Livrables attendus :
-- installateur Windows testé ;
-- AppImage ou `.deb` testé ;
-- jeu de données de démonstration packagé ou procédure simple d'initialisation ;
-- campagne E2E réellement exécutable contre la build ;
-- compte rendu de validation utilisateur "sans terminal".
-
-Critère de sortie :
-- une personne non technique peut installer, lancer, saisir, rechercher, sauvegarder et générer un PDF.
-
-## Hors alpha immédiate
-
-À repousser après alpha exploitable :
-- portail public ;
-- QR codes ;
-- import CSV avancé ;
-- droits utilisateurs complets ;
-- journal d'audit complet ;
-- documents associés ;
-- procédures de reprise complètes ;
-- statistiques avancées.
-
-## Risque principal à piloter
-
-Le projet échoue si l'équipe continue à confondre :
-- présence de code backend ;
-- présence d'un écran ;
-- validation réelle d'une opération packagée.
-
-Le prochain pilotage doit imposer une règle simple :
-- une fonctionnalité n'existe que lorsqu'un agent municipal peut la terminer à l'écran, sur la build, avec une preuve UI et un test E2E utile.
+- `ALPHA-0` : 12 taches
+- `ALPHA-1` : 25 taches
+- `ALPHA-2` : 24 taches
+- `BETA-1` : 12 taches
+- `BETA-2` : 14 taches
+- `POST-BETA` : 3 taches

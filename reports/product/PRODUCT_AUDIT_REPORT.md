@@ -2,128 +2,55 @@
 
 ## objectif
 
-Vérifier, à partir des sources du dépôt et sans faire confiance aux anciens verdicts, quelles opérations un agent de mairie peut réellement accomplir dans l'application packagée sans terminal.
+Construire un backlog produit exhaustif du logiciel municipal cible, distinct du backlog `alpha-recovery`, en s'appuyant sur `SPEC.md`, `ROADMAP.md`, le depot reel, le schema SQLite, les tests, le packaging et les rapports.
 
-## périmètre audité
+## methode
 
-Sources lues :
-- `SPEC.md`, `ROADMAP.md`, `AGENTS.md`, `agents/STATUS.md`, `agents/QUEUE.md`
-- pages React, layout, composants alertes, cartographie, hooks, `src/lib/tauri.ts`, types
-- commandes Tauri Rust, services, migrations SQLite, schéma actuel
-- tests frontend, tests Rust, tests Playwright
-- rapports QA et release listés dans la demande
+- lecture croisee des specifications, roadmap, audit alpha existant, backlog archive, frontend, backend, migrations, tests et rapports ;
+- verification de la capacite réellement offerte dans l application packagee plutot que confiance aveugle dans les anciens verdicts ;
+- extension du perimetre vers le produit final, domaine par domaine, avec taches atomiques, phases et dependances orientees backend avant UI.
 
-## méthode
+## synthese
 
-Règle de décision utilisée :
-- une fonctionnalité n'est retenue comme présente que si un agent municipal peut la terminer dans l'UI, sans terminal, avec une preuve crédible dans les sources lues.
+Le premier audit reste valide pour la remise en etat Alpha-0. Ce second audit montre cependant qu un logiciel municipal comparable aux meilleurs outils etudies exige une cible bien plus large : 30 domaines, 90 taches atomiques, un modele de donnees fortement enrichi et des preuves packagées bien plus exigeantes.
 
-Ce qui n'a pas été accepté comme preuve suffisante :
-- existence d'un endpoint backend seul ;
-- présence d'un écran placeholder ;
-- bouton visible sans effet ;
-- rapport ancien contredit par le code ou par d'autres rapports.
-
-## constats principaux
-
-1. Le produit actuel est majoritairement lecture seule.
-2. Les parcours de saisie métier cœur ne sont pas terminés en UI.
-3. La cartographie affichée est une maquette branchée sur des mocks, pas sur la base réelle.
-4. La sauvegarde/restauration n'est pas fiable en UI à cause d'un contrat front/back incohérent.
-5. Les alertes sont consultables, mais leur recalcul n'est pas piloté depuis l'interface.
-6. Plusieurs boutons `Détails`, `Voir`, `Éditer`, `Imprimer` ou `Supprimer` sont inertes.
-7. Les anciens verdicts "ready" ne résistent pas à la lecture croisée du code, des tests et des rapports release.
-
-## verdict produit
-
-Verdict : **prototype avancé, non alpha métier exploitable**
-
-Un agent de mairie peut réellement :
-- naviguer dans l'application ;
-- consulter des concessions existantes ;
-- consulter des défunts existants ;
-- lancer une recherche simple ;
-- consulter des alertes existantes ;
-- acquitter une alerte ;
-- générer un PDF simple de concession ;
-- manipuler une cartographie de démonstration.
-
-Un agent de mairie ne peut pas réellement :
-- initialiser une base métier depuis l'UI ;
-- créer ou gérer un cimetière ;
-- créer ou gérer un emplacement ;
-- créer ou gérer une concession ;
-- créer ou rattacher correctement personnes, ayants droit et défunts ;
-- restaurer une sauvegarde ;
-- prouver un usage packagé validé sur installateur final.
-
-## écarts probants
-
-### UI placeholder ou non branchée
-
-- `src/pages/CemeteriesPage.tsx` est un placeholder.
-- `src/pages/ParametresPage.tsx` est un placeholder.
-- `src/pages/DefuntsPage.tsx` affiche un bouton `Détails` non branché.
-- `src/pages/RecherchePage.tsx` affiche des boutons `Voir` non branchés.
-- `src/pages/ConcessionDetailPage.tsx` et `src/pages/DefuntDetailPage.tsx` montrent des actions sans implémentation.
-
-### Contrats front/back incohérents
-
-- Les helpers `create*` et `update*` de `src/lib/tauri.ts` envoient `request`, alors que les commandes Rust acceptent `req`.
-- `restore_backup` côté frontend envoie `filename`, alors que la commande Rust attend `backup_filename`.
-- `list_backups` renvoie des chaînes, alors que l'UI attend des objets détaillés.
-
-### Cartographie non métier
-
-- `src/pages/EmplacementsPage.tsx` utilise `mockCemeteryMap`.
-- `src/mocks/cemetery-map.ts` pilote l'écran principal de cartographie.
-
-### Tests et release
-
-- `npm test -- --run` échoue actuellement faute de module `@testing-library/dom`.
-- Les Playwright présents contrôlent surtout visibilité et présence d'éléments.
-- Certaines specs visent `/dashboard`, route absente de `src/router.tsx`.
-- Les rapports release signalent encore des artefacts packagés manquants ou en attente de workflow.
-
-## commandes exécutées
-
-- lecture ciblée des sources listées dans la demande ;
-- `npm test -- --run`
-
-## résultat des vérifications exécutées
-
-### Vitest
-
-Résultat : échec
-
-Cause lue dans la sortie :
-- module manquant `@testing-library/dom`
-
-Effet :
-- les tests frontend déclarés "passants" ne sont pas reproductibles tels quels dans l'état courant du dépôt.
-
-## décision
-
-Ne pas présenter ce dépôt comme "MVP prêt mairie".
-
-Le positionnement honnête à la date de l'audit est :
-- socle technique utilisable ;
-- consultation partielle possible ;
-- alpha métier non atteinte.
+Constats determinant le backlog :
+- le backend actuel constitue un socle exploitable mais restreint ;
+- le frontend actuel reste majoritairement lecture seule ;
+- la cartographie de consultation n est pas encore reliée au réel ;
+- la suite backend Rust est reproductible ; la suite frontend échoue actuellement faute de `@testing-library/dom` ;
+- les preuves de packaging, d E2E réel et d exploitation réglementaire complète restent insuffisantes pour la cible finale.
 
 ## livrables produits
 
-- `product/FEATURE_MATRIX.md`
-- `product/GAP_ANALYSIS.md`
-- `product/USER_JOURNEYS.md`
-- `product/ALPHA_ROADMAP.md`
-- `tasks/backlog.json`
+- `product/FEATURE_MATRIX.md` : catalogue cible par domaine, mis en regard de l etat observe ;
+- `product/GAP_ANALYSIS.md` : analyse d ecarts exhaustive avec modele domaine cible ;
+- `product/USER_JOURNEYS.md` : parcours utilisateur finaux structurants ;
+- `product/ALPHA_ROADMAP.md` : roadmap produit et chemin critique ;
+- `tasks/backlog.json` : backlog exhaustif atomique conforme au schema demande ;
+- `reports/product/PRODUCT_AUDIT_REPORT.md` : synthese et metriques du second audit.
 
-## prochaine étape recommandée
+## metriques
 
-Traiter le backlog alpha en commençant par :
-1. création de cimetières, emplacements, concessions et personnes en UI ;
-2. correction des contrats Tauri réellement utilisés par l'interface ;
-3. cartographie réelle ;
-4. sauvegardes réellement exploitables ;
-5. preuve d'un parcours packagé sans terminal.
+- nombre de domaines : 30
+- nombre de taches : 90
+- nombre de taches ALPHA-0 : 12
+- nombre de taches ALPHA-1 : 25
+- nombre de taches ALPHA-2 : 24
+- nombre de taches BETA-1 : 12
+- nombre de taches BETA-2 : 14
+- nombre de taches POST-BETA : 3
+- nombre de taches critiques : 28
+- dependances racines : FP-001, FP-013, FP-070, FP-076
+- premier chemin critique recommande : `FP-001 -> FP-004 -> FP-005 -> FP-010 -> FP-011 -> FP-013 -> FP-014 -> FP-019 -> FP-020 -> FP-022 -> FP-023 -> FP-037 -> FP-038 -> parcours UI fondamentaux`
+
+## verifications executees pendant cet audit
+
+- `cargo test --manifest-path src-tauri/Cargo.toml -- --list` : 91 tests backend repertories ;
+- `npm test -- --run` : echec reproductible cote frontend, module `@testing-library/dom` manquant ;
+- lecture des specs Playwright : couverture majoritairement presence/visibilite, peu de preuves de parcours metier complets ;
+- lecture des rapports release : artefacts, workflow et validation finale se contredisent encore sur plusieurs points.
+
+## conclusion
+
+La cible produit finale ne peut pas etre ramenée aux 15 taches de remise en etat alpha. Le logiciel complet demande un backlog nettement plus large, couvrant non seulement le noyau concession/defunt/cartographie, mais aussi les espaces cinéraires, les procédures, la documentation, la sécurité locale, l audit, l import, le RGPD, le packaging prouvé et l aide utilisateur.

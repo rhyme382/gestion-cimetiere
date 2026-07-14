@@ -112,3 +112,7 @@ tasks/runtime/
 .autodev/runs/
 .autodev/worktrees/
 .autodev/state/
+
+# Playwright generated artifacts
+playwright-report/
+test-results/

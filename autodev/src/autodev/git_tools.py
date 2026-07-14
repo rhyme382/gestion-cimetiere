@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from shutil import rmtree
 
 from autodev.path_rules import normalize_repo_relative_path_text
 
@@ -147,6 +148,10 @@ def git_status_porcelain(repo_root: Path, cwd: Path | None = None) -> str:
     return git_output(repo_root, ["status", "--short"], cwd=cwd)
 
 
+def git_status_with_branch(repo_root: Path, cwd: Path | None = None) -> str:
+    return git_output_raw(repo_root, ["status", "--short", "--branch"], cwd=cwd)
+
+
 def is_ancestor(repo_root: Path, ancestor: str, descendant: str) -> bool:
     result = run_git(repo_root, ["merge-base", "--is-ancestor", ancestor, descendant])
     return result.returncode == 0
@@ -194,6 +199,49 @@ def create_commit(repo_root: Path, message: str, cwd: Path | None = None) -> Non
     if result.returncode != 0:
         stderr = result.stderr.strip() or result.stdout.strip()
         raise GitError(f"Impossible de créer le commit : {stderr}")
+
+
+def path_exists_in_commit(repo_root: Path, commit: str, path: str, cwd: Path | None = None) -> bool:
+    result = run_git(repo_root, ["cat-file", "-e", f"{commit}:{path}"], cwd=cwd)
+    return result.returncode == 0
+
+
+def unstage_paths(repo_root: Path, paths: list[str], cwd: Path | None = None) -> None:
+    if not paths:
+        return
+    result = run_git(repo_root, ["rm", "--cached", "--force", "--ignore-unmatch", "--", *paths], cwd=cwd)
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip()
+        raise GitError(f"Impossible de retirer les fichiers de l'index : {stderr}")
+
+
+def restore_paths(repo_root: Path, worktree_path: Path, source_commit: str, paths: list[str]) -> None:
+    if not paths:
+        return
+
+    tracked_in_source = [
+        path for path in paths if path_exists_in_commit(repo_root, source_commit, path, cwd=worktree_path)
+    ]
+    missing_in_source = [path for path in paths if path not in tracked_in_source]
+
+    if tracked_in_source:
+        result = run_git(
+            repo_root,
+            ["restore", "--source", source_commit, "--staged", "--worktree", "--", *tracked_in_source],
+            cwd=worktree_path,
+        )
+        if result.returncode != 0:
+            stderr = result.stderr.strip() or result.stdout.strip()
+            raise GitError(f"Impossible de restaurer les fichiers suivis : {stderr}")
+
+    if missing_in_source:
+        unstage_paths(repo_root, missing_in_source, cwd=worktree_path)
+        for raw_path in missing_in_source:
+            target = worktree_path / raw_path
+            if target.is_dir():
+                rmtree(target)
+            elif target.exists() or target.is_symlink():
+                target.unlink()
 
 
 def hard_reset(repo_root: Path, commit: str) -> None:

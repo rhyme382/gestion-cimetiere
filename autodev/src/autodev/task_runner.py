@@ -328,9 +328,9 @@ def ensure_paths_allowed(repo_root: Path, allowed_paths: list[str], modified_pat
     unauthorized: list[str] = []
 
     for modified_path in modified_paths:
-        candidate = Path(modified_path)
+        candidate = normalize_modified_path(modified_path)
         if not any(is_relative_to(candidate, allowed_path) for allowed_path in allowed):
-            unauthorized.append(modified_path)
+            unauthorized.append(candidate.as_posix())
 
     if unauthorized:
         joined = ", ".join(unauthorized)
@@ -340,6 +340,13 @@ def ensure_paths_allowed(repo_root: Path, allowed_paths: list[str], modified_pat
 def normalize_allowed_path(allowed_path: str) -> Path:
     try:
         return normalize_repo_relative_path(allowed_path)
+    except ValueError as exc:
+        raise RunTaskError(str(exc)) from exc
+
+
+def normalize_modified_path(modified_path: str) -> Path:
+    try:
+        return normalize_repo_relative_path(modified_path)
     except ValueError as exc:
         raise RunTaskError(str(exc)) from exc
 

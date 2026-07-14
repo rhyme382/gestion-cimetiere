@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from autodev.path_rules import normalize_repo_relative_path
 from autodev.task_runner import (
     RunTaskError,
     ensure_paths_allowed,
@@ -175,6 +176,44 @@ def test_allowed_paths_detection_rejects_outside_changes(tmp_path: Path) -> None
             ["src"],
             ["README.md", "src/ok.py"],
         )
+
+
+def test_allowed_paths_accept_expected_report_path(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+
+    ensure_paths_allowed(
+        repo,
+        ["reports/dev/"],
+        ["reports/dev/TASK-PILOT-002.md"],
+    )
+
+
+def test_allowed_paths_do_not_confuse_src_and_src_tauri(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+
+    with pytest.raises(RunTaskError, match="src-tauri/app\\.ts"):
+        ensure_paths_allowed(
+            repo,
+            ["src/"],
+            ["src-tauri/app.ts"],
+        )
+
+
+def test_allowed_paths_for_specific_file_only_allow_that_file(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+
+    with pytest.raises(RunTaskError, match="reports/dev/OTHER\\.md"):
+        ensure_paths_allowed(
+            repo,
+            ["reports/dev/TASK-PILOT-002.md"],
+            ["reports/dev/OTHER.md"],
+        )
+
+
+def test_normalize_repo_relative_path_preserves_first_character() -> None:
+    assert normalize_repo_relative_path("reports/dev/TASK-PILOT-002.md").as_posix() == "reports/dev/TASK-PILOT-002.md"
+    assert normalize_repo_relative_path("./reports/dev/TASK-PILOT-002.md").as_posix() == "reports/dev/TASK-PILOT-002.md"
+    assert normalize_repo_relative_path("src/lib/tauri.ts").as_posix() == "src/lib/tauri.ts"
 
 
 def test_dry_run_does_not_call_claude_or_create_worktree(tmp_path: Path) -> None:

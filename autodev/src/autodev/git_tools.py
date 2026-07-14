@@ -3,6 +3,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from autodev.path_rules import normalize_repo_relative_path_text
+
 
 class GitError(RuntimeError):
     """Erreur liée aux opérations Git."""
@@ -25,6 +27,14 @@ def git_output(repo_root: Path, args: list[str], cwd: Path | None = None) -> str
         stderr = result.stderr.strip() or result.stdout.strip() or "erreur Git inconnue"
         raise GitError(stderr)
     return result.stdout.strip()
+
+
+def git_output_raw(repo_root: Path, args: list[str], cwd: Path | None = None) -> str:
+    result = run_git(repo_root, args, cwd=cwd)
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip() or "erreur Git inconnue"
+        raise GitError(stderr)
+    return result.stdout
 
 
 def ensure_clean_worktree(repo_root: Path) -> None:
@@ -71,27 +81,45 @@ def add_worktree(repo_root: Path, worktree_path: Path, branch: str) -> None:
 
 
 def changed_paths_since(repo_root: Path, worktree_path: Path, base_commit: str) -> list[str]:
-    tracked = git_output(
+    tracked = git_output_raw(
         repo_root,
-        ["diff", "--name-only", base_commit, "HEAD"],
+        ["diff", "--name-only", "-z", base_commit],
         cwd=worktree_path,
     )
-    status = git_output(repo_root, ["status", "--short"], cwd=worktree_path)
+    untracked = git_output_raw(
+        repo_root,
+        ["ls-files", "--others", "--exclude-standard", "-z"],
+        cwd=worktree_path,
+    )
 
-    paths: set[str] = {line.strip() for line in tracked.splitlines() if line.strip()}
-    for raw_line in status.splitlines():
-        if not raw_line.strip():
-            continue
-        path_part = raw_line[3:]
-        if " -> " in path_part:
-            path_part = path_part.split(" -> ", maxsplit=1)[1]
-        paths.add(path_part.strip())
+    paths = parse_git_path_list(tracked)
+    paths.update(parse_git_path_list(untracked))
     return sorted(paths)
 
 
 def changed_paths_between(repo_root: Path, start_commit: str, end_commit: str) -> list[str]:
-    output = git_output(repo_root, ["diff", "--name-only", start_commit, end_commit])
-    return sorted(line.strip() for line in output.splitlines() if line.strip())
+    output = git_output_raw(repo_root, ["diff", "--name-only", "-z", start_commit, end_commit])
+    return sorted(parse_git_path_list(output))
+
+
+def dirty_paths(repo_root: Path, cwd: Path | None = None) -> list[str]:
+    unstaged = git_output_raw(repo_root, ["diff", "--name-only", "-z"], cwd=cwd)
+    staged = git_output_raw(repo_root, ["diff", "--cached", "--name-only", "-z"], cwd=cwd)
+    untracked = git_output_raw(repo_root, ["ls-files", "--others", "--exclude-standard", "-z"], cwd=cwd)
+
+    paths = parse_git_path_list(unstaged)
+    paths.update(parse_git_path_list(staged))
+    paths.update(parse_git_path_list(untracked))
+    return sorted(paths)
+
+
+def parse_git_path_list(output: str) -> set[str]:
+    paths: set[str] = set()
+    for entry in output.split("\0"):
+        if not entry:
+            continue
+        paths.add(normalize_repo_relative_path_text(entry))
+    return paths
 
 
 def commit_count_since(repo_root: Path, worktree_path: Path, base_commit: str) -> int:

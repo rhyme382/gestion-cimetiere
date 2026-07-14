@@ -11,6 +11,7 @@ from autodev.git_tools import (
     commit_merge,
     current_branch,
     current_head,
+    dirty_paths,
     ensure_clean_worktree,
     git_output,
     git_status_porcelain,
@@ -356,15 +357,7 @@ def record_text(path: Path, content: str) -> None:
 
 
 def has_unexpected_dirty_paths(repo_root: Path, allowed_prefixes: list[str]) -> bool:
-    status = git_status_porcelain(repo_root)
-    for raw_line in status.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        path_part = line[3:]
-        if " -> " in path_part:
-            path_part = path_part.split(" -> ", maxsplit=1)[1]
-        normalized = path_part.strip()
+    for normalized in dirty_paths(repo_root):
         if any(
             normalized == prefix or normalized.startswith(f"{prefix}/")
             for prefix in allowed_prefixes

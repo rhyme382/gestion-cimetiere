@@ -181,15 +181,22 @@ def find_unexpected_paths(allowed_paths: list[str], modified_paths: list[str]) -
     allowed = [normalize_allowed_path(item) for item in allowed_paths]
     unexpected: list[str] = []
     for modified_path in modified_paths:
-        candidate = Path(modified_path)
+        candidate = normalize_modified_path(modified_path)
         if not any(is_relative_to(candidate, allowed_path) for allowed_path in allowed):
-            unexpected.append(modified_path)
+            unexpected.append(candidate.as_posix())
     return unexpected
 
 
 def normalize_allowed_path(allowed_path: str) -> Path:
     try:
         return normalize_repo_relative_path(allowed_path)
+    except ValueError as exc:
+        raise ReviewTaskError(str(exc)) from exc
+
+
+def normalize_modified_path(modified_path: str) -> Path:
+    try:
+        return normalize_repo_relative_path(modified_path)
     except ValueError as exc:
         raise ReviewTaskError(str(exc)) from exc
 

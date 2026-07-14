@@ -48,22 +48,48 @@ def init_repo(tmp_path: Path) -> Path:
     return repo
 
 
-def write_backlog(repo: Path, tasks: list[dict[str, object]]) -> Path:
+def write_backlog(
+    repo: Path,
+    tasks: list[dict[str, object]],
+    *,
+    requirements: list[dict[str, object]] | None = None,
+) -> Path:
     backlog_dir = repo / ".autodev" / "plans"
     backlog_dir.mkdir(parents=True, exist_ok=True)
+    task_payloads = [dict(task) for task in tasks]
+    requirement_payloads = requirements
+    if requirement_payloads is None:
+        duplicate_default_requirement = (
+            len(task_payloads) > 1
+            and all(task.get("requirement_ids") == ["REQ-001"] for task in task_payloads)
+        )
+        if duplicate_default_requirement:
+            requirement_payloads = []
+            for index, task in enumerate(task_payloads, start=1):
+                requirement_id = f"REQ-{index:03d}"
+                task["requirement_ids"] = [requirement_id]
+                requirement_payloads.append(
+                    {
+                        "id": requirement_id,
+                        "description": f"Description requirement {requirement_id}",
+                        "acceptance_criteria": [f"Critère {index}"],
+                    }
+                )
+        else:
+            requirement_payloads = [
+                {
+                    "id": "REQ-001",
+                    "description": "Description requirement",
+                    "acceptance_criteria": ["Critère 1"],
+                }
+            ]
     backlog = {
         "feature_id": "FEATURE-TEST",
         "feature_title": "Feature test",
         "summary": "Résumé de test suffisant pour le backlog.",
         "specification_path": "SPEC.md",
-        "requirements": [
-            {
-                "id": "REQ-001",
-                "description": "Description requirement",
-                "acceptance_criteria": ["Critère 1"],
-            }
-        ],
-        "tasks": tasks,
+        "requirements": requirement_payloads,
+        "tasks": task_payloads,
     }
     path = backlog_dir / "test.backlog.json"
     path.write_text(json.dumps(backlog, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -79,18 +105,27 @@ def write_integration_result(repo: Path, task_id: str, status: str = "INTEGRATED
     )
 
 
-def make_task(task_id: str, *, depends_on: list[str] | None = None) -> dict[str, object]:
+def make_task(
+    task_id: str,
+    *,
+    depends_on: list[str] | None = None,
+    requirement_ids: list[str] | None = None,
+    acceptance_criteria: list[str] | None = None,
+    shared_requirement_justifications: dict[str, str] | None = None,
+) -> dict[str, object]:
     task: dict[str, object] = {
         "id": task_id,
         "title": f"Titre {task_id}",
         "description": "Description de tâche suffisamment longue.",
         "agent": "documentation",
         "depends_on": depends_on or [],
-        "requirement_ids": ["REQ-001"],
+        "requirement_ids": requirement_ids or ["REQ-001"],
         "allowed_paths": ["src", "reports/dev"],
         "validation_commands": [f'{sys.executable} -c "print(\'ok\')"'],
-        "acceptance_criteria": ["Accepter"],
+        "acceptance_criteria": acceptance_criteria or ["Accepter"],
     }
+    if shared_requirement_justifications is not None:
+        task["shared_requirement_justifications"] = shared_requirement_justifications
     return task
 
 

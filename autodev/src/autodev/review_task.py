@@ -90,6 +90,7 @@ def review_task(
         name_status_lines=review_delivery["name_status"],
         unexpected_paths=unexpected_paths,
         validation_payload=validation_payload,
+        dependency_context=collect_integrated_dependency_context(repo_root, backlog, task),
         diff_text=review_delivery["diff_text"],
     )
     (review_dir / "review-prompt.md").write_text(prompt, encoding="utf-8")
@@ -304,6 +305,7 @@ def build_review_prompt(
     name_status_lines: list[str],
     unexpected_paths: list[str],
     validation_payload: dict[str, Any],
+    dependency_context: list[dict[str, Any]],
     diff_text: str,
 ) -> str:
     specification = spec_path.read_text(encoding="utf-8")
@@ -315,6 +317,7 @@ def build_review_prompt(
     requirement_blob = json.dumps(requirements, ensure_ascii=False, indent=2)
     task_blob = json.dumps(task, ensure_ascii=False, indent=2)
     validation_blob = json.dumps(validation_payload, ensure_ascii=False, indent=2)
+    dependency_blob = json.dumps(dependency_context, ensure_ascii=False, indent=2)
     modified_blob = "\n".join(f"- {path}" for path in modified_paths) or "- Aucun"
     name_status_blob = "\n".join(f"- {line}" for line in name_status_lines) or "- Aucun"
     unexpected_blob = "\n".join(f"- {path}" for path in unexpected_paths) or "- Aucun"
@@ -328,6 +331,7 @@ Contraintes impératives :
 - ne modifier aucun fichier ;
 - ne proposer aucun merge ;
 - t'appuyer uniquement sur les informations fournies ;
+- évaluer la tâche courante avec son propre périmètre de preuve ;
 - appliquer strictement les règles de verdict ci-dessous.
 
 Backlog : `{backlog_json}`
@@ -341,6 +345,14 @@ Commit produit : `{produced_commit}`
 - `APPROVED` uniquement si toutes les exigences liées sont `PASS`, tous les critères d'acceptation sont `PASS`, les tests requis réussissent, aucun fichier hors périmètre n'est modifié et aucun problème `blocking` ou `major` n'est présent.
 - `CORRECTION_REQUIRED` si un critère ou une exigence est `FAIL`, si un test échoue, si un fichier hors périmètre est modifié ou si un problème `blocking` ou `major` est trouvé.
 - `HUMAN_REVIEW_REQUIRED` uniquement si une ambiguïté métier, une information manquante ou une impossibilité d'évaluer automatiquement empêche la décision.
+
+# Règles spécifiques aux dépendances intégrées
+
+- Les tâches dans `depends_on` déjà intégrées fournissent un contexte de preuve complémentaire.
+- N'exige jamais que les fichiers d'une dépendance intégrée réapparaissent dans le diff Git courant.
+- Si un livrable requis pour une exigence provient uniquement d'une dépendance déjà intégrée, utilise son artefact d'intégration et sa revue `APPROVED` comme preuve héritée.
+- Une tâche dépendante ne doit pas être pénalisée pour ne pas réimplémenter ni reprouver les exigences déjà satisfaites par ses dépendances intégrées.
+- Évalue les critères d'acceptation propres à la tâche courante avec le diff courant ; utilise les preuves héritées uniquement pour les livrables dépendants déjà intégrés.
 
 # Spécification source complète
 
@@ -384,6 +396,12 @@ Chemin : `{spec_path.relative_to(repo_root).as_posix()}`
 {validation_blob}
 ```
 
+# Dépendances intégrées et preuves héritées
+
+```json
+{dependency_blob}
+```
+
 # Diff Git complet
 
 ```diff
@@ -394,6 +412,60 @@ Chemin : `{spec_path.relative_to(repo_root).as_posix()}`
 
 La réponse doit respecter exactement le schéma JSON fourni par `--output-schema`.
 """
+
+
+def collect_integrated_dependency_context(
+    repo_root: Path,
+    backlog: dict[str, Any],
+    task: dict[str, Any],
+) -> list[dict[str, Any]]:
+    task_index = {
+        candidate["id"]: candidate
+        for candidate in backlog.get("tasks", [])
+        if isinstance(candidate, dict) and "id" in candidate
+    }
+    requirement_index = {
+        requirement["id"]: requirement
+        for requirement in backlog.get("requirements", [])
+        if isinstance(requirement, dict) and "id" in requirement
+    }
+
+    context: list[dict[str, Any]] = []
+    for dependency_id in task.get("depends_on", []):
+        if not isinstance(dependency_id, str):
+            continue
+        run_dir = repo_root / ".autodev" / "runs" / dependency_id
+        integration_result = load_optional_json(run_dir / "integration" / "integration-result.json")
+        if integration_result.get("status") != "INTEGRATED":
+            continue
+
+        dependency_task = task_index.get(dependency_id, {"id": dependency_id})
+        review_result = load_optional_json(run_dir / "review" / "review-result.json")
+        run_result = load_optional_json(run_dir / "result.json")
+        shared_requirements = sorted(
+            set(task.get("requirement_ids", [])) & set(dependency_task.get("requirement_ids", []))
+        )
+
+        context.append(
+            {
+                "task_id": dependency_id,
+                "integration_status": integration_result.get("status"),
+                "integration_commit": integration_result.get("integration_commit"),
+                "produced_commit": run_result.get("produced_commit"),
+                "review_verdict": review_result.get("verdict"),
+                "modified_paths": run_result.get("modified_paths", []),
+                "shared_requirements_with_current_task": shared_requirements,
+                "dependency_requirements": [
+                    requirement_index[requirement_id]
+                    for requirement_id in dependency_task.get("requirement_ids", [])
+                    if requirement_id in requirement_index
+                ],
+                "requirement_checks": review_result.get("requirement_checks", []),
+                "acceptance_checks": review_result.get("acceptance_checks", []),
+                "summary": review_result.get("summary", ""),
+            }
+        )
+    return context
 
 
 def run_codex_review(

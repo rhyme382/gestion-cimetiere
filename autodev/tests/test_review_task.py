@@ -50,6 +50,69 @@ def write_codex_result(output_path: Path, payload: dict[str, object]) -> None:
     output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def write_dependency_review_artifacts(
+    repo: Path,
+    *,
+    task_id: str,
+    produced_commit: str,
+    modified_paths: list[str],
+    requirement_checks: list[dict[str, object]],
+    acceptance_checks: list[dict[str, object]],
+) -> None:
+    run_dir = repo / ".autodev" / "runs" / task_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "result.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "status": "success",
+                "branch": f"autodev/{task_id}",
+                "worktree": str(repo / ".autodev" / "worktrees" / task_id),
+                "base_commit": "base",
+                "produced_commit": produced_commit,
+                "modified_paths": modified_paths,
+                "validations": [],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    review_dir = run_dir / "review"
+    review_dir.mkdir(parents=True, exist_ok=True)
+    (review_dir / "review-result.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "verdict": "APPROVED",
+                "summary": "preuve intégrée disponible",
+                "requirement_checks": requirement_checks,
+                "acceptance_checks": acceptance_checks,
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    integration_dir = run_dir / "integration"
+    integration_dir.mkdir(parents=True, exist_ok=True)
+    (integration_dir / "integration-result.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "status": "INTEGRATED",
+                "integration_commit": "integration-commit",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_review_unknown_task_raises(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     backlog = write_backlog(repo, [make_task("TASK-KNOWN")])
@@ -446,3 +509,181 @@ def test_validate_backlog_rejects_parent_segment_allowed_path() -> None:
 
     with pytest.raises(PlanningError, match="Chemin avec '\\.\\.' interdit"):
         validate_backlog_consistency(backlog)
+
+
+def test_review_task_uses_integrated_dependency_proof_without_requiring_dependency_files(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    requirements = [
+        {
+            "id": "REQ-CONTRACT",
+            "description": "Le diagnostic UI doit consommer le contrat TypeScript stabilisé.",
+            "acceptance_criteria": ["Le contrat de diagnostic est exposé et utilisé côté UI."],
+        }
+    ]
+    backlog = write_backlog(
+        repo,
+        [
+            make_task(
+                "TASK-CONTRACT",
+                requirement_ids=["REQ-CONTRACT"],
+                acceptance_criteria=["Expose DiagnosticDTO et getDiagnostic()."],
+                shared_requirement_justifications={
+                    "REQ-CONTRACT": "Le contrat backend couvre explicitement la partie exposition TypeScript."
+                },
+            ),
+            make_task(
+                "TASK-UI",
+                depends_on=["TASK-CONTRACT"],
+                requirement_ids=["REQ-CONTRACT"],
+                acceptance_criteria=["Affiche le diagnostic en réutilisant le contrat existant sans le modifier."],
+                shared_requirement_justifications={
+                    "REQ-CONTRACT": "La même exigence est partagée car cette tâche couvre uniquement la consommation UI."
+                },
+            ),
+        ],
+        requirements=requirements,
+    )
+    commit_all(repo, "add backlog")
+
+    base_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    dependency_branch = "autodev/TASK-CONTRACT"
+    subprocess.run(["git", "checkout", "-b", dependency_branch], cwd=repo, check=True, capture_output=True, text=True)
+    contract_file = repo / "src" / "lib" / "diagnostic.ts"
+    contract_file.parent.mkdir(parents=True, exist_ok=True)
+    contract_file.write_text("export type DiagnosticDTO = { status: string };\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "add contract"], cwd=repo, check=True, capture_output=True, text=True)
+    contract_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    subprocess.run(["git", "checkout", "-"], cwd=repo, check=True, capture_output=True, text=True)
+
+    write_dependency_review_artifacts(
+        repo,
+        task_id="TASK-CONTRACT",
+        produced_commit=contract_commit,
+        modified_paths=["src/lib/diagnostic.ts"],
+        requirement_checks=[
+            {
+                "requirement_id": "REQ-CONTRACT",
+                "status": "PASS",
+                "evidence": ["DiagnosticDTO et getDiagnostic() sont déjà validés dans la dépendance intégrée."],
+            }
+        ],
+        acceptance_checks=[
+            {
+                "criterion": "Expose DiagnosticDTO et getDiagnostic().",
+                "status": "PASS",
+                "evidence": ["Le contrat TypeScript est présent dans src/lib/diagnostic.ts."],
+            }
+        ],
+    )
+
+    branch = "autodev/TASK-UI"
+    subprocess.run(["git", "checkout", "-b", branch], cwd=repo, check=True, capture_output=True, text=True)
+    ui_file = repo / "src" / "ui.tsx"
+    ui_file.parent.mkdir(parents=True, exist_ok=True)
+    ui_file.write_text("import type { DiagnosticDTO } from './lib/diagnostic';\n", encoding="utf-8")
+    subprocess.run(["git", "add", "src/ui.tsx"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "use contract in ui"], cwd=repo, check=True, capture_output=True, text=True)
+    ui_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    run_dir = repo / ".autodev" / "runs" / "TASK-UI"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "task.json").write_text(
+        json.dumps(
+            {
+                "backlog": str(backlog),
+                "task": make_task("TASK-UI", depends_on=["TASK-CONTRACT"]),
+                "branch": branch,
+                "worktree": str(repo / ".autodev" / "worktrees" / "TASK-UI"),
+                "base_commit": base_commit,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps(
+            {
+                "task_id": "TASK-UI",
+                "status": "success",
+                "branch": branch,
+                "worktree": str(repo / ".autodev" / "worktrees" / "TASK-UI"),
+                "base_commit": base_commit,
+                "produced_commit": ui_commit,
+                "modified_paths": ["src/ui.tsx"],
+                "validations": [
+                    {
+                        "command": "pytest -q",
+                        "returncode": 0,
+                        "stdout": "ok\n",
+                        "stderr": "",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    prompt_holder: dict[str, str] = {}
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        prompt_holder["prompt"] = str(kwargs["prompt"])
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "TASK-UI",
+                "verdict": "APPROVED",
+                "summary": "ok",
+                "requirement_checks": [
+                    {
+                        "requirement_id": "REQ-CONTRACT",
+                        "status": "PASS",
+                        "evidence": ["Le diff UI consomme le contrat déjà validé côté dépendance intégrée."],
+                    }
+                ],
+                "acceptance_checks": [
+                    {
+                        "criterion": "Affiche le diagnostic en réutilisant le contrat existant sans le modifier.",
+                        "status": "PASS",
+                        "evidence": ["src/ui.tsx importe DiagnosticDTO sans modifier src/lib/diagnostic.ts."],
+                    }
+                ],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    result = review_task(backlog, "TASK-UI", codex_runner=fake_codex_runner)
+
+    assert result["verdict"] == "APPROVED"
+    prompt = prompt_holder["prompt"]
+    assert "# Dépendances intégrées et preuves héritées" in prompt
+    assert "TASK-CONTRACT" in prompt
+    assert "src/lib/diagnostic.ts" in prompt
+    assert "N'exige jamais que les fichiers d'une dépendance intégrée réapparaissent dans le diff Git courant." in prompt
+    assert "- src/ui.tsx" in prompt
+    assert "shared_requirements_with_current_task" in prompt

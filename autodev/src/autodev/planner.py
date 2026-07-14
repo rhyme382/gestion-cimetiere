@@ -137,6 +137,8 @@ def validate_backlog_consistency(backlog: dict[str, Any]) -> None:
                 f"{task_id} référence des exigences inconnues : {requirements_list}"
             )
 
+        validate_shared_requirement_justifications(task, requirement_ids)
+
         validate_allowed_paths(task)
         validate_agent_assignment(task)
 
@@ -150,6 +152,7 @@ def validate_backlog_consistency(backlog: dict[str, Any]) -> None:
         missing = ", ".join(sorted(uncovered))
         raise PlanningError(f"Exigences non couvertes par les tâches : {missing}")
 
+    validate_requirement_allocations(tasks)
     _validate_no_dependency_cycle(tasks)
 
 
@@ -192,6 +195,64 @@ def validate_allowed_paths(task: dict[str, Any]) -> None:
             raise PlanningError(
                 f"{task_id} contient un allowed_path invalide : {exc}"
             ) from exc
+
+
+def validate_shared_requirement_justifications(
+    task: dict[str, Any],
+    requirement_ids: set[str],
+) -> None:
+    task_id = task["id"]
+    raw = task.get("shared_requirement_justifications", {})
+    if raw is None:
+        return
+    if not isinstance(raw, dict):
+        raise PlanningError(
+            f"{task_id} contient shared_requirement_justifications invalide."
+        )
+
+    task_requirements = set(task["requirement_ids"])
+    for requirement_id, justification in raw.items():
+        if requirement_id not in requirement_ids:
+            raise PlanningError(
+                f"{task_id} justifie un partage pour une exigence inconnue : {requirement_id}"
+            )
+        if requirement_id not in task_requirements:
+            raise PlanningError(
+                f"{task_id} justifie un partage pour une exigence non rattachée : {requirement_id}"
+            )
+        if not isinstance(justification, str) or not justification.strip():
+            raise PlanningError(
+                f"{task_id} doit fournir une justification textuelle pour {requirement_id}."
+            )
+
+
+def validate_requirement_allocations(tasks: list[dict[str, Any]]) -> None:
+    assignments: dict[str, list[dict[str, Any]]] = {}
+    for task in tasks:
+        for requirement_id in task["requirement_ids"]:
+            assignments.setdefault(requirement_id, []).append(task)
+
+    duplicated = {
+        requirement_id: attached_tasks
+        for requirement_id, attached_tasks in assignments.items()
+        if len(attached_tasks) > 1
+    }
+
+    for requirement_id, attached_tasks in duplicated.items():
+        missing_justification = [
+            task["id"]
+            for task in attached_tasks
+            if not str(
+                task.get("shared_requirement_justifications", {}).get(requirement_id, "")
+            ).strip()
+        ]
+        if missing_justification:
+            task_list = ", ".join(sorted(task["id"] for task in attached_tasks))
+            missing_list = ", ".join(sorted(missing_justification))
+            raise PlanningError(
+                f"Exigence {requirement_id} rattachée à plusieurs tâches ({task_list}) "
+                f"sans justification explicite pour : {missing_list}"
+            )
 
 
 def plan_feature(spec_path: Path) -> tuple[Path, dict[str, Any]]:

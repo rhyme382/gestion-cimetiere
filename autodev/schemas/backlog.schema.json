@@ -136,6 +136,14 @@
             "items": {
               "type": "string"
             }
+          },
+          "shared_requirement_justifications": {
+            "type": "object",
+            "default": {},
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 10
+            }
           }
         }
       }

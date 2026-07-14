@@ -30,6 +30,12 @@ Règles impératives :
 14. Ne suppose pas que l'architecture actuelle est correcte : inspecte le dépôt en lecture seule.
 15. Ne modifie aucun fichier.
 16. Retourne uniquement l'objet JSON demandé.
+17. N'attache pas une même exigence à plusieurs tâches par défaut.
+18. Attribue chaque exigence à la tâche qui produit la preuve principale de sa satisfaction.
+19. Une tâche dépendante ne doit ni réimplémenter ni reprouver les exigences déjà satisfaites par ses dépendances.
+20. Utilise les critères d'acceptation propres à chaque tâche pour décrire les contributions intermédiaires.
+21. Une exigence transversale ne peut être partagée entre plusieurs tâches que si chaque part à livrer est explicitement décrite et justifiée.
+22. Si une exigence est volontairement partagée, renseigne `shared_requirement_justifications` sur chaque tâche concernée avec une justification explicite par identifiant d'exigence.
 
 Les tâches seront ensuite exécutées automatiquement. Elles doivent donc être précises, autonomes et sans ambiguïté.
 
@@ -44,3 +50,10 @@ Règles d'affectation des agents :
 - documentation : documentation utilisateur ou technique.
 
 Une commande Tauri ne doit jamais être attribuée à l'agent mapping sauf si son objet principal est explicitement cartographique.
+
+Règles d'allocation des exigences :
+
+- préfère une relation 1 exigence -> 1 tâche ;
+- rattache l'exigence au livrable qui constitue la preuve principale ;
+- pour une tâche de dépendance UI, API, contrat ou wiring, décris la part attendue via `acceptance_criteria` au lieu de recopier les exigences déjà couvertes par une autre tâche ;
+- n'utilise `shared_requirement_justifications` que pour un vrai partage d'exigence, jamais pour recopier une exigence déjà satisfaite ailleurs.

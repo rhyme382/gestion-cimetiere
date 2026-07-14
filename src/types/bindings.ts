@@ -200,3 +200,12 @@ export interface AlertSummaryDTO {
   warning_count: number;
   info_count: number;
 }
+
+// --- Diagnostic ---
+
+export interface DiagnosticDTO {
+  health: string;
+  sqlite_available: boolean;
+  app_version: string;
+  message: string;
+}

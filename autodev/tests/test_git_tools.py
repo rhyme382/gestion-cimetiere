@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from autodev.git_tools import changed_paths_between, changed_paths_since
+from autodev.git_tools import changed_paths_between, changed_paths_since, name_status_between
 
 from test_task_runner import commit_all, init_repo
 
@@ -62,3 +62,36 @@ def test_changed_paths_between_keeps_expected_relative_path(tmp_path: Path) -> N
     modified_paths = changed_paths_between(repo, base_commit, head_commit)
 
     assert modified_paths == ["src/lib/tauri.ts"]
+
+
+def test_name_status_between_keeps_expected_relative_path(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    base_commit = (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        .stdout.strip()
+    )
+
+    target = repo / "src" / "lib" / "tauri.ts"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("export const value = 1;\n", encoding="utf-8")
+    commit_all(repo, "add tauri helper")
+    head_commit = (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        .stdout.strip()
+    )
+
+    name_status = name_status_between(repo, base_commit, head_commit)
+
+    assert name_status == ["A\tsrc/lib/tauri.ts"]

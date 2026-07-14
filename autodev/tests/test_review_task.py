@@ -235,6 +235,155 @@ def test_review_task_reruns_validations_without_real_codex(tmp_path: Path) -> No
     assert validation_results["results"][0]["stdout"].strip() == "rerun-ok"
 
 
+def test_review_task_rebuilds_review_scope_from_current_branch_head(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    backlog = write_backlog(repo, [make_task("TASK-AMEND-REVIEW")])
+    commit_all(repo, "add backlog")
+    base_commit = (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        .stdout.strip()
+    )
+
+    branch = "autodev/TASK-AMEND-REVIEW"
+    subprocess.run(["git", "checkout", "-b", branch], cwd=repo, check=True, capture_output=True, text=True)
+
+    allowed = repo / "src" / "reviewed.txt"
+    allowed.parent.mkdir(parents=True, exist_ok=True)
+    allowed.write_text("current\n", encoding="utf-8")
+    obsolete = repo / "tests" / "e2e" / "10-diagnostic.spec.ts"
+    obsolete.parent.mkdir(parents=True, exist_ok=True)
+    obsolete.write_text("obsolete\n", encoding="utf-8")
+    commit_all(repo, "introduce stale review scope")
+    stale_commit = (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        .stdout.strip()
+    )
+
+    subprocess.run(["git", "rm", "--", str(obsolete.relative_to(repo))], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "--amend", "--no-edit"], cwd=repo, check=True, capture_output=True, text=True)
+    current_commit = (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        .stdout.strip()
+    )
+
+    run_dir = repo / ".autodev" / "runs" / "TASK-AMEND-REVIEW"
+    review_dir = run_dir / "review"
+    review_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "task.json").write_text(
+        json.dumps(
+            {
+                "backlog": str(backlog),
+                "task": make_task("TASK-AMEND-REVIEW"),
+                "branch": branch,
+                "worktree": str(repo / ".autodev" / "worktrees" / "TASK-AMEND-REVIEW"),
+                "base_commit": base_commit,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps(
+            {
+                "task_id": "TASK-AMEND-REVIEW",
+                "status": "success",
+                "branch": branch,
+                "worktree": str(repo / ".autodev" / "worktrees" / "TASK-AMEND-REVIEW"),
+                "base_commit": base_commit,
+                "produced_commit": stale_commit,
+                "modified_paths": ["src/reviewed.txt", "tests/e2e/10-diagnostic.spec.ts"],
+                "validations": [
+                    {
+                        "command": "pytest -q",
+                        "returncode": 0,
+                        "stdout": "ok\n",
+                        "stderr": "",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "diff.patch").write_text(
+        "diff --git a/tests/e2e/10-diagnostic.spec.ts b/tests/e2e/10-diagnostic.spec.ts\n",
+        encoding="utf-8",
+    )
+    (review_dir / "current-diff.patch").write_text(
+        "stale review artifact referencing tests/e2e/10-diagnostic.spec.ts\n",
+        encoding="utf-8",
+    )
+
+    prompt_holder: dict[str, str] = {}
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        prompt_holder["prompt"] = str(kwargs["prompt"])
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "TASK-AMEND-REVIEW",
+                "verdict": "APPROVED",
+                "summary": "ok",
+                "requirement_checks": [
+                    {
+                        "requirement_id": "REQ-001",
+                        "status": "PASS",
+                        "evidence": [],
+                    }
+                ],
+                "acceptance_checks": [
+                    {
+                        "criterion": "Accepter",
+                        "status": "PASS",
+                        "evidence": [],
+                    }
+                ],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    result = review_task(backlog, "TASK-AMEND-REVIEW", codex_runner=fake_codex_runner)
+
+    assert result["verdict"] == "APPROVED"
+    assert current_commit != stale_commit
+    prompt = prompt_holder["prompt"]
+    assert current_commit in prompt
+    assert stale_commit not in prompt
+    assert "- src/reviewed.txt" in prompt
+    assert "tests/e2e/10-diagnostic.spec.ts" not in prompt
+    assert "- A\tsrc/reviewed.txt" in prompt
+
+    current_paths = json.loads((review_dir / "current-paths.json").read_text(encoding="utf-8"))
+    assert current_paths["produced_commit"] == current_commit
+    assert current_paths["modified_paths"] == ["src/reviewed.txt"]
+    assert current_paths["name_status"] == ["A\tsrc/reviewed.txt"]
+    assert "10-diagnostic.spec.ts" not in (review_dir / "current-diff.patch").read_text(encoding="utf-8")
+    assert (review_dir / "current-name-status.txt").read_text(encoding="utf-8").strip() == "A\tsrc/reviewed.txt"
+
+
 def test_validate_backlog_rejects_absolute_allowed_path() -> None:
     backlog = {
         "feature_id": "FEATURE-TEST",

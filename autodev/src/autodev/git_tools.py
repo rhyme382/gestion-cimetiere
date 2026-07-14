@@ -103,6 +103,21 @@ def changed_paths_between(repo_root: Path, start_commit: str, end_commit: str) -
     return sorted(parse_git_path_list(output))
 
 
+def name_status_between(repo_root: Path, start_commit: str, end_commit: str) -> list[str]:
+    output = git_output_raw(repo_root, ["diff", "--name-status", "--find-renames", start_commit, end_commit])
+    lines: list[str] = []
+    for raw_line in output.splitlines():
+        if not raw_line.strip():
+            continue
+        parts = raw_line.split("\t")
+        if len(parts) < 2:
+            raise GitError(f"Sortie git diff --name-status invalide : {raw_line}")
+        status = parts[0]
+        normalized_paths = [normalize_repo_relative_path_text(path) for path in parts[1:]]
+        lines.append("\t".join([status, *normalized_paths]))
+    return lines
+
+
 def dirty_paths(repo_root: Path, cwd: Path | None = None) -> list[str]:
     unstaged = git_output_raw(repo_root, ["diff", "--name-only", "-z"], cwd=cwd)
     staged = git_output_raw(repo_root, ["diff", "--cached", "--name-only", "-z"], cwd=cwd)

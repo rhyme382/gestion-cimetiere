@@ -8,10 +8,11 @@ from typing import Any
 from autodev.git_tools import (
     GitError,
     branch_exists,
+    branch_head,
     changed_paths_between,
     diff_patch_between,
     git_status_porcelain,
-    head_commit,
+    name_status_between,
 )
 from autodev.path_rules import normalize_repo_relative_path
 from autodev.planner import PlanningError, find_repo_root, load_json, validate_backlog_consistency
@@ -58,9 +59,9 @@ def review_task(
     task_record = load_optional_json(run_dir / "task.json")
     base_commit = resolve_base_commit(run_result, task_record)
     worktree = resolve_worktree(repo_root, task_id, run_result, task_record)
-    produced_commit = resolve_produced_commit(repo_root, worktree, run_result)
-
-    modified_paths = changed_paths_between(repo_root, base_commit, produced_commit)
+    produced_commit = resolve_produced_commit(repo_root, branch)
+    review_delivery = collect_review_delivery(repo_root, review_dir, base_commit, produced_commit)
+    modified_paths = review_delivery["modified_paths"]
     unexpected_paths = find_unexpected_paths(task["allowed_paths"], modified_paths)
 
     validation_results, validation_source = load_or_rerun_validations(
@@ -86,9 +87,10 @@ def review_task(
         base_commit=base_commit,
         produced_commit=produced_commit,
         modified_paths=modified_paths,
+        name_status_lines=review_delivery["name_status"],
         unexpected_paths=unexpected_paths,
         validation_payload=validation_payload,
-        diff_text=diff_patch_between(repo_root, base_commit, produced_commit),
+        diff_text=review_delivery["diff_text"],
     )
     (review_dir / "review-prompt.md").write_text(prompt, encoding="utf-8")
 
@@ -163,18 +165,46 @@ def resolve_worktree(
 
 def resolve_produced_commit(
     repo_root: Path,
-    worktree: Path,
-    run_result: dict[str, Any],
+    branch: str,
 ) -> str:
-    produced_commit = run_result.get("produced_commit")
-    if isinstance(produced_commit, str) and produced_commit.strip():
-        return produced_commit
-    if worktree.exists():
-        try:
-            return head_commit(repo_root, worktree)
-        except GitError as exc:
-            raise ReviewTaskError(str(exc)) from exc
-    raise ReviewTaskError("Commit produit introuvable pour la revue.")
+    try:
+        return branch_head(repo_root, branch)
+    except GitError as exc:
+        raise ReviewTaskError(str(exc)) from exc
+
+
+def collect_review_delivery(
+    repo_root: Path,
+    review_dir: Path,
+    base_commit: str,
+    produced_commit: str,
+) -> dict[str, Any]:
+    try:
+        modified_paths = changed_paths_between(repo_root, base_commit, produced_commit)
+        name_status = name_status_between(repo_root, base_commit, produced_commit)
+        diff_text = diff_patch_between(repo_root, base_commit, produced_commit)
+    except GitError as exc:
+        raise ReviewTaskError(str(exc)) from exc
+
+    write_json(
+        review_dir / "current-paths.json",
+        {
+            "base_commit": base_commit,
+            "produced_commit": produced_commit,
+            "modified_paths": modified_paths,
+            "name_status": name_status,
+        },
+    )
+    (review_dir / "current-name-status.txt").write_text(
+        "\n".join(name_status) + ("\n" if name_status else ""),
+        encoding="utf-8",
+    )
+    (review_dir / "current-diff.patch").write_text(diff_text, encoding="utf-8")
+    return {
+        "modified_paths": modified_paths,
+        "name_status": name_status,
+        "diff_text": diff_text,
+    }
 
 
 def find_unexpected_paths(allowed_paths: list[str], modified_paths: list[str]) -> list[str]:
@@ -271,6 +301,7 @@ def build_review_prompt(
     base_commit: str,
     produced_commit: str,
     modified_paths: list[str],
+    name_status_lines: list[str],
     unexpected_paths: list[str],
     validation_payload: dict[str, Any],
     diff_text: str,
@@ -285,6 +316,7 @@ def build_review_prompt(
     task_blob = json.dumps(task, ensure_ascii=False, indent=2)
     validation_blob = json.dumps(validation_payload, ensure_ascii=False, indent=2)
     modified_blob = "\n".join(f"- {path}" for path in modified_paths) or "- Aucun"
+    name_status_blob = "\n".join(f"- {line}" for line in name_status_lines) or "- Aucun"
     unexpected_blob = "\n".join(f"- {path}" for path in unexpected_paths) or "- Aucun"
 
     return f"""# Revue automatique de tâche autodev
@@ -337,6 +369,10 @@ Chemin : `{spec_path.relative_to(repo_root).as_posix()}`
 # Fichiers modifiés
 
 {modified_blob}
+
+# Git name-status
+
+{name_status_blob}
 
 # Fichiers hors périmètre détectés
 

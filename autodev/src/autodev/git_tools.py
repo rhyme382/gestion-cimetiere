@@ -37,6 +37,13 @@ def current_head(repo_root: Path) -> str:
     return git_output(repo_root, ["rev-parse", "HEAD"])
 
 
+def current_branch(repo_root: Path, cwd: Path | None = None) -> str:
+    branch = git_output(repo_root, ["rev-parse", "--abbrev-ref", "HEAD"], cwd=cwd)
+    if branch == "HEAD":
+        raise GitError("La branche courante est détachée, intégration refusée.")
+    return branch
+
+
 def branch_exists(repo_root: Path, branch: str) -> bool:
     result = run_git(repo_root, ["show-ref", "--verify", "--quiet", f"refs/heads/{branch}"])
     return result.returncode == 0
@@ -96,6 +103,10 @@ def head_commit(repo_root: Path, worktree_path: Path) -> str:
     return git_output(repo_root, ["rev-parse", "HEAD"], cwd=worktree_path)
 
 
+def branch_head(repo_root: Path, branch: str) -> str:
+    return git_output(repo_root, ["rev-parse", branch])
+
+
 def diff_patch(repo_root: Path, worktree_path: Path, base_commit: str) -> str:
     return git_output(repo_root, ["diff", "--binary", base_commit, "HEAD"], cwd=worktree_path)
 
@@ -106,3 +117,45 @@ def diff_patch_between(repo_root: Path, start_commit: str, end_commit: str) -> s
 
 def git_status_porcelain(repo_root: Path, cwd: Path | None = None) -> str:
     return git_output(repo_root, ["status", "--short"], cwd=cwd)
+
+
+def is_ancestor(repo_root: Path, ancestor: str, descendant: str) -> bool:
+    result = run_git(repo_root, ["merge-base", "--is-ancestor", ancestor, descendant])
+    return result.returncode == 0
+
+
+def merge_no_commit(repo_root: Path, branch: str) -> subprocess.CompletedProcess[str]:
+    return run_git(repo_root, ["merge", "--no-ff", "--no-commit", branch])
+
+
+def merge_abort(repo_root: Path) -> None:
+    result = run_git(repo_root, ["merge", "--abort"])
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip()
+        raise GitError(f"Impossible d'abandonner le merge en cours : {stderr}")
+
+
+def has_merge_conflicts(repo_root: Path) -> bool:
+    result = run_git(repo_root, ["diff", "--name-only", "--diff-filter=U"])
+    return bool(result.stdout.strip())
+
+
+def commit_merge(repo_root: Path, message: str) -> None:
+    result = run_git(repo_root, ["commit", "-m", message])
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip()
+        raise GitError(f"Impossible de créer le commit de merge : {stderr}")
+
+
+def hard_reset(repo_root: Path, commit: str) -> None:
+    result = run_git(repo_root, ["reset", "--hard", commit])
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip()
+        raise GitError(f"Impossible de revenir à {commit}: {stderr}")
+
+
+def remove_worktree(repo_root: Path, worktree_path: Path) -> None:
+    result = run_git(repo_root, ["worktree", "remove", str(worktree_path)])
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip()
+        raise GitError(f"Impossible de supprimer le worktree {worktree_path}: {stderr}")

@@ -6,6 +6,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from autodev.integrate_task import IntegrateTaskError, integrate_task
 from autodev.planner import PlanningError, plan_feature
 from autodev.review_task import ReviewTaskError, review_task
 from autodev.task_runner import RunTaskError, run_task
@@ -190,6 +191,46 @@ def review_task_command(
     table.add_row("Scope", summary["scope"]["status"])
     table.add_row("Issues", str(len(summary["issues"])))
     table.add_row("Résumé", summary["summary"])
+    console.print(table)
+
+
+@app.command("integrate-task")
+def integrate_task_command(
+    backlog_json: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
+        help="Chemin du backlog JSON.",
+    ),
+    task_id: str = typer.Argument(..., help="Identifiant de tâche à intégrer."),
+) -> None:
+    """Intègre une tâche approuvée dans la branche principale courante."""
+    try:
+        summary = integrate_task(backlog_json=backlog_json, task_id=task_id)
+    except IntegrateTaskError as exc:
+        console.print(f"\n[bold red]Échec :[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    table = Table(title="Résumé integrate-task")
+    table.add_column("Champ")
+    table.add_column("Valeur")
+    table.add_row("Tâche", summary["task_id"])
+    table.add_row("Verdict préalable", summary["pre_review_verdict"] or "—")
+    table.add_row("Branche cible", summary["target_branch"] or "—")
+    table.add_row("Branche tâche", summary["task_branch"])
+    table.add_row("Commit intégré", summary["integration_commit"] or "—")
+    table.add_row(
+        "Validations",
+        ", ".join(summary.get("validations", [])) or "—",
+    )
+    table.add_row("Statut", summary["status"])
+    table.add_row(
+        "Rapports",
+        str(Path(".autodev") / "runs" / task_id / "integration"),
+    )
     console.print(table)
 
 

@@ -17,6 +17,7 @@ from autodev.review_task import ReviewTaskError, review_task as review_single_ta
 from autodev.task_runner import RunTaskError, run_task as run_single_task, write_json
 
 TERMINAL_STATUSES = {"COMPLETED", "FAILED", "HUMAN_REVIEW_REQUIRED", "INTERRUPTED"}
+MAX_WORKFLOW_TRANSITIONS = 100
 RESUME_ACTIONS = {
     "IMPLEMENT",
     "REVIEW",
@@ -50,6 +51,10 @@ class RunFeatureState(TypedDict, total=False):
     task_action: str | None
     status: str
     error: str | None
+    last_error: str | None
+    transition_count: int
+    max_transitions: int
+    selection_signatures: list[str]
 
 
 ProgressCallback = Callable[[str], None]
@@ -94,7 +99,7 @@ def run_feature(
                 raise RunFeatureError(
                     f"Aucun checkpoint existant pour {feature_id}, reprise impossible."
                 )
-            initial_state = existing
+            initial_state = reset_invocation_guards(existing)
         else:
             if existing is not None and existing.get("status") not in TERMINAL_STATUSES:
                 raise RunFeatureError(
@@ -234,7 +239,14 @@ def build_graph(
             "finish": "finish",
         },
     )
-    builder.add_edge("integrate_task", "load_backlog")
+    builder.add_conditional_edges(
+        "integrate_task",
+        route_after_integration,
+        {
+            "load_backlog": "load_backlog",
+            "finish": "finish",
+        },
+    )
     builder.add_edge("finish", END)
 
     return builder.compile(checkpointer=checkpointer)
@@ -262,6 +274,10 @@ def build_initial_state(*, backlog_json: Path, feature_id: str, max_corrections:
         "task_action": None,
         "status": "RUNNING",
         "error": None,
+        "last_error": None,
+        "transition_count": 0,
+        "max_transitions": MAX_WORKFLOW_TRANSITIONS,
+        "selection_signatures": [],
     }
 
 
@@ -270,12 +286,27 @@ def build_thread_id(feature_id: str) -> str:
     return f"run-feature:{safe}"
 
 
+def reset_invocation_guards(state: RunFeatureState) -> RunFeatureState:
+    return {
+        **state,
+        "selection_signatures": [],
+        "transition_count": 0,
+        "max_transitions": state.get("max_transitions", MAX_WORKFLOW_TRANSITIONS),
+        "last_error": None,
+    }
+
+
 def node_load_backlog(
     state: RunFeatureState,
     *,
     backlog_json: Path,
     progress: ProgressCallback | None,
 ) -> RunFeatureState:
+    guarded = guard_transition(state, "load_backlog")
+    if guarded is not None:
+        return guarded
+    state = advance_transition(state)
+
     backlog = load_and_validate_backlog(backlog_json)
     repo_root = find_repo_root(backlog_json.parent)
     completed = [
@@ -308,6 +339,10 @@ def node_load_backlog(
         "task_action": state.get("task_action"),
         "status": "RUNNING",
         "error": None,
+        "last_error": state.get("last_error"),
+        "transition_count": state.get("transition_count", 0),
+        "max_transitions": state.get("max_transitions", MAX_WORKFLOW_TRANSITIONS),
+        "selection_signatures": list(state.get("selection_signatures", [])),
     }
 
 
@@ -319,6 +354,10 @@ def node_select_next_task(
 ) -> RunFeatureState:
     if state.get("status") in TERMINAL_STATUSES:
         return state
+    guarded = guard_transition(state, "select_next_task")
+    if guarded is not None:
+        return guarded
+    state = advance_transition(state)
 
     backlog = load_and_validate_backlog(backlog_json)
     repo_root = find_repo_root(backlog_json.parent)
@@ -358,6 +397,19 @@ def node_select_next_task(
             f"-> {decision.action}."
         )
 
+    signature_error = state.get("last_error")
+    cycle_error = detect_selection_cycle(
+        state=state,
+        task_id=ready_task_id,
+        action=decision.action,
+        error=signature_error,
+    )
+    if cycle_error is not None:
+        return fail_state(state, cycle_error, progress)
+
+    next_signatures = list(state.get("selection_signatures", []))
+    next_signatures.append(build_selection_signature(ready_task_id, decision.action, signature_error))
+
     if decision.action == "INVALID_STATE":
         return {
             **state,
@@ -365,6 +417,8 @@ def node_select_next_task(
             "task_action": decision.action,
             "status": "FAILED",
             "error": decision.reason,
+            "last_error": decision.reason,
+            "selection_signatures": next_signatures,
         }
 
     if decision.action == "HUMAN_REVIEW":
@@ -375,6 +429,8 @@ def node_select_next_task(
             "last_verdict": "HUMAN_REVIEW_REQUIRED",
             "status": "HUMAN_REVIEW_REQUIRED",
             "error": decision.reason or f"Revue humaine requise pour {ready_task_id}.",
+            "last_error": decision.reason or f"Revue humaine requise pour {ready_task_id}.",
+            "selection_signatures": next_signatures,
         }
 
     return {
@@ -385,6 +441,7 @@ def node_select_next_task(
         "task_action": decision.action,
         "status": "TASK_SELECTED",
         "error": None,
+        "selection_signatures": next_signatures,
     }
 
 
@@ -395,6 +452,10 @@ def node_run_task(
     run_task_fn: Callable[..., dict[str, Any]],
     progress: ProgressCallback | None,
 ) -> RunFeatureState:
+    guarded = guard_transition(state, "run_task")
+    if guarded is not None:
+        return guarded
+    state = advance_transition(state)
     task_id = require_current_task(state)
     try:
         if progress is not None:
@@ -402,7 +463,7 @@ def node_run_task(
         run_task_fn(backlog_json=backlog_json, task_id=task_id)
     except (RunTaskError, RuntimeError) as exc:
         return fail_state(state, str(exc), progress)
-    return {**state, "status": "TASK_IMPLEMENTED", "error": None}
+    return {**state, "status": "TASK_IMPLEMENTED", "error": None, "last_error": None}
 
 
 def node_review_task(
@@ -412,6 +473,10 @@ def node_review_task(
     review_task_fn: Callable[..., dict[str, Any]],
     progress: ProgressCallback | None,
 ) -> RunFeatureState:
+    guarded = guard_transition(state, "review_task")
+    if guarded is not None:
+        return guarded
+    state = advance_transition(state)
     task_id = require_current_task(state)
     try:
         if progress is not None:
@@ -428,6 +493,7 @@ def node_review_task(
         "last_verdict": str(verdict) if verdict is not None else None,
         "status": "REVIEWED",
         "error": None,
+        "last_error": None,
     }
 
 
@@ -436,11 +502,15 @@ def node_decide_review(
     *,
     progress: ProgressCallback | None,
 ) -> RunFeatureState:
+    guarded = guard_transition(state, "decide_review")
+    if guarded is not None:
+        return guarded
+    state = advance_transition(state)
     verdict = state.get("last_verdict")
     task_id = require_current_task(state)
 
     if verdict == "APPROVED":
-        return {**state, "status": "APPROVED", "error": None}
+        return {**state, "status": "APPROVED", "error": None, "last_error": None}
 
     if verdict == "CORRECTION_REQUIRED":
         attempt = state.get("correction_count", 0) + 1
@@ -456,16 +526,17 @@ def node_decide_review(
                 **state,
                 "status": "HUMAN_REVIEW_REQUIRED",
                 "error": message,
+                "last_error": message,
             }
         if progress is not None:
             progress(f"Correction requise #{attempt} pour {task_id}.")
-        return {**state, "status": "CORRECTION_REQUIRED", "error": None}
+        return {**state, "status": "CORRECTION_REQUIRED", "error": None, "last_error": None}
 
     if verdict == "HUMAN_REVIEW_REQUIRED":
         message = f"Revue humaine requise pour {task_id}."
         if progress is not None:
             progress(message)
-        return {**state, "status": "HUMAN_REVIEW_REQUIRED", "error": message}
+        return {**state, "status": "HUMAN_REVIEW_REQUIRED", "error": message, "last_error": message}
 
     message = f"Verdict inattendu pour {task_id} : {verdict!r}."
     return fail_state(state, message, progress)
@@ -478,6 +549,10 @@ def node_correct_task(
     correct_task_fn: Callable[..., dict[str, Any]],
     progress: ProgressCallback | None,
 ) -> RunFeatureState:
+    guarded = guard_transition(state, "correct_task")
+    if guarded is not None:
+        return guarded
+    state = advance_transition(state)
     task_id = require_current_task(state)
     next_count = state.get("correction_count", 0) + 1
     try:
@@ -491,6 +566,7 @@ def node_correct_task(
         "correction_count": next_count,
         "status": "CORRECTED",
         "error": None,
+        "last_error": None,
     }
 
 
@@ -501,19 +577,37 @@ def node_integrate_task(
     integrate_task_fn: Callable[..., dict[str, Any]],
     progress: ProgressCallback | None,
 ) -> RunFeatureState:
+    guarded = guard_transition(state, "integrate_task")
+    if guarded is not None:
+        return guarded
+    state = advance_transition(state)
     task_id = require_current_task(state)
     try:
         if progress is not None:
             progress(f"Intégration : {task_id}.")
-        integrate_task_fn(backlog_json=backlog_json, task_id=task_id)
+        result = integrate_task_fn(backlog_json=backlog_json, task_id=task_id)
     except (IntegrateTaskError, RuntimeError) as exc:
         return fail_state(state, str(exc), progress)
+    integration_status = result.get("status")
+    if integration_status != "INTEGRATED":
+        error = str(result.get("error") or f"Intégration refusée pour {task_id}.")
+        if integration_status == "HUMAN_REVIEW_REQUIRED":
+            if progress is not None:
+                progress(f"Échec du workflow : {error}")
+            return {
+                **state,
+                "status": "HUMAN_REVIEW_REQUIRED",
+                "error": error,
+                "last_error": error,
+            }
+        return fail_state(state, error, progress)
     return {
         **state,
         "current_task_id": None,
         "last_verdict": "APPROVED",
         "status": "INTEGRATED",
         "error": None,
+        "last_error": None,
     }
 
 
@@ -545,6 +639,12 @@ def route_after_execution_step(state: RunFeatureState) -> str:
     return "review_task"
 
 
+def route_after_integration(state: RunFeatureState) -> str:
+    if state.get("status") == "INTEGRATED":
+        return "load_backlog"
+    return "finish"
+
+
 def select_ready_task(
     backlog: dict[str, Any],
     pending_task_ids: list[str],
@@ -568,7 +668,7 @@ def require_current_task(state: RunFeatureState) -> str:
 def fail_state(state: RunFeatureState, error: str, progress: ProgressCallback | None) -> RunFeatureState:
     if progress is not None:
         progress(f"Échec du workflow : {error}")
-    return {**state, "status": "FAILED", "error": error}
+    return {**state, "status": "FAILED", "error": error, "last_error": error}
 
 
 def build_terminal_state(
@@ -581,7 +681,48 @@ def build_terminal_state(
         **state,
         "status": status,
         "error": error,
+        "last_error": error,
     }
+
+
+def advance_transition(state: RunFeatureState) -> RunFeatureState:
+    return {
+        **state,
+        "transition_count": state.get("transition_count", 0) + 1,
+        "max_transitions": state.get("max_transitions", MAX_WORKFLOW_TRANSITIONS),
+    }
+
+
+def guard_transition(state: RunFeatureState, node_name: str) -> RunFeatureState | None:
+    next_count = state.get("transition_count", 0) + 1
+    max_transitions = state.get("max_transitions", MAX_WORKFLOW_TRANSITIONS)
+    if next_count > max_transitions:
+        message = f"Nombre maximal de transitions atteint ({max_transitions}) avant {node_name}."
+        return {
+            **state,
+            "status": "FAILED",
+            "error": message,
+            "last_error": message,
+            "transition_count": next_count,
+        }
+    return None
+
+
+def build_selection_signature(task_id: str, action: str, error: str | None) -> str:
+    return f"{task_id}|{action}|{error or ''}"
+
+
+def detect_selection_cycle(
+    *,
+    state: RunFeatureState,
+    task_id: str,
+    action: str,
+    error: str | None,
+) -> str | None:
+    signature = build_selection_signature(task_id, action, error)
+    if signature in state.get("selection_signatures", []):
+        return f"Cycle de workflow détecté pour {task_id} à l'étape {action}."
+    return None
 
 
 def determine_task_resume_action(*, repo_root: Path, task_id: str) -> ResumeDecision:

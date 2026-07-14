@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from autodev.run_feature import RunFeatureError, determine_task_resume_action, run_feature
+from autodev.run_feature import (
+    RunFeatureError,
+    determine_task_resume_action,
+    detect_selection_cycle,
+    run_feature,
+)
 
 from test_task_runner import commit_all, init_repo, make_task, write_backlog
 
@@ -657,6 +662,104 @@ def test_node_error_is_recorded(tmp_path: Path) -> None:
     assert result["status"] == "FAILED"
     assert payload["status"] == "FAILED"
     assert "boom TASK-ERR" in payload["error"]
+
+
+def test_integration_failure_stops_run_feature_after_single_attempt(tmp_path: Path) -> None:
+    repo, backlog = prepare_backlog(tmp_path, [make_task("TASK-INTEGRATE-FAIL")])
+    call_order: list[str] = []
+
+    def fake_run_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"run:{task_id}")
+        create_task_workspace(repo, backlog, task_id, make_commit=True)
+        return {"task_id": task_id, "status": "success"}
+
+    def fake_review_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"review:{task_id}")
+        write_review_result(repo, task_id, "APPROVED")
+        return make_review_payload(task_id, "APPROVED")
+
+    def fake_integrate_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"integrate:{task_id}")
+        return {"task_id": task_id, "status": "FAILED", "error": "merge blocked"}
+
+    result = run_feature(
+        backlog,
+        run_task_fn=fake_run_task,
+        review_task_fn=fake_review_task,
+        correct_task_fn=lambda **_: {"task_id": "TASK-INTEGRATE-FAIL", "status": "success"},
+        integrate_task_fn=fake_integrate_task,
+    )
+
+    assert result["status"] == "FAILED"
+    assert result["current_task_id"] == "TASK-INTEGRATE-FAIL"
+    assert call_order == [
+        "run:TASK-INTEGRATE-FAIL",
+        "review:TASK-INTEGRATE-FAIL",
+        "integrate:TASK-INTEGRATE-FAIL",
+    ]
+
+
+def test_resume_can_retry_failed_integration_in_new_invocation(tmp_path: Path) -> None:
+    repo, backlog = prepare_backlog(tmp_path, [make_task("TASK-RESUME-INTEGRATE")])
+    call_order: list[str] = []
+
+    def fake_run_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"run:{task_id}")
+        create_task_workspace(repo, backlog, task_id, make_commit=True)
+        return {"task_id": task_id, "status": "success"}
+
+    def fake_review_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"review:{task_id}")
+        write_review_result(repo, task_id, "APPROVED")
+        return make_review_payload(task_id, "APPROVED")
+
+    def failing_integrate(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"integrate-fail:{task_id}")
+        return {"task_id": task_id, "status": "FAILED", "error": "merge blocked"}
+
+    first = run_feature(
+        backlog,
+        run_task_fn=fake_run_task,
+        review_task_fn=fake_review_task,
+        correct_task_fn=lambda **_: {"task_id": "TASK-RESUME-INTEGRATE", "status": "success"},
+        integrate_task_fn=failing_integrate,
+    )
+    assert first["status"] == "FAILED"
+
+    def passing_integrate(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"integrate-ok:{task_id}")
+        write_integration_result(repo, task_id)
+        return {"task_id": task_id, "status": "INTEGRATED"}
+
+    resumed = run_feature(
+        backlog,
+        resume=True,
+        run_task_fn=lambda **_: (_ for _ in ()).throw(AssertionError("run-task ne doit pas être rejoué")),
+        review_task_fn=lambda **_: (_ for _ in ()).throw(AssertionError("review ne doit pas être rejouée")),
+        correct_task_fn=lambda **_: {"task_id": "TASK-RESUME-INTEGRATE", "status": "success"},
+        integrate_task_fn=passing_integrate,
+    )
+
+    assert resumed["status"] == "COMPLETED"
+    assert call_order == [
+        "run:TASK-RESUME-INTEGRATE",
+        "review:TASK-RESUME-INTEGRATE",
+        "integrate-fail:TASK-RESUME-INTEGRATE",
+        "integrate-ok:TASK-RESUME-INTEGRATE",
+    ]
+
+
+def test_detect_selection_cycle_reports_repeated_task_action_error() -> None:
+    message = detect_selection_cycle(
+        state={
+            "selection_signatures": ["TASK-X|INTEGRATE|merge blocked"],
+        },
+        task_id="TASK-X",
+        action="INTEGRATE",
+        error="merge blocked",
+    )
+
+    assert message == "Cycle de workflow détecté pour TASK-X à l'étape INTEGRATE."
 
 
 def test_injected_runners_avoid_real_agent_execution(tmp_path: Path) -> None:

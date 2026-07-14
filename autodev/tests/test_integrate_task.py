@@ -149,6 +149,16 @@ def integration_result(repo: Path, task_id: str) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def git_head(repo: Path, ref: str = "HEAD", *, cwd: Path | None = None) -> str:
+    return subprocess.run(
+        ["git", "rev-parse", ref],
+        cwd=cwd or repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
 def test_integrate_unknown_task_raises(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     backlog = write_backlog(repo, [make_task("TASK-KNOWN")])
@@ -263,6 +273,108 @@ def test_integrate_success_creates_merge_commit_and_reports(tmp_path: Path) -> N
     ).stdout.strip()
     assert merge_message == "autodev integrate-task TASK-SUCCESS"
     assert before_remote != result["integration_commit"]
+
+
+def test_integrate_uses_current_branch_diff_after_amended_commit(tmp_path: Path) -> None:
+    repo, backlog, worktree, base_commit, original_commit = prepare_repo_for_integration(
+        tmp_path,
+        task_id="TASK-AMENDED",
+    )
+    legacy_path = worktree / "tests" / "e2e" / "10-diagnostic.spec.ts"
+    legacy_path.parent.mkdir(parents=True, exist_ok=True)
+    legacy_path.write_text("legacy\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=worktree, check=True)
+    subprocess.run(
+        ["git", "commit", "--amend", "--no-edit"],
+        cwd=worktree,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    stale_commit = git_head(repo, cwd=worktree)
+
+    run_dir = repo / ".autodev" / "runs" / "TASK-AMENDED"
+    stale_result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+    stale_result["produced_commit"] = stale_commit
+    stale_result["modified_paths"] = [
+        "src/feature.txt",
+        "tests/e2e/10-diagnostic.spec.ts",
+    ]
+    (run_dir / "result.json").write_text(
+        json.dumps(stale_result, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    (run_dir / "diff.patch").write_text(
+        "diff --git a/tests/e2e/10-diagnostic.spec.ts b/tests/e2e/10-diagnostic.spec.ts\n",
+        encoding="utf-8",
+    )
+
+    legacy_path.unlink()
+    subprocess.run(["git", "add", "-A"], cwd=worktree, check=True)
+    subprocess.run(
+        ["git", "commit", "--amend", "--no-edit"],
+        cwd=worktree,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    current_commit = git_head(repo, cwd=worktree)
+    assert current_commit != stale_commit
+
+    commit_all(repo, "record stale diff artifacts")
+
+    result = integrate_task(backlog, "TASK-AMENDED")
+
+    integration_dir = run_dir / "integration"
+    current_paths = json.loads((integration_dir / "current-paths.json").read_text(encoding="utf-8"))
+    current_name_status = (integration_dir / "current-name-status.txt").read_text(encoding="utf-8")
+    current_patch = (integration_dir / "current-diff.patch").read_text(encoding="utf-8")
+
+    assert result["status"] == "INTEGRATED"
+    assert result["produced_commit"] == current_commit
+    assert result["produced_commit"] != stale_commit
+    assert current_paths["produced_commit"] == current_commit
+    assert current_paths["modified_paths"] == ["src/feature.txt"]
+    assert "tests/e2e/10-diagnostic.spec.ts" not in current_name_status
+    assert "tests/e2e/10-diagnostic.spec.ts" not in current_patch
+    assert "src/feature.txt" in current_name_status
+
+
+def test_integrate_rejects_current_out_of_scope_diff_even_if_old_artifacts_are_clean(tmp_path: Path) -> None:
+    repo, backlog, worktree, base_commit, _ = prepare_repo_for_integration(
+        tmp_path,
+        task_id="TASK-OOS-CURRENT",
+    )
+    current_forbidden = worktree / "src-tauri" / "tests" / "integration_diagnostic.rs"
+    current_forbidden.parent.mkdir(parents=True, exist_ok=True)
+    current_forbidden.write_text("forbidden\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=worktree, check=True)
+    subprocess.run(
+        ["git", "commit", "--amend", "--no-edit"],
+        cwd=worktree,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    run_dir = repo / ".autodev" / "runs" / "TASK-OOS-CURRENT"
+    clean_result = json.loads((run_dir / "result.json").read_text(encoding="utf-8"))
+    clean_result["base_commit"] = base_commit
+    clean_result["produced_commit"] = git_head(repo, cwd=worktree)
+    clean_result["modified_paths"] = ["src/feature.txt"]
+    (run_dir / "result.json").write_text(
+        json.dumps(clean_result, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    commit_all(repo, "record misleading clean artifacts")
+
+    with pytest.raises(IntegrateTaskError, match="hors périmètre"):
+        integrate_task(backlog, "TASK-OOS-CURRENT")
+
+    current_paths = json.loads(
+        (run_dir / "integration" / "current-paths.json").read_text(encoding="utf-8")
+    )
+    assert "src-tauri/tests/integration_diagnostic.rs" in current_paths["modified_paths"]
 
 
 def test_integrate_rolls_back_when_post_validation_fails(tmp_path: Path) -> None:

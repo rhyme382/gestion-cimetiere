@@ -12,6 +12,7 @@ from autodev.git_tools import (
     current_branch,
     current_head,
     dirty_paths,
+    diff_patch_between,
     ensure_clean_worktree,
     git_output,
     git_status_porcelain,
@@ -20,6 +21,7 @@ from autodev.git_tools import (
     is_ancestor,
     merge_abort,
     merge_no_commit,
+    name_status_between,
     remove_worktree,
     worktree_registered,
 )
@@ -73,7 +75,7 @@ def integrate_task(backlog_json: Path, task_id: str) -> dict[str, Any]:
         task_record = load_optional_json(run_dir / "task.json")
         base_commit = resolve_base_commit(run_result, task_record)
         worktree = resolve_worktree(repo_root, task_id, run_result, task_record)
-        produced_commit = resolve_produced_commit(repo_root, branch, run_result, worktree)
+        produced_commit = resolve_produced_commit(repo_root, branch)
         target_branch = current_branch(repo_root)
         target_before = current_head(repo_root)
 
@@ -90,7 +92,19 @@ def integrate_task(backlog_json: Path, task_id: str) -> dict[str, Any]:
                 "Le commit produit ne descend pas du base_commit enregistré."
             )
 
-        modified_paths = changed_paths_between(repo_root, base_commit, produced_commit)
+        current_diff = collect_current_diff(
+            repo_root=repo_root,
+            base_commit=base_commit,
+            produced_commit=produced_commit,
+        )
+        write_current_diff_artifacts(
+            integration_dir=integration_dir,
+            base_commit=base_commit,
+            produced_commit=produced_commit,
+            current_diff=current_diff,
+        )
+
+        modified_paths = current_diff["modified_paths"]
         ensure_paths_allowed(repo_root, task["allowed_paths"], modified_paths)
 
         if is_ancestor(repo_root, produced_commit, target_before):
@@ -220,21 +234,50 @@ def resolve_worktree(
 def resolve_produced_commit(
     repo_root: Path,
     branch: str,
-    run_result: dict[str, Any],
-    worktree: Path,
 ) -> str:
-    produced_commit = run_result.get("produced_commit")
-    if isinstance(produced_commit, str) and produced_commit.strip():
-        return produced_commit
-    if worktree.exists():
-        try:
-            return git_output(repo_root, ["rev-parse", "HEAD"], cwd=worktree)
-        except GitError as exc:
-            raise IntegrateTaskError(str(exc)) from exc
     try:
         return branch_head(repo_root, branch)
     except GitError as exc:
         raise IntegrateTaskError(str(exc)) from exc
+
+
+def collect_current_diff(
+    *,
+    repo_root: Path,
+    base_commit: str,
+    produced_commit: str,
+) -> dict[str, Any]:
+    try:
+        return {
+            "modified_paths": changed_paths_between(repo_root, base_commit, produced_commit),
+            "name_status": name_status_between(repo_root, base_commit, produced_commit),
+            "patch": diff_patch_between(repo_root, base_commit, produced_commit),
+        }
+    except GitError as exc:
+        raise IntegrateTaskError(str(exc)) from exc
+
+
+def write_current_diff_artifacts(
+    *,
+    integration_dir: Path,
+    base_commit: str,
+    produced_commit: str,
+    current_diff: dict[str, Any],
+) -> None:
+    record_text(integration_dir / "current-diff.patch", str(current_diff["patch"]))
+    write_json(
+        integration_dir / "current-paths.json",
+        {
+            "base_commit": base_commit,
+            "produced_commit": produced_commit,
+            "modified_paths": list(current_diff["modified_paths"]),
+        },
+    )
+    name_status = "\n".join(str(line) for line in current_diff["name_status"])
+    record_text(
+        integration_dir / "current-name-status.txt",
+        f"{name_status}\n" if name_status else "",
+    )
 
 
 def ensure_worktree_clean(repo_root: Path, worktree: Path) -> None:

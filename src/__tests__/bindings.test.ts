@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { CemeteryDTO, PlotDTO, ConcessionDTO, IndividualDTO } from "@/types/bindings";
+import type { CemeteryDTO, PlotDTO, ConcessionDTO, IndividualDTO, DiagnosticDTO } from "@/types/bindings";
 
 describe("Types bindings — cohérence de forme", () => {
   it("CemeteryDTO a les champs attendus", () => {
@@ -56,5 +56,30 @@ describe("Types bindings — cohérence de forme", () => {
       updated_at: "2024-01-01T00:00:00Z",
     };
     expect(example.role).toBe("deceased");
+  });
+
+  it("DiagnosticDTO a les champs attendus", () => {
+    const example: DiagnosticDTO = {
+      health: "healthy",
+      sqlite_available: true,
+      app_version: "0.1.0",
+      message: "Application is running normally",
+    };
+    expect(example.health).toBe("healthy");
+    expect(example.sqlite_available).toBe(true);
+    expect(example.app_version).toBe("0.1.0");
+    expect(example.message).toContain("running");
+  });
+
+  it("DiagnosticDTO peut représenter un état dégradé", () => {
+    const example: DiagnosticDTO = {
+      health: "degraded",
+      sqlite_available: false,
+      app_version: "0.1.0",
+      message: "SQLite connection check failed: Database locked",
+    };
+    expect(example.health).toBe("degraded");
+    expect(example.sqlite_available).toBe(false);
+    expect(example.message).toContain("SQLite");
   });
 });

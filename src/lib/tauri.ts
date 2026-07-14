@@ -6,6 +6,7 @@ import type {
   IndividualDTO, CreateIndividualRequest, UpdateIndividualRequest,
   BurialDTO, CreateBurialRequest,
   AlertDTO, AlertSummaryDTO,
+  DiagnosticDTO,
 } from "@/types/bindings";
 
 // Cemetery
@@ -45,3 +46,6 @@ export const acknowledgeAlert = (alert_id: number) => invoke<boolean>("acknowled
 
 // PDF
 export const generateConcessionPdf = (concession_id: number) => invoke<string>("generate_concession_pdf", { concession_id });
+
+// Diagnostic
+export const getDiagnostic = () => invoke<DiagnosticDTO>("get_diagnostic", {});

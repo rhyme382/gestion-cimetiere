@@ -22,9 +22,9 @@ from autodev.git_tools import (
     worktree_registered,
 )
 from autodev.path_rules import normalize_repo_relative_path
+from autodev.task_dependencies import get_unfinished_dependencies
 from autodev.planner import PlanningError, find_repo_root, load_json, validate_backlog_consistency
 
-COMPLETED_STATUSES = {"completed", "done", "finished", "terminated", "terminee", "terminée"}
 FORBIDDEN_COMMAND_TOKENS = (";", "&&", "||", ">", ">>", "<", "|", "`", "$(")
 CLAUDE_ALLOWED_TOOLS = "Bash,Edit,Write,Read,Glob,Grep"
 CLAUDE_PERMISSION_WARNING_PATTERNS = (
@@ -46,7 +46,7 @@ def run_task(
     repo_root = find_repo_root(backlog_json.parent)
     backlog = load_and_validate_backlog(backlog_json)
     task = find_task(backlog, task_id)
-    ensure_dependencies_completed(backlog, task)
+    ensure_dependencies_completed(repo_root, task)
 
     branch = f"autodev/{task_id}"
     worktree = repo_root / ".autodev" / "worktrees" / task_id
@@ -147,15 +147,8 @@ def find_task(backlog: dict[str, Any], task_id: str) -> dict[str, Any]:
     raise RunTaskError(f"Tâche inconnue : {task_id}")
 
 
-def ensure_dependencies_completed(backlog: dict[str, Any], task: dict[str, Any]) -> None:
-    tasks_by_id = {item["id"]: item for item in backlog.get("tasks", [])}
-    incomplete: list[str] = []
-    for dependency_id in task["depends_on"]:
-        dependency = tasks_by_id[dependency_id]
-        status = str(dependency.get("status", "")).strip().lower()
-        if status not in COMPLETED_STATUSES:
-            incomplete.append(dependency_id)
-
+def ensure_dependencies_completed(repo_root: Path, task: dict[str, Any]) -> None:
+    incomplete = get_unfinished_dependencies(repo_root, task)
     if incomplete:
         dependencies = ", ".join(incomplete)
         raise RunTaskError(

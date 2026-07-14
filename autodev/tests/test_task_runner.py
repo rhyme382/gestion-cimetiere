@@ -55,7 +55,16 @@ def write_backlog(repo: Path, tasks: list[dict[str, object]]) -> Path:
     return path
 
 
-def make_task(task_id: str, *, depends_on: list[str] | None = None, status: str | None = None) -> dict[str, object]:
+def write_integration_result(repo: Path, task_id: str, status: str = "INTEGRATED") -> None:
+    path = repo / ".autodev" / "runs" / task_id / "integration" / "integration-result.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"task_id": task_id, "status": status}, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def make_task(task_id: str, *, depends_on: list[str] | None = None) -> dict[str, object]:
     task: dict[str, object] = {
         "id": task_id,
         "title": f"Titre {task_id}",
@@ -67,8 +76,6 @@ def make_task(task_id: str, *, depends_on: list[str] | None = None, status: str 
         "validation_commands": [f'{sys.executable} -c "print(\'ok\')"'],
         "acceptance_criteria": ["Accepter"],
     }
-    if status is not None:
-        task["status"] = status
     return task
 
 
@@ -101,7 +108,7 @@ def test_dependency_not_completed_raises(tmp_path: Path) -> None:
     backlog = write_backlog(
         repo,
         [
-            make_task("TASK-DEP", status="todo"),
+            make_task("TASK-DEP"),
             make_task("TASK-MAIN", depends_on=["TASK-DEP"]),
         ],
     )
@@ -109,6 +116,49 @@ def test_dependency_not_completed_raises(tmp_path: Path) -> None:
 
     with pytest.raises(RunTaskError, match="Dépendances non terminées"):
         run_task(backlog, "TASK-MAIN", dry_run=True)
+
+
+def test_dependency_with_integrated_artifact_allows_run(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    backlog = write_backlog(
+        repo,
+        [
+            make_task("TASK-DEP"),
+            make_task("TASK-MAIN", depends_on=["TASK-DEP"]),
+        ],
+    )
+    adapt_allowed_paths(repo, backlog)
+    write_integration_result(repo, "TASK-DEP")
+
+    result = run_task(backlog, "TASK-MAIN", dry_run=True)
+
+    assert result["task_id"] == "TASK-MAIN"
+
+
+def test_dependency_with_failed_artifact_blocks_run(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    backlog = write_backlog(
+        repo,
+        [
+            make_task("TASK-DEP"),
+            make_task("TASK-MAIN", depends_on=["TASK-DEP"]),
+        ],
+    )
+    adapt_allowed_paths(repo, backlog)
+    write_integration_result(repo, "TASK-DEP", status="FAILED")
+
+    with pytest.raises(RunTaskError, match="Dépendances non terminées pour TASK-MAIN : TASK-DEP"):
+        run_task(backlog, "TASK-MAIN", dry_run=True)
+
+
+def test_task_without_dependencies_can_start(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    backlog = write_backlog(repo, [make_task("TASK-SOLO")])
+    adapt_allowed_paths(repo, backlog)
+
+    result = run_task(backlog, "TASK-SOLO", dry_run=True)
+
+    assert result["task_id"] == "TASK-SOLO"
 
 
 def test_validate_command_safe_rejects_dangerous_commands() -> None:

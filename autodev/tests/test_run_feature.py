@@ -8,11 +8,11 @@ from autodev.run_feature import run_feature
 from test_task_runner import commit_all, init_repo, make_task, write_backlog
 
 
-def write_integration_result(repo: Path, task_id: str) -> None:
+def write_integration_result(repo: Path, task_id: str, status: str = "INTEGRATED") -> None:
     path = repo / ".autodev" / "runs" / task_id / "integration" / "integration-result.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        json.dumps({"task_id": task_id, "status": "INTEGRATED"}, ensure_ascii=False, indent=2) + "\n",
+        json.dumps({"task_id": task_id, "status": status}, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
 
@@ -127,6 +127,26 @@ def test_dependent_task_is_not_selected_too_early(tmp_path: Path) -> None:
     assert capture["run"] == ["TASK-DEP", "TASK-MAIN"]
 
 
+def test_run_feature_selects_dependent_task_when_dependency_is_already_integrated(tmp_path: Path) -> None:
+    repo, backlog = prepare_backlog(
+        tmp_path,
+        [make_task("TASK-DEP"), make_task("TASK-MAIN", depends_on=["TASK-DEP"])],
+    )
+    write_integration_result(repo, "TASK-DEP")
+    capture, run_fn, review_fn, correct_fn, integrate_fn = build_runners(repo)
+
+    result = run_feature(
+        backlog,
+        run_task_fn=run_fn,
+        review_task_fn=review_fn,
+        correct_task_fn=correct_fn,
+        integrate_task_fn=integrate_fn,
+    )
+
+    assert capture["run"] == ["TASK-MAIN"]
+    assert result["tasks_integrated"] == ["TASK-DEP", "TASK-MAIN"]
+
+
 def test_already_integrated_task_is_skipped(tmp_path: Path) -> None:
     repo, backlog = prepare_backlog(
         tmp_path,
@@ -145,6 +165,26 @@ def test_already_integrated_task_is_skipped(tmp_path: Path) -> None:
 
     assert capture["run"] == ["TASK-TODO"]
     assert result["tasks_integrated"] == ["TASK-DONE", "TASK-TODO"]
+
+
+def test_failed_integration_artifact_does_not_mark_task_done(tmp_path: Path) -> None:
+    repo, backlog = prepare_backlog(
+        tmp_path,
+        [make_task("TASK-DEP"), make_task("TASK-MAIN", depends_on=["TASK-DEP"])],
+    )
+    write_integration_result(repo, "TASK-DEP", status="FAILED")
+    capture, run_fn, review_fn, correct_fn, integrate_fn = build_runners(repo)
+
+    result = run_feature(
+        backlog,
+        run_task_fn=run_fn,
+        review_task_fn=review_fn,
+        correct_task_fn=correct_fn,
+        integrate_task_fn=integrate_fn,
+    )
+
+    assert capture["run"] == ["TASK-DEP", "TASK-MAIN"]
+    assert result["tasks_integrated"] == ["TASK-DEP", "TASK-MAIN"]
 
 
 def test_approved_leads_to_integration(tmp_path: Path) -> None:

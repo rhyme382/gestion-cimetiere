@@ -8,13 +8,18 @@
 
 Ajouter la commande `autodev run-feature BACKLOG_JSON` pour orchestrer séquentiellement toutes les tâches d’une fonctionnalité avec LangGraph, reprise sur checkpoint SQLite, boucle de correction automatique, et tests sans exécution réelle de Claude ou Codex.
 
+Correction complémentaire du 2026-07-14 : unifier la vérification des dépendances entre `run-feature` et `run-task` via les artefacts d’intégration `.autodev/runs/TASK-ID/integration/integration-result.json`.
+
 ## fichiers modifiés
 
 - `autodev/src/autodev/cli.py`
 - `autodev/src/autodev/git_tools.py`
 - `autodev/src/autodev/correct_task.py`
 - `autodev/src/autodev/run_feature.py`
+- `autodev/src/autodev/task_dependencies.py`
+- `autodev/src/autodev/task_runner.py`
 - `autodev/tests/test_run_feature.py`
+- `autodev/tests/test_task_runner.py`
 - `agents/reports/2026-07-14-autodev-run-feature-langgraph.md`
 - `reports/dev/MVP-27.md`
 
@@ -22,6 +27,7 @@ Ajouter la commande `autodev run-feature BACKLOG_JSON` pour orchestrer séquenti
 
 - Graphe LangGraph simple avec nœuds `load_backlog`, `select_next_task`, `run_task`, `review_task`, `decide_review`, `correct_task`, `integrate_task`, `finish`.
 - Statuts réels déduits exclusivement depuis les artefacts `.autodev/runs/TASK-ID/integration/integration-result.json` et `.autodev/runs/TASK-ID/review/review-result.json`.
+- La règle de dépendance est maintenant factorisée dans `task_dependencies.py` ; `run-feature` et `run-task` partagent exactement la même lecture d’artefact et n’utilisent plus `task.status` du backlog.
 - Checkpoints stockés dans `.autodev/state/checkpoints.sqlite` avec un `thread_id` stable dérivé de `feature_id`.
 - Correction automatique isolée dans `correct_task.py`, avec réutilisation du worktree existant, validations rejouées, contrôle strict des `allowed_paths` et amend du commit courant.
 - Redémarrage `--resume` basé sur le dernier état checkpointé, sans rejouer les tâches déjà intégrées.
@@ -45,6 +51,7 @@ Résultat :
 - `41 passed in 1.64s`
 - Aucun agent métier réel lancé pendant les tests.
 - Cas couverts : sélection, dépendances, tâches déjà intégrées, verdicts `APPROVED` / `CORRECTION_REQUIRED` / `HUMAN_REVIEW_REQUIRED`, dépassement `max_corrections`, reprise checkpoint, non-rejeu des tâches intégrées, enregistrement des erreurs.
+- Couverture complémentaire ajoutée : dépendance intégrée, absence d’artefact, artefact `FAILED`, tâche sans dépendance, sélection `run-feature` d’une tâche déjà déverrouillée par artefact.
 
 ## prochaine étape
 

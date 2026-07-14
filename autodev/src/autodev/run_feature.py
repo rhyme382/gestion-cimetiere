@@ -10,6 +10,7 @@ from typing_extensions import TypedDict
 from autodev.correct_task import CorrectTaskError, correct_task as correct_single_task
 from autodev.integrate_task import IntegrateTaskError, integrate_task as integrate_single_task
 from autodev.planner import PlanningError, find_repo_root, load_json, validate_backlog_consistency
+from autodev.task_dependencies import get_unfinished_dependencies, is_task_integrated
 from autodev.review_task import ReviewTaskError, review_task as review_single_task
 from autodev.task_runner import RunTaskError, run_task as run_single_task, write_json
 
@@ -254,10 +255,11 @@ def node_load_backlog(
     progress: ProgressCallback | None,
 ) -> RunFeatureState:
     backlog = load_and_validate_backlog(backlog_json)
+    repo_root = find_repo_root(backlog_json.parent)
     completed = [
         task["id"]
         for task in backlog["tasks"]
-        if is_task_integrated(backlog_json, task["id"])
+        if is_task_integrated(repo_root, task["id"])
     ]
     pending = [
         task["id"]
@@ -296,8 +298,9 @@ def node_select_next_task(
         return state
 
     backlog = load_and_validate_backlog(backlog_json)
+    repo_root = find_repo_root(backlog_json.parent)
     pending = list(state.get("pending_task_ids", []))
-    ready_task_id = select_ready_task(backlog, pending, backlog_json)
+    ready_task_id = select_ready_task(backlog, pending, repo_root)
 
     if ready_task_id is None:
         if not pending:
@@ -483,26 +486,14 @@ def route_after_execution_step(state: RunFeatureState) -> str:
 def select_ready_task(
     backlog: dict[str, Any],
     pending_task_ids: list[str],
-    backlog_json: Path,
+    repo_root: Path,
 ) -> str | None:
     tasks_by_id = {task["id"]: task for task in backlog["tasks"]}
     for task_id in pending_task_ids:
         task = tasks_by_id[task_id]
-        if all(is_task_integrated(backlog_json, dep_id) for dep_id in task["depends_on"]):
+        if not get_unfinished_dependencies(repo_root, task):
             return task_id
     return None
-
-
-def is_task_integrated(backlog_json: Path, task_id: str) -> bool:
-    repo_root = find_repo_root(backlog_json.parent)
-    path = repo_root / ".autodev" / "runs" / task_id / "integration" / "integration-result.json"
-    if not path.is_file():
-        return False
-    try:
-        payload = load_json(path)
-    except PlanningError:
-        return False
-    return payload.get("status") == "INTEGRATED"
 
 
 def require_current_task(state: RunFeatureState) -> str:
@@ -540,10 +531,11 @@ def write_run_summary(
 ) -> dict[str, Any]:
     backlog_path = Path(state["backlog_path"])
     backlog = load_and_validate_backlog(backlog_path)
+    repo_root = find_repo_root(backlog_path.parent)
     completed = [
         task["id"]
         for task in backlog["tasks"]
-        if is_task_integrated(backlog_path, task["id"])
+        if is_task_integrated(repo_root, task["id"])
     ]
     pending = [
         task["id"]

@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DiagnosticCard } from "@/components/DiagnosticCard";
 import { Settings } from "lucide-react";
 
 export default function ParametresPage() {
@@ -15,6 +16,8 @@ export default function ParametresPage() {
           <p className="text-sm text-muted-foreground">La configuration communale sera disponible dans une version ultérieure (MVP-21+).</p>
         </CardContent>
       </Card>
+
+      <DiagnosticCard />
     </div>
   );
 }

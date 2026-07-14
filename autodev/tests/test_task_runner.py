@@ -26,7 +26,21 @@ def init_repo(tmp_path: Path) -> Path:
 
     (repo / "SPEC.md").write_text("# Spec\n\nBase.\n", encoding="utf-8")
     (repo / "autodev").mkdir()
+    (repo / "autodev" / "config").mkdir()
     (repo / "autodev" / "prompts").mkdir()
+    smoke_command = f"{sys.executable} -c \"print('smoke-ok')\""
+    full_command = f"{sys.executable} -c \"print('full-ok')\""
+    (repo / "autodev" / "config" / "quality-gates.yaml").write_text(
+        "task:\n"
+        "  required: true\n"
+        "smoke:\n"
+        "  commands:\n"
+        f"    - {json.dumps(smoke_command)}\n"
+        "full:\n"
+        "  commands:\n"
+        f"    - {json.dumps(full_command)}\n",
+        encoding="utf-8",
+    )
     (repo / "src").mkdir()
     (repo / "README.md").write_text("base\n", encoding="utf-8")
     subprocess.run(["git", "add", "."], cwd=repo, check=True)

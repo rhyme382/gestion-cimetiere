@@ -12,6 +12,28 @@ from autodev.integrate_task import IntegrateTaskError, integrate_task
 from test_task_runner import commit_all, init_repo, make_task, write_backlog
 
 
+def write_quality_gates(
+    repo: Path,
+    *,
+    smoke_commands: list[str] | None = None,
+    full_commands: list[str] | None = None,
+) -> None:
+    smoke_lines = smoke_commands or [f'{sys.executable} -c "print(\'smoke-ok\')"']
+    full_lines = full_commands or [f'{sys.executable} -c "print(\'full-ok\')"']
+    payload = [
+        "task:",
+        "  required: true",
+        "smoke:",
+        "  commands:",
+        *[f"    - {json.dumps(command)}" for command in smoke_lines],
+        "full:",
+        "  commands:",
+        *[f"    - {json.dumps(command)}" for command in full_lines],
+        "",
+    ]
+    (repo / "autodev" / "config" / "quality-gates.yaml").write_text("\n".join(payload), encoding="utf-8")
+
+
 def prepare_repo_for_integration(
     tmp_path: Path,
     *,
@@ -381,7 +403,9 @@ def test_integrate_rolls_back_when_post_validation_fails(tmp_path: Path) -> None
     repo, backlog, worktree, _, _ = prepare_repo_for_integration(
         tmp_path,
         task_id="TASK-VALIDATION-FAIL",
-        validation_commands=[f'{sys.executable} -c "raise SystemExit(1)"'],
+        validation_commands=[
+            f'{sys.executable} -c "from pathlib import Path\nraise SystemExit(1 if Path(\'src/feature.txt\').exists() else 0)"'
+        ],
     )
     head_before = subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -391,7 +415,7 @@ def test_integrate_rolls_back_when_post_validation_fails(tmp_path: Path) -> None
         text=True,
     ).stdout.strip()
 
-    with pytest.raises(IntegrateTaskError, match="validation post-intégration a échoué"):
+    with pytest.raises(IntegrateTaskError, match="validation TASK a échoué après la fusion temporaire"):
         integrate_task(backlog, "TASK-VALIDATION-FAIL")
 
     head_after = subprocess.run(
@@ -405,6 +429,76 @@ def test_integrate_rolls_back_when_post_validation_fails(tmp_path: Path) -> None
     assert worktree.exists()
     result = integration_result(repo, "TASK-VALIDATION-FAIL")
     assert result["status"] == "FAILED"
+
+
+def test_integrate_accepts_identical_baseline_failures(tmp_path: Path) -> None:
+    repo, backlog, _, _, _ = prepare_repo_for_integration(
+        tmp_path,
+        task_id="TASK-BASELINE-PERSISTENT",
+    )
+    write_quality_gates(
+        repo,
+        full_commands=[
+            f'{sys.executable} -c "import sys\nsys.stderr.write(\'Error: Cannot find module \\\\\'@testing-library/dom\\\\\'\\\\n\')\nraise SystemExit(1)"'
+        ],
+    )
+    commit_all(repo, "configure persistent baseline failure")
+
+    result = integrate_task(backlog, "TASK-BASELINE-PERSISTENT")
+
+    assert result["status"] == "INTEGRATED"
+    assert result["comparison_status"] == "PASS_WITH_BASELINE_FAILURES"
+    assert result["new_regression_count"] == 0
+
+
+def test_integrate_rolls_back_on_new_full_regression(tmp_path: Path) -> None:
+    repo, backlog, _, _, _ = prepare_repo_for_integration(
+        tmp_path,
+        task_id="TASK-NEW-REGRESSION",
+    )
+    write_quality_gates(
+        repo,
+        full_commands=[
+            f'{sys.executable} -c "from pathlib import Path\nimport sys\nsys.stderr.write(\'FAIL merged regression\\\\n\' if Path(\'src/feature.txt\').exists() else \'\')\nraise SystemExit(1 if Path(\'src/feature.txt\').exists() else 0)"'
+        ],
+    )
+    commit_all(repo, "configure new regression detector")
+    head_before = git_head(repo)
+
+    with pytest.raises(IntegrateTaskError, match="nouvelle signature d'échec"):
+        integrate_task(backlog, "TASK-NEW-REGRESSION")
+
+    assert git_head(repo) == head_before
+    result = integration_result(repo, "TASK-NEW-REGRESSION")
+    assert result["status"] == "FAILED"
+    assert result["comparison_status"] == "FAIL_NEW_REGRESSION"
+    assert result["new_regression_count"] == 1
+
+
+def test_integrate_rejects_when_task_validation_fails_even_with_same_baseline(tmp_path: Path) -> None:
+    repo, backlog, _, _, _ = prepare_repo_for_integration(
+        tmp_path,
+        task_id="TASK-POST-TASK-FAIL",
+        validation_commands=[
+            f'{sys.executable} -c "from pathlib import Path\nraise SystemExit(1 if Path(\'src/feature.txt\').exists() else 0)"'
+        ],
+    )
+    write_quality_gates(
+        repo,
+        full_commands=[
+            f'{sys.executable} -c "import sys\nsys.stderr.write(\'Error: Cannot find module \\\\\'@testing-library/dom\\\\\'\\\\n\')\nraise SystemExit(1)"'
+        ],
+    )
+    commit_all(repo, "configure stable baseline and task failure")
+    head_before = git_head(repo)
+
+    with pytest.raises(IntegrateTaskError, match="validation TASK a échoué après la fusion temporaire"):
+        integrate_task(backlog, "TASK-POST-TASK-FAIL")
+
+    assert git_head(repo) == head_before
+    result = integration_result(repo, "TASK-POST-TASK-FAIL")
+    assert result["status"] == "FAILED"
+    assert result["task_validation_status"] == "FAIL"
 
 
 def test_integrate_does_not_push_remote(tmp_path: Path) -> None:

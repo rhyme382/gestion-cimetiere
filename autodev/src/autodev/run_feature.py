@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
@@ -8,6 +9,7 @@ from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
 from autodev.correct_task import CorrectTaskError, correct_task as correct_single_task
+from autodev.git_tools import GitError, branch_exists, branch_head, git_output, worktree_registered
 from autodev.integrate_task import IntegrateTaskError, integrate_task as integrate_single_task
 from autodev.planner import PlanningError, find_repo_root, load_json, validate_backlog_consistency
 from autodev.task_dependencies import get_unfinished_dependencies, is_task_integrated
@@ -15,10 +17,25 @@ from autodev.review_task import ReviewTaskError, review_task as review_single_ta
 from autodev.task_runner import RunTaskError, run_task as run_single_task, write_json
 
 TERMINAL_STATUSES = {"COMPLETED", "FAILED", "HUMAN_REVIEW_REQUIRED", "INTERRUPTED"}
+RESUME_ACTIONS = {
+    "IMPLEMENT",
+    "REVIEW",
+    "CORRECT",
+    "INTEGRATE",
+    "COMPLETED",
+    "HUMAN_REVIEW",
+    "INVALID_STATE",
+}
 
 
 class RunFeatureError(RuntimeError):
     """Erreur pendant l'exécution d'une fonctionnalité complète."""
+
+
+@dataclass(frozen=True)
+class ResumeDecision:
+    action: str
+    reason: str | None = None
 
 
 class RunFeatureState(TypedDict, total=False):
@@ -30,6 +47,7 @@ class RunFeatureState(TypedDict, total=False):
     correction_count: int
     max_corrections: int
     last_verdict: str | None
+    task_action: str | None
     status: str
     error: str | None
 
@@ -184,6 +202,9 @@ def build_graph(
         route_after_select,
         {
             "run_task": "run_task",
+            "review_task": "review_task",
+            "correct_task": "correct_task",
+            "integrate_task": "integrate_task",
             "finish": "finish",
         },
     )
@@ -238,6 +259,7 @@ def build_initial_state(*, backlog_json: Path, feature_id: str, max_corrections:
         "correction_count": 0,
         "max_corrections": max_corrections,
         "last_verdict": None,
+        "task_action": None,
         "status": "RUNNING",
         "error": None,
     }
@@ -283,6 +305,7 @@ def node_load_backlog(
         "max_corrections": state.get("max_corrections", 3),
         "correction_count": state.get("correction_count", 0),
         "last_verdict": state.get("last_verdict"),
+        "task_action": state.get("task_action"),
         "status": "RUNNING",
         "error": None,
     }
@@ -300,13 +323,23 @@ def node_select_next_task(
     backlog = load_and_validate_backlog(backlog_json)
     repo_root = find_repo_root(backlog_json.parent)
     pending = list(state.get("pending_task_ids", []))
-    ready_task_id = select_ready_task(backlog, pending, repo_root)
+    current_task_id = state.get("current_task_id")
+    if current_task_id in pending:
+        ready_task_id = current_task_id
+    else:
+        ready_task_id = select_ready_task(backlog, pending, repo_root)
 
     if ready_task_id is None:
         if not pending:
             if progress is not None:
                 progress("Aucune tâche restante, fonctionnalité terminée.")
-            return {**state, "current_task_id": None, "status": "COMPLETED", "error": None}
+            return {
+                **state,
+                "current_task_id": None,
+                "task_action": "COMPLETED",
+                "status": "COMPLETED",
+                "error": None,
+            }
 
         waiting = ", ".join(pending)
         message = (
@@ -317,17 +350,39 @@ def node_select_next_task(
             progress(message)
         return {**state, "status": "FAILED", "error": message}
 
+    decision = determine_task_resume_action(repo_root=repo_root, task_id=ready_task_id)
     if progress is not None:
         progress(
             f"Tâche sélectionnée : {ready_task_id} "
-            f"({len(state.get('completed_task_ids', []))}/{len(backlog['tasks'])} intégrée(s))."
+            f"({len(state.get('completed_task_ids', []))}/{len(backlog['tasks'])} intégrée(s)) "
+            f"-> {decision.action}."
         )
+
+    if decision.action == "INVALID_STATE":
+        return {
+            **state,
+            "current_task_id": ready_task_id,
+            "task_action": decision.action,
+            "status": "FAILED",
+            "error": decision.reason,
+        }
+
+    if decision.action == "HUMAN_REVIEW":
+        return {
+            **state,
+            "current_task_id": ready_task_id,
+            "task_action": decision.action,
+            "last_verdict": "HUMAN_REVIEW_REQUIRED",
+            "status": "HUMAN_REVIEW_REQUIRED",
+            "error": decision.reason or f"Revue humaine requise pour {ready_task_id}.",
+        }
 
     return {
         **state,
         "current_task_id": ready_task_id,
         "correction_count": 0,
-        "last_verdict": None,
+        "last_verdict": "APPROVED" if decision.action == "INTEGRATE" else None,
+        "task_action": decision.action,
         "status": "TASK_SELECTED",
         "error": None,
     }
@@ -465,7 +520,14 @@ def node_integrate_task(
 def route_after_select(state: RunFeatureState) -> str:
     if state.get("status") in TERMINAL_STATUSES:
         return "finish"
-    return "run_task"
+    action = state.get("task_action")
+    if action == "IMPLEMENT":
+        return "run_task"
+    if action in {"REVIEW", "CORRECT"}:
+        return "review_task" if action == "REVIEW" else "correct_task"
+    if action == "INTEGRATE":
+        return "integrate_task"
+    return "finish"
 
 
 def route_after_decision(state: RunFeatureState) -> str:
@@ -520,6 +582,144 @@ def build_terminal_state(
         "status": status,
         "error": error,
     }
+
+
+def determine_task_resume_action(*, repo_root: Path, task_id: str) -> ResumeDecision:
+    run_dir = repo_root / ".autodev" / "runs" / task_id
+    integration_result = load_optional_json(run_dir / "integration" / "integration-result.json")
+    integration_status = integration_result.get("status")
+    if integration_status == "INTEGRATED":
+        return ResumeDecision("COMPLETED", "Tâche déjà intégrée.")
+
+    review_result = load_optional_json(run_dir / "review" / "review-result.json")
+    review_verdict = review_result.get("verdict")
+
+    branch = f"autodev/{task_id}"
+    branch_present = branch_exists(repo_root, branch)
+    worktree = resolve_task_worktree(repo_root=repo_root, task_id=task_id, run_dir=run_dir)
+    worktree_exists = worktree.exists()
+    worktree_present = worktree_exists or worktree_registered(repo_root, worktree)
+    produced_commit = resolve_resume_produced_commit(
+        repo_root=repo_root,
+        branch=branch,
+        run_dir=run_dir,
+        branch_present=branch_present,
+        worktree=worktree,
+        worktree_exists=worktree_exists,
+    )
+
+    if not branch_present and not worktree_present:
+        return ResumeDecision("IMPLEMENT", "Aucun artefact Git détecté.")
+    if branch_present and not worktree_present:
+        return ResumeDecision(
+            "INVALID_STATE",
+            f"État incohérent pour {task_id} : branche présente mais worktree absent.",
+        )
+    if worktree_present and not branch_present:
+        return ResumeDecision(
+            "INVALID_STATE",
+            f"État incohérent pour {task_id} : worktree présent mais branche absente.",
+        )
+
+    if review_verdict == "APPROVED":
+        if produced_commit is None:
+            return ResumeDecision(
+                "INVALID_STATE",
+                f"État incohérent pour {task_id} : revue APPROVED sans commit produit.",
+            )
+        return ResumeDecision("INTEGRATE", "Revue approuvée, intégration à relancer.")
+
+    if review_verdict == "CORRECTION_REQUIRED":
+        if not worktree_exists:
+            return ResumeDecision(
+                "INVALID_STATE",
+                f"État incohérent pour {task_id} : correction requise mais worktree introuvable.",
+            )
+        return ResumeDecision("CORRECT", "Correction automatique à reprendre.")
+
+    if review_verdict == "HUMAN_REVIEW_REQUIRED":
+        return ResumeDecision("HUMAN_REVIEW", f"Revue humaine requise pour {task_id}.")
+
+    if review_verdict is not None:
+        return ResumeDecision(
+            "INVALID_STATE",
+            f"Verdict de revue invalide pour {task_id} : {review_verdict!r}.",
+        )
+
+    if produced_commit is not None:
+        return ResumeDecision("REVIEW", "Implémentation détectée, revue à lancer.")
+
+    return ResumeDecision(
+        "INVALID_STATE",
+        (
+            f"Implémentation incomplète pour {task_id} : branche/worktree existants "
+            "mais aucun commit produit détecté."
+        ),
+    )
+
+
+def load_optional_json(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        return load_json(path)
+    except PlanningError as exc:
+        raise RunFeatureError(str(exc)) from exc
+
+
+def resolve_task_worktree(*, repo_root: Path, task_id: str, run_dir: Path) -> Path:
+    run_result = load_optional_json(run_dir / "result.json")
+    task_record = load_optional_json(run_dir / "task.json")
+    raw_value = (
+        run_result.get("worktree")
+        or task_record.get("worktree")
+        or str(repo_root / ".autodev" / "worktrees" / task_id)
+    )
+    return Path(str(raw_value))
+
+
+def resolve_resume_produced_commit(
+    *,
+    repo_root: Path,
+    branch: str,
+    run_dir: Path,
+    branch_present: bool,
+    worktree: Path,
+    worktree_exists: bool,
+) -> str | None:
+    run_result = load_optional_json(run_dir / "result.json")
+    task_record = load_optional_json(run_dir / "task.json")
+    produced_commit = run_result.get("produced_commit")
+    if isinstance(produced_commit, str) and produced_commit.strip():
+        return produced_commit
+
+    base_commit = run_result.get("base_commit") or task_record.get("base_commit")
+    if not isinstance(base_commit, str) or not base_commit.strip():
+        return None
+
+    try:
+        if branch_present and count_commits_between(repo_root, base_commit, branch) > 0:
+            return branch_head(repo_root, branch)
+        if worktree_exists and count_commits_between(repo_root, base_commit, "HEAD", cwd=worktree) > 0:
+            return git_output(repo_root, ["rev-parse", "HEAD"], cwd=worktree)
+    except GitError as exc:
+        raise RunFeatureError(str(exc)) from exc
+
+    return None
+
+
+def count_commits_between(
+    repo_root: Path,
+    base_commit: str,
+    end_ref: str,
+    *,
+    cwd: Path | None = None,
+) -> int:
+    try:
+        count = git_output(repo_root, ["rev-list", "--count", f"{base_commit}..{end_ref}"], cwd=cwd)
+    except GitError as exc:
+        raise RunFeatureError(str(exc)) from exc
+    return int(count)
 
 
 def write_run_summary(

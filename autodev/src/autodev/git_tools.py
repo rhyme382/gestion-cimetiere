@@ -147,6 +147,27 @@ def commit_merge(repo_root: Path, message: str) -> None:
         raise GitError(f"Impossible de créer le commit de merge : {stderr}")
 
 
+def stage_all(repo_root: Path, cwd: Path | None = None) -> None:
+    result = run_git(repo_root, ["add", "-A"], cwd=cwd)
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip()
+        raise GitError(f"Impossible de préparer les fichiers pour commit : {stderr}")
+
+
+def amend_head_commit(repo_root: Path, cwd: Path | None = None) -> None:
+    result = run_git(repo_root, ["commit", "--amend", "--no-edit"], cwd=cwd)
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip()
+        raise GitError(f"Impossible d'amender le commit courant : {stderr}")
+
+
+def create_commit(repo_root: Path, message: str, cwd: Path | None = None) -> None:
+    result = run_git(repo_root, ["commit", "-m", message], cwd=cwd)
+    if result.returncode != 0:
+        stderr = result.stderr.strip() or result.stdout.strip()
+        raise GitError(f"Impossible de créer le commit : {stderr}")
+
+
 def hard_reset(repo_root: Path, commit: str) -> None:
     result = run_git(repo_root, ["reset", "--hard", commit])
     if result.returncode != 0:

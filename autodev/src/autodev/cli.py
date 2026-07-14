@@ -8,6 +8,7 @@ from rich.table import Table
 
 from autodev.integrate_task import IntegrateTaskError, integrate_task
 from autodev.planner import PlanningError, plan_feature
+from autodev.run_feature import RunFeatureError, run_feature
 from autodev.review_task import ReviewTaskError, review_task
 from autodev.task_runner import RunTaskError, run_task
 
@@ -231,6 +232,57 @@ def integrate_task_command(
         "Rapports",
         str(Path(".autodev") / "runs" / task_id / "integration"),
     )
+    console.print(table)
+
+
+@app.command("run-feature")
+def run_feature_command(
+    backlog_json: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
+        help="Chemin du backlog JSON.",
+    ),
+    resume: bool = typer.Option(
+        False,
+        "--resume",
+        help="Reprend depuis le checkpoint LangGraph existant pour cette feature.",
+    ),
+    max_corrections: int = typer.Option(
+        3,
+        "--max-corrections",
+        min=0,
+        help="Nombre maximal de boucles de correction automatiques par tâche.",
+    ),
+) -> None:
+    """Orchestre séquentiellement toutes les tâches d'une fonctionnalité avec LangGraph."""
+
+    def progress(message: str) -> None:
+        console.print(message)
+
+    try:
+        summary = run_feature(
+            backlog_json=backlog_json,
+            resume=resume,
+            max_corrections=max_corrections,
+            progress=progress,
+        )
+    except RunFeatureError as exc:
+        console.print(f"\n[bold red]Échec :[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    table = Table(title="Résumé run-feature")
+    table.add_column("Champ")
+    table.add_column("Valeur")
+    table.add_row("Feature", summary["feature_id"])
+    table.add_row("Tâches intégrées", ", ".join(summary["tasks_integrated"]) or "—")
+    table.add_row("Tâches restantes", ", ".join(summary["tasks_remaining"]) or "—")
+    table.add_row("Statut final", summary["status"])
+    table.add_row("Checkpoints", summary["checkpoints_path"])
+    table.add_row("Rapports", summary["reports_path"])
     console.print(table)
 
 

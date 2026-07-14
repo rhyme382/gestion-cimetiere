@@ -46,6 +46,9 @@ from autodev.validation_baseline import (
 
 APPROVED_VERDICT = "APPROVED"
 INTEGRATION_STATUSES = {"INTEGRATED", "FAILED", "CONFLICT", "HUMAN_REVIEW_REQUIRED"}
+TASK_WORKTREE = "TASK_WORKTREE"
+TARGET_BRANCH = "TARGET_BRANCH"
+POST_MERGE_TARGET = "POST_MERGE_TARGET"
 
 
 class IntegrateTaskError(RuntimeError):
@@ -98,8 +101,7 @@ def integrate_task(backlog_json: Path, task_id: str) -> dict[str, Any]:
 
         record_text(integration_dir / "git-before.txt", build_git_snapshot(repo_root))
 
-        if worktree.exists():
-            ensure_worktree_clean(repo_root, worktree)
+        ensure_task_worktree_ready(repo_root, worktree)
         if not is_ancestor(repo_root, base_commit, produced_commit):
             raise IntegrateTaskError(
                 "Le commit produit ne descend pas du base_commit enregistré."
@@ -126,10 +128,11 @@ def integrate_task(backlog_json: Path, task_id: str) -> dict[str, Any]:
             )
 
         task_pre_merge = run_validation_set(
-            repo_root,
+            worktree,
             list(task["validation_commands"]),
             integration_dir / "task-pre-merge",
             label="TASK_PRE_MERGE",
+            execution_context=TASK_WORKTREE,
         )
         result["task_validation_status"] = task_pre_merge["status"]
         if task_pre_merge["status"] != PASS:
@@ -143,6 +146,7 @@ def integrate_task(backlog_json: Path, task_id: str) -> dict[str, Any]:
             full_commands,
             integration_dir / "baseline",
             label="FULL_BASELINE",
+            execution_context=TARGET_BRANCH,
         )
         result["baseline_status"] = baseline_results["status"]
         stdout_log += (integration_dir / "baseline" / "stdout.log").read_text(encoding="utf-8")
@@ -163,6 +167,7 @@ def integrate_task(backlog_json: Path, task_id: str) -> dict[str, Any]:
             list(task["validation_commands"]),
             integration_dir / "task-post-merge",
             label="TASK_POST_MERGE",
+            execution_context=POST_MERGE_TARGET,
         )
         result["task_validation_status"] = task_post_merge["status"]
         write_json(integration_dir / "validation-results.json", task_post_merge)
@@ -181,6 +186,7 @@ def integrate_task(backlog_json: Path, task_id: str) -> dict[str, Any]:
             full_commands,
             integration_dir / "post-merge",
             label="FULL_POST_MERGE",
+            execution_context=POST_MERGE_TARGET,
         )
         stdout_log += (integration_dir / "post-merge" / "stdout.log").read_text(encoding="utf-8")
         stderr_log += (integration_dir / "post-merge" / "stderr.log").read_text(encoding="utf-8")
@@ -346,6 +352,14 @@ def ensure_worktree_clean(repo_root: Path, worktree: Path) -> None:
         raise IntegrateTaskError(str(exc)) from exc
     if status:
         raise IntegrateTaskError("Le worktree de la tâche contient des modifications non commitées.")
+
+
+def ensure_task_worktree_ready(repo_root: Path, worktree: Path) -> None:
+    if not worktree.exists():
+        raise IntegrateTaskError(f"Worktree de tâche introuvable pour la validation pré-fusion : {worktree}")
+    if not worktree_registered(repo_root, worktree):
+        raise IntegrateTaskError(f"Worktree de tâche non enregistré pour la validation pré-fusion : {worktree}")
+    ensure_worktree_clean(repo_root, worktree)
 
 
 def handle_failed_merge(repo_root: Path, result: dict[str, Any], integration_dir: Path) -> bool:

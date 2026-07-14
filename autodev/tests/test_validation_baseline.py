@@ -18,6 +18,8 @@ def _result(command: str, returncode: int | None, stderr: str = "", stdout: str 
     return {
         "command": command,
         "argv": [sys.executable],
+        "cwd": "/tmp/fake",
+        "execution_context": "TARGET_BRANCH",
         "returncode": returncode,
         "stdout": stdout,
         "stderr": stderr,
@@ -128,8 +130,11 @@ def test_run_validation_set_writes_artifacts(tmp_path: Path) -> None:
         [f"{sys.executable} -c \"raise SystemExit(1)\""],
         tmp_path / "validation",
         label="FULL",
+        execution_context="TARGET_BRANCH",
     )
 
     assert payload["status"] == "FAIL"
+    assert payload["cwd"] == str(tmp_path.resolve())
+    assert payload["execution_context"] == "TARGET_BRANCH"
     assert (tmp_path / "validation" / "validation-results.json").is_file()
     assert (tmp_path / "validation" / "failures.json").is_file()

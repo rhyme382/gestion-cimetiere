@@ -72,10 +72,12 @@ def run_validation_set(
     output_dir: Path,
     *,
     label: str,
+    execution_context: str,
     extra_env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     results: list[dict[str, Any]] = []
+    real_cwd = str(worktree.resolve())
 
     for command in commands:
         try:
@@ -85,6 +87,8 @@ def run_validation_set(
                 {
                     "command": command,
                     "argv": [],
+                    "cwd": real_cwd,
+                    "execution_context": execution_context,
                     "returncode": None,
                     "stdout": "",
                     "stderr": str(exc),
@@ -106,6 +110,8 @@ def run_validation_set(
                 {
                     "command": command,
                     "argv": argv,
+                    "cwd": real_cwd,
+                    "execution_context": execution_context,
                     "returncode": completed.returncode,
                     "stdout": completed.stdout,
                     "stderr": completed.stderr,
@@ -116,6 +122,8 @@ def run_validation_set(
                 {
                     "command": command,
                     "argv": argv,
+                    "cwd": real_cwd,
+                    "execution_context": execution_context,
                     "returncode": None,
                     "stdout": "",
                     "stderr": str(exc),
@@ -126,6 +134,8 @@ def run_validation_set(
     payload = {
         "label": label,
         "commands": list(commands),
+        "cwd": real_cwd,
+        "execution_context": execution_context,
         "results": results,
         "status": PASS if all(item.get("returncode") == 0 for item in results) else "FAIL",
     }

@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from shutil import rmtree
 
 import pytest
 
@@ -171,6 +172,11 @@ def integration_result(repo: Path, task_id: str) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def read_validation_results(repo: Path, task_id: str, artifact: str) -> dict[str, object]:
+    path = repo / ".autodev" / "runs" / task_id / "integration" / artifact / "validation-results.json"
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def git_head(repo: Path, ref: str = "HEAD", *, cwd: Path | None = None) -> str:
     return subprocess.run(
         ["git", "rev-parse", ref],
@@ -234,6 +240,14 @@ def test_integrate_rejects_dirty_task_worktree(tmp_path: Path) -> None:
         integrate_task(backlog, "TASK-DIRTY-WT")
 
 
+def test_integrate_rejects_missing_task_worktree_before_pre_merge_validation(tmp_path: Path) -> None:
+    _, backlog, worktree, _, _ = prepare_repo_for_integration(tmp_path, task_id="TASK-NO-WORKTREE")
+    rmtree(worktree)
+
+    with pytest.raises(IntegrateTaskError, match="Worktree de tâche introuvable pour la validation pré-fusion"):
+        integrate_task(backlog, "TASK-NO-WORKTREE")
+
+
 def test_integrate_rejects_missing_branch(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     backlog = write_backlog(repo, [make_task("TASK-NO-BRANCH")])
@@ -295,6 +309,75 @@ def test_integrate_success_creates_merge_commit_and_reports(tmp_path: Path) -> N
     ).stdout.strip()
     assert merge_message == "autodev integrate-task TASK-SUCCESS"
     assert before_remote != result["integration_commit"]
+
+    task_pre = read_validation_results(repo, "TASK-SUCCESS", "task-pre-merge")
+    baseline = read_validation_results(repo, "TASK-SUCCESS", "baseline")
+    task_post = read_validation_results(repo, "TASK-SUCCESS", "task-post-merge")
+    post_merge = read_validation_results(repo, "TASK-SUCCESS", "post-merge")
+    assert task_pre["execution_context"] == "TASK_WORKTREE"
+    assert baseline["execution_context"] == "TARGET_BRANCH"
+    assert task_post["execution_context"] == "POST_MERGE_TARGET"
+    assert post_merge["execution_context"] == "POST_MERGE_TARGET"
+    assert task_pre["cwd"] != baseline["cwd"]
+    assert baseline["cwd"] == post_merge["cwd"]
+
+
+def test_integrate_runs_pre_merge_task_validation_in_worktree_only(tmp_path: Path) -> None:
+    repo, backlog, worktree, _, _ = prepare_repo_for_integration(
+        tmp_path,
+        task_id="TASK-WORKTREE-ONLY",
+        task_file="src/__tests__/DiagnosticCard.test.tsx",
+        task_content="test-only file\n",
+        validation_commands=[
+            f'{sys.executable} -c "from pathlib import Path\nimport sys\nraise SystemExit(0 if Path(\'src/__tests__/DiagnosticCard.test.tsx\').exists() else 1)"'
+        ],
+    )
+
+    result = integrate_task(backlog, "TASK-WORKTREE-ONLY")
+
+    assert result["status"] == "INTEGRATED"
+    pre_merge = read_validation_results(repo, "TASK-WORKTREE-ONLY", "task-pre-merge")
+    post_merge = read_validation_results(repo, "TASK-WORKTREE-ONLY", "task-post-merge")
+    baseline = read_validation_results(repo, "TASK-WORKTREE-ONLY", "baseline")
+    assert pre_merge["status"] == "PASS"
+    assert pre_merge["execution_context"] == "TASK_WORKTREE"
+    assert pre_merge["cwd"] == str(worktree.resolve())
+    assert pre_merge["results"][0]["cwd"] == str(worktree.resolve())
+    assert pre_merge["results"][0]["execution_context"] == "TASK_WORKTREE"
+    assert post_merge["status"] == "PASS"
+    assert baseline["cwd"] == str(repo.resolve())
+
+
+def test_target_branch_would_fail_same_command_before_merge_but_is_not_used_for_pre_merge(tmp_path: Path) -> None:
+    repo, backlog, _, _, _ = prepare_repo_for_integration(
+        tmp_path,
+        task_id="TASK-PREMERGE-CWD",
+        task_file="src/__tests__/DiagnosticCard.test.tsx",
+        task_content="test-only file\n",
+        validation_commands=[
+            f'{sys.executable} -c "from pathlib import Path\nraise SystemExit(0 if Path(\'src/__tests__/DiagnosticCard.test.tsx\').exists() else 1)"'
+        ],
+    )
+
+    target_probe = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from pathlib import Path\nraise SystemExit(0 if Path('src/__tests__/DiagnosticCard.test.tsx').exists() else 1)",
+        ],
+        cwd=repo,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert target_probe.returncode == 1
+
+    result = integrate_task(backlog, "TASK-PREMERGE-CWD")
+
+    assert result["status"] == "INTEGRATED"
+    pre_merge = read_validation_results(repo, "TASK-PREMERGE-CWD", "task-pre-merge")
+    assert pre_merge["status"] == "PASS"
+    assert pre_merge["cwd"] != str(repo.resolve())
 
 
 def test_integrate_uses_current_branch_diff_after_amended_commit(tmp_path: Path) -> None:
@@ -404,7 +487,7 @@ def test_integrate_rolls_back_when_post_validation_fails(tmp_path: Path) -> None
         tmp_path,
         task_id="TASK-VALIDATION-FAIL",
         validation_commands=[
-            f'{sys.executable} -c "from pathlib import Path\nraise SystemExit(1 if Path(\'src/feature.txt\').exists() else 0)"'
+            f'{sys.executable} -c "import subprocess\nbranch = subprocess.run([\'git\', \'rev-parse\', \'--abbrev-ref\', \'HEAD\'], check=True, capture_output=True, text=True).stdout.strip()\nraise SystemExit(0 if branch.startswith(\'autodev/\') else 1)"'
         ],
     )
     head_before = subprocess.run(
@@ -480,7 +563,7 @@ def test_integrate_rejects_when_task_validation_fails_even_with_same_baseline(tm
         tmp_path,
         task_id="TASK-POST-TASK-FAIL",
         validation_commands=[
-            f'{sys.executable} -c "from pathlib import Path\nraise SystemExit(1 if Path(\'src/feature.txt\').exists() else 0)"'
+            f'{sys.executable} -c "import subprocess\nbranch = subprocess.run([\'git\', \'rev-parse\', \'--abbrev-ref\', \'HEAD\'], check=True, capture_output=True, text=True).stdout.strip()\nraise SystemExit(0 if branch.startswith(\'autodev/\') else 1)"'
         ],
     )
     write_quality_gates(

@@ -74,7 +74,10 @@
           "requirement_ids",
           "allowed_paths",
           "validation_commands",
-          "acceptance_criteria"
+          "acceptance_criteria",
+          "shared_requirement_justifications",
+          "dependency_change_reason",
+          "validation_scope_justification"
         ],
         "properties": {
           "id": {
@@ -138,19 +141,40 @@
             }
           },
           "shared_requirement_justifications": {
-            "type": "object",
-            "default": {},
-            "additionalProperties": {
-              "type": "string",
-              "minLength": 10
+            "type": "array",
+            "description": "Justifications des exigences volontairement partagées entre plusieurs tâches.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "requirement_id": {
+                  "type": "string",
+                  "minLength": 3
+                },
+                "justification": {
+                  "type": "string",
+                  "minLength": 10
+                }
+              },
+              "required": [
+                "requirement_id",
+                "justification"
+              ]
             }
           },
           "dependency_change_reason": {
-            "type": "string",
-            "minLength": 10
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 10,
+            "description": "Justification d'un changement de dépendance, ou null si sans objet."
           },
           "validation_scope_justification": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "minLength": 10
           }
         }

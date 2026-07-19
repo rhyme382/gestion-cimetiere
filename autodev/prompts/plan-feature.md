@@ -35,7 +35,7 @@ Règles impératives :
 19. Une tâche dépendante ne doit ni réimplémenter ni reprouver les exigences déjà satisfaites par ses dépendances.
 20. Utilise les critères d'acceptation propres à chaque tâche pour décrire les contributions intermédiaires.
 21. Une exigence transversale ne peut être partagée entre plusieurs tâches que si chaque part à livrer est explicitement décrite et justifiée.
-22. Si une exigence est volontairement partagée, renseigne `shared_requirement_justifications` sur chaque tâche concernée avec une justification explicite par identifiant d'exigence.
+22. Si une exigence est volontairement partagée, renseigne `shared_requirement_justifications` sous forme de liste d'objets `requirement_id` / `justification` sur chaque tâche concernée.
 
 Les tâches seront ensuite exécutées automatiquement. Elles doivent donc être précises, autonomes et sans ambiguïté.
 

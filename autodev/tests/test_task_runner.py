@@ -113,7 +113,7 @@ def make_task(
     depends_on: list[str] | None = None,
     requirement_ids: list[str] | None = None,
     acceptance_criteria: list[str] | None = None,
-    shared_requirement_justifications: dict[str, str] | None = None,
+    shared_requirement_justifications: list[dict[str, str]] | None = None,
 ) -> dict[str, object]:
     task: dict[str, object] = {
         "id": task_id,

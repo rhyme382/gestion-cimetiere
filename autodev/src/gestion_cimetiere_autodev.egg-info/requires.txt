@@ -1,6 +1,7 @@
 langgraph
 langgraph-checkpoint-sqlite
 pydantic
+PyYAML
 typer
 rich
 

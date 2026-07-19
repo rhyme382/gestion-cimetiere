@@ -527,18 +527,24 @@ def test_review_task_uses_integrated_dependency_proof_without_requiring_dependen
                 "TASK-CONTRACT",
                 requirement_ids=["REQ-CONTRACT"],
                 acceptance_criteria=["Expose DiagnosticDTO et getDiagnostic()."],
-                shared_requirement_justifications={
-                    "REQ-CONTRACT": "Le contrat backend couvre explicitement la partie exposition TypeScript."
-                },
+                shared_requirement_justifications=[
+                    {
+                        "requirement_id": "REQ-CONTRACT",
+                        "justification": "Le contrat backend couvre explicitement la partie exposition TypeScript.",
+                    }
+                ],
             ),
             make_task(
                 "TASK-UI",
                 depends_on=["TASK-CONTRACT"],
                 requirement_ids=["REQ-CONTRACT"],
                 acceptance_criteria=["Affiche le diagnostic en réutilisant le contrat existant sans le modifier."],
-                shared_requirement_justifications={
-                    "REQ-CONTRACT": "La même exigence est partagée car cette tâche couvre uniquement la consommation UI."
-                },
+                shared_requirement_justifications=[
+                    {
+                        "requirement_id": "REQ-CONTRACT",
+                        "justification": "La même exigence est partagée car cette tâche couvre uniquement la consommation UI.",
+                    }
+                ],
             ),
         ],
         requirements=requirements,

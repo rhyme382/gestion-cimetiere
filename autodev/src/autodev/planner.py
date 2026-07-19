@@ -239,29 +239,48 @@ def validate_shared_requirement_justifications(
     task: dict[str, Any],
     requirement_ids: set[str],
 ) -> None:
-    task_id = task["id"]
-    raw = task.get("shared_requirement_justifications", {})
-    if raw is None:
-        return
-    if not isinstance(raw, dict):
+    task_id = task.get("id", "<tâche inconnue>")
+    raw = task.get("shared_requirement_justifications", [])
+
+    if not isinstance(raw, list):
         raise PlanningError(
             f"{task_id} contient shared_requirement_justifications invalide."
         )
 
-    task_requirements = set(task["requirement_ids"])
-    for requirement_id, justification in raw.items():
+    seen_requirement_ids: set[str] = set()
+
+    for item in raw:
+        if not isinstance(item, dict):
+            raise PlanningError(
+                f"{task_id} contient une justification partagée invalide."
+            )
+
+        requirement_id = item.get("requirement_id")
+        justification = item.get("justification")
+
+        if not isinstance(requirement_id, str) or not requirement_id.strip():
+            raise PlanningError(
+                f"{task_id} contient un requirement_id partagé invalide."
+            )
+
         if requirement_id not in requirement_ids:
             raise PlanningError(
-                f"{task_id} justifie un partage pour une exigence inconnue : {requirement_id}"
+                f"{task_id} justifie une exigence inconnue : {requirement_id}."
             )
-        if requirement_id not in task_requirements:
+
+        if requirement_id in seen_requirement_ids:
             raise PlanningError(
-                f"{task_id} justifie un partage pour une exigence non rattachée : {requirement_id}"
+                f"{task_id} contient plusieurs justifications pour "
+                f"{requirement_id}."
             )
-        if not isinstance(justification, str) or not justification.strip():
+
+        if not isinstance(justification, str) or len(justification.strip()) < 10:
             raise PlanningError(
-                f"{task_id} doit fournir une justification textuelle pour {requirement_id}."
+                f"{task_id} contient une justification insuffisante pour "
+                f"{requirement_id}."
             )
+
+        seen_requirement_ids.add(requirement_id)
 
 
 def validate_requirement_allocations(tasks: list[dict[str, Any]]) -> None:
@@ -281,7 +300,17 @@ def validate_requirement_allocations(tasks: list[dict[str, Any]]) -> None:
             task["id"]
             for task in attached_tasks
             if not str(
-                task.get("shared_requirement_justifications", {}).get(requirement_id, "")
+                next(
+                    (
+                        item.get("justification", "")
+                        for item in task.get(
+                            "shared_requirement_justifications", []
+                        )
+                        if isinstance(item, dict)
+                        and item.get("requirement_id") == requirement_id
+                    ),
+                    "",
+                )
             ).strip()
         ]
         if missing_justification:

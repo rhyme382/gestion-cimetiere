@@ -45,17 +45,23 @@ def test_duplicate_requirement_with_explicit_justification_is_accepted(tmp_path)
             make_task(
                 "TASK-CONTRACT",
                 requirement_ids=["REQ-001"],
-                shared_requirement_justifications={
-                    "REQ-001": "Cette tâche livre le contrat TypeScript partagé avec la couche UI."
-                },
+                shared_requirement_justifications=[
+                    {
+                        "requirement_id": "REQ-001",
+                        "justification": "Cette tâche livre le contrat TypeScript partagé avec la couche UI.",
+                    }
+                ],
             ),
             make_task(
                 "TASK-UI",
                 depends_on=["TASK-CONTRACT"],
                 requirement_ids=["REQ-001"],
-                shared_requirement_justifications={
-                    "REQ-001": "Cette tâche couvre explicitement la partie affichage de la même exigence transverse."
-                },
+                shared_requirement_justifications=[
+                    {
+                        "requirement_id": "REQ-001",
+                        "justification": "Cette tâche couvre explicitement la partie affichage de la même exigence transverse.",
+                    }
+                ],
             ),
         ],
         requirements=[

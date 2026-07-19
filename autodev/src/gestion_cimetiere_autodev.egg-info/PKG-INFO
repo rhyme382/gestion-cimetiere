@@ -6,6 +6,7 @@ Requires-Python: >=3.12
 Requires-Dist: langgraph
 Requires-Dist: langgraph-checkpoint-sqlite
 Requires-Dist: pydantic
+Requires-Dist: PyYAML
 Requires-Dist: typer
 Requires-Dist: rich
 Provides-Extra: dev

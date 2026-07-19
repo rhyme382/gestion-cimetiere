@@ -151,6 +151,17 @@ def branch_head(repo_root: Path, branch: str) -> str:
     return git_output(repo_root, ["rev-parse", branch])
 
 
+def count_tracked_commits_between(
+    repo_root: Path,
+    base_commit: str,
+    end_ref: str,
+    *,
+    cwd: Path | None = None,
+) -> int:
+    count = git_output(repo_root, ["rev-list", "--count", f"{base_commit}..{end_ref}"], cwd=cwd)
+    return int(count)
+
+
 def diff_patch(repo_root: Path, worktree_path: Path, base_commit: str) -> str:
     return git_output(repo_root, ["diff", "--binary", base_commit, "HEAD"], cwd=worktree_path)
 
@@ -165,6 +176,11 @@ def git_status_porcelain(repo_root: Path, cwd: Path | None = None) -> str:
 
 def git_status_with_branch(repo_root: Path, cwd: Path | None = None) -> str:
     return git_output_raw(repo_root, ["status", "--short", "--branch"], cwd=cwd)
+
+
+def is_path_tracked(repo_root: Path, path: str, cwd: Path | None = None) -> bool:
+    result = run_git(repo_root, ["ls-files", "--error-unmatch", "--", path], cwd=cwd)
+    return result.returncode == 0
 
 
 def is_ancestor(repo_root: Path, ancestor: str, descendant: str) -> bool:

@@ -1,21 +1,18 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
 
+from autodev.git_context import GitContextError, build_current_task_git_state
 from autodev.git_tools import (
-    GitError,
     branch_exists,
-    branch_head,
-    changed_paths_between,
-    diff_patch_between,
     git_status_porcelain,
-    name_status_between,
 )
 from autodev.path_rules import normalize_repo_relative_path
 from autodev.planner import PlanningError, find_repo_root, load_json, validate_backlog_consistency
+from autodev.process_runner import TIMEOUTS_SECONDS, run_process_capturing_timeout
+from autodev.task_report import TaskReportError, build_task_report_payload, verify_task_report
 from autodev.task_runner import (
     RunTaskError,
     find_task,
@@ -57,16 +54,17 @@ def review_task(
 
     run_result = load_optional_json(run_dir / "result.json")
     task_record = load_optional_json(run_dir / "task.json")
-    base_commit = resolve_base_commit(run_result, task_record)
-    worktree = resolve_worktree(repo_root, task_id, run_result, task_record)
-    produced_commit = resolve_produced_commit(repo_root, branch)
-    review_delivery = collect_review_delivery(repo_root, review_dir, base_commit, produced_commit)
+    try:
+        git_state = build_current_task_git_state(repo_root, task_id)
+    except GitContextError as exc:
+        raise ReviewTaskError(str(exc)) from exc
+    review_delivery = collect_review_delivery(repo_root, review_dir, git_state)
     modified_paths = review_delivery["modified_paths"]
     unexpected_paths = find_unexpected_paths(task["allowed_paths"], modified_paths)
 
     validation_results, validation_source = load_or_rerun_validations(
         repo_root=repo_root,
-        worktree=worktree,
+        worktree=git_state.worktree,
         task=task,
         run_result=run_result,
     )
@@ -77,6 +75,18 @@ def review_task(
     }
     write_json(review_dir / "validation-results.json", validation_payload)
 
+    expected_report = build_task_report_payload(
+        backlog=backlog,
+        task=task,
+        git_state=review_delivery,
+        validations=validation_results,
+        problems=unexpected_paths,
+    )
+    try:
+        verify_task_report(run_dir, expected_report)
+    except TaskReportError as exc:
+        raise ReviewTaskError(str(exc)) from exc
+
     spec_path = resolve_specification_path(repo_root, backlog)
     prompt = build_review_prompt(
         repo_root=repo_root,
@@ -84,8 +94,8 @@ def review_task(
         backlog=backlog,
         task=task,
         spec_path=spec_path,
-        base_commit=base_commit,
-        produced_commit=produced_commit,
+        base_commit=git_state.base_commit,
+        produced_commit=git_state.produced_commit,
         modified_paths=modified_paths,
         name_status_lines=review_delivery["name_status"],
         unexpected_paths=unexpected_paths,
@@ -99,7 +109,7 @@ def review_task(
     output_path = review_dir / "review-result.json"
     codex_runner = codex_runner or run_codex_review
     codex_result = codex_runner(
-        cwd=worktree if worktree.exists() else repo_root,
+        cwd=git_state.worktree if git_state.worktree.exists() else repo_root,
         prompt=prompt,
         schema_path=schema_path,
         output_path=output_path,
@@ -143,68 +153,31 @@ def load_optional_json(path: Path) -> dict[str, Any]:
         raise ReviewTaskError(str(exc)) from exc
 
 
-def resolve_base_commit(run_result: dict[str, Any], task_record: dict[str, Any]) -> str:
-    base_commit = run_result.get("base_commit") or task_record.get("base_commit")
-    if not isinstance(base_commit, str) or not base_commit.strip():
-        raise ReviewTaskError("Commit de départ introuvable dans les artefacts run-task.")
-    return base_commit
-
-
-def resolve_worktree(
-    repo_root: Path,
-    task_id: str,
-    run_result: dict[str, Any],
-    task_record: dict[str, Any],
-) -> Path:
-    worktree_value = (
-        run_result.get("worktree")
-        or task_record.get("worktree")
-        or str(repo_root / ".autodev" / "worktrees" / task_id)
-    )
-    return Path(str(worktree_value))
-
-
-def resolve_produced_commit(
-    repo_root: Path,
-    branch: str,
-) -> str:
-    try:
-        return branch_head(repo_root, branch)
-    except GitError as exc:
-        raise ReviewTaskError(str(exc)) from exc
-
-
 def collect_review_delivery(
     repo_root: Path,
     review_dir: Path,
-    base_commit: str,
-    produced_commit: str,
+    git_state: Any,
 ) -> dict[str, Any]:
-    try:
-        modified_paths = changed_paths_between(repo_root, base_commit, produced_commit)
-        name_status = name_status_between(repo_root, base_commit, produced_commit)
-        diff_text = diff_patch_between(repo_root, base_commit, produced_commit)
-    except GitError as exc:
-        raise ReviewTaskError(str(exc)) from exc
-
     write_json(
         review_dir / "current-paths.json",
         {
-            "base_commit": base_commit,
-            "produced_commit": produced_commit,
-            "modified_paths": modified_paths,
-            "name_status": name_status,
+            "base_commit": git_state.base_commit,
+            "produced_commit": git_state.produced_commit,
+            "modified_paths": git_state.modified_paths,
+            "name_status": git_state.name_status,
         },
     )
     (review_dir / "current-name-status.txt").write_text(
-        "\n".join(name_status) + ("\n" if name_status else ""),
+        "\n".join(git_state.name_status) + ("\n" if git_state.name_status else ""),
         encoding="utf-8",
     )
-    (review_dir / "current-diff.patch").write_text(diff_text, encoding="utf-8")
+    (review_dir / "current-diff.patch").write_text(git_state.diff_text, encoding="utf-8")
     return {
-        "modified_paths": modified_paths,
-        "name_status": name_status,
-        "diff_text": diff_text,
+        "base_commit": git_state.base_commit,
+        "produced_commit": git_state.produced_commit,
+        "modified_paths": git_state.modified_paths,
+        "name_status": git_state.name_status,
+        "diff_text": git_state.diff_text,
     }
 
 
@@ -485,20 +458,13 @@ def run_codex_review(
         "-o",
         str(output_path),
     ]
-    result = subprocess.run(
-        command,
+    result = run_process_capturing_timeout(
+        command=command,
         cwd=cwd,
-        input=prompt,
-        capture_output=True,
-        text=True,
-        check=False,
+        input_text=prompt,
+        timeout_seconds=TIMEOUTS_SECONDS["codex_review"],
     )
-    return {
-        "command": command,
-        "returncode": result.returncode,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-    }
+    return result.to_dict()
 
 
 def validate_review_result(review_result: dict[str, Any], expected_task_id: str) -> None:

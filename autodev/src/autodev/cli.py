@@ -6,6 +6,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from autodev.feature_status import FeatureStatusError, read_feature_status
 from autodev.integrate_task import IntegrateTaskError, integrate_task
 from autodev.planner import PlanningError, plan_feature
 from autodev.run_feature import RunFeatureError, run_feature
@@ -283,6 +284,42 @@ def run_feature_command(
     table.add_row("Statut final", summary["status"])
     table.add_row("Checkpoints", summary["checkpoints_path"])
     table.add_row("Rapports", summary["reports_path"])
+    console.print(table)
+
+
+@app.command("status")
+def status_command(
+    backlog_json: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
+        help="Chemin du backlog JSON.",
+    ),
+) -> None:
+    """Affiche l'état déterministe courant d'une feature autodev."""
+    try:
+        status = read_feature_status(backlog_json)
+    except FeatureStatusError as exc:
+        console.print(f"\n[bold red]Échec :[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    table = Table(title="Statut autodev")
+    table.add_column("Champ")
+    table.add_column("Valeur")
+    table.add_row("Feature", status["feature_id"])
+    table.add_row("Titre", status["feature_title"])
+    table.add_row("État", status["feature_status"])
+    table.add_row("Tâches intégrées", ", ".join(status["tasks_integrated"]) or "—")
+    table.add_row("Tâche courante", status["current_task_id"] or "—")
+    table.add_row("Dernière action", status["last_action"] or "—")
+    table.add_row("Dernier verdict", status["last_verdict"] or "—")
+    table.add_row("Corrections", str(status["correction_count"]))
+    table.add_row("Worktrees", ", ".join(status["worktrees"]) or "—")
+    table.add_row("États incohérents", " | ".join(status["inconsistencies"]) or "—")
+    table.add_row("Rapports", status["reports_path"])
     console.print(table)
 
 

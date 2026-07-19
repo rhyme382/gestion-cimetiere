@@ -48,6 +48,10 @@ def prepare_correction_case(
         make_task("TASK-PILOT-003"),
     ]
     tasks[0]["allowed_paths"] = allowed_paths or ["src"]
+    if "package.json" in tasks[0]["allowed_paths"] or "package-lock.json" in tasks[0]["allowed_paths"]:
+        tasks[0]["dependency_change_reason"] = (
+            "Ce scénario de test couvre explicitement une évolution de manifeste déclarée."
+        )
     tasks[1]["title"] = "Étape suivante"
     backlog = write_backlog(repo, tasks)
     commit_all(repo, "prepare correction fixture")

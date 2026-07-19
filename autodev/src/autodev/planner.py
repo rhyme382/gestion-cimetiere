@@ -5,6 +5,12 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from autodev.generated_artifacts import (
+    command_installs_dependencies,
+    command_is_manifestly_wide,
+    infer_targeted_test_paths,
+    is_dependency_manifest,
+)
 from autodev.path_rules import normalize_repo_relative_path
 
 
@@ -138,8 +144,9 @@ def validate_backlog_consistency(backlog: dict[str, Any]) -> None:
             )
 
         validate_shared_requirement_justifications(task, requirement_ids)
-
         validate_allowed_paths(task)
+        validate_dependency_reproducibility(task)
+        validate_targeted_validations(task)
         validate_agent_assignment(task)
 
     covered_requirements: set[str] = set()
@@ -195,6 +202,37 @@ def validate_allowed_paths(task: dict[str, Any]) -> None:
             raise PlanningError(
                 f"{task_id} contient un allowed_path invalide : {exc}"
             ) from exc
+
+
+def validate_dependency_reproducibility(task: dict[str, Any]) -> None:
+    task_id = task["id"]
+    allowed_paths = task.get("allowed_paths", [])
+    reason = str(task.get("dependency_change_reason", "")).strip()
+    for allowed_path in allowed_paths:
+        if is_dependency_manifest(allowed_path) and not reason:
+            raise PlanningError(
+                f"{task_id} modifie {allowed_path} sans dependency_change_reason explicite."
+            )
+    for command in task.get("validation_commands", []):
+        if command_installs_dependencies(command):
+            raise PlanningError(
+                f"{task_id} contient une commande interdite de modification des dépendances : {command}"
+            )
+
+
+def validate_targeted_validations(task: dict[str, Any]) -> None:
+    task_id = task["id"]
+    commands = task.get("validation_commands", [])
+    justification = str(task.get("validation_scope_justification", "")).strip()
+    targeted_tests = infer_targeted_test_paths(task.get("allowed_paths", []))
+    if not targeted_tests:
+        return
+    for command in commands:
+        if command_is_manifestly_wide(command) and not justification:
+            tests = ", ".join(targeted_tests)
+            raise PlanningError(
+                f"{task_id} utilise une validation trop large ({command}) alors que des tests ciblés sont déductibles : {tests}"
+            )
 
 
 def validate_shared_requirement_justifications(

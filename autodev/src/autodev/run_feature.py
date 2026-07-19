@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -9,6 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
 from autodev.correct_task import CorrectTaskError, correct_task as correct_single_task
+from autodev.git_context import GitContextError, resolve_base_commit, resolve_task_metadata, resolve_worktree
 from autodev.git_tools import GitError, branch_exists, branch_head, git_output, worktree_registered
 from autodev.integrate_task import IntegrateTaskError, integrate_task as integrate_single_task
 from autodev.planner import PlanningError, find_repo_root, load_json, validate_backlog_consistency
@@ -55,6 +57,7 @@ class RunFeatureState(TypedDict, total=False):
     transition_count: int
     max_transitions: int
     selection_signatures: list[str]
+    started_at: str
 
 
 ProgressCallback = Callable[[str], None]
@@ -78,6 +81,7 @@ def run_feature(
     checkpoints_path.parent.mkdir(parents=True, exist_ok=True)
     run_dir = repo_root / ".autodev" / "runs" / "features" / feature_id
     run_dir.mkdir(parents=True, exist_ok=True)
+    started_at = datetime.now(timezone.utc)
 
     thread_id = build_thread_id(feature_id)
     config = {"configurable": {"thread_id": thread_id}}
@@ -101,6 +105,14 @@ def run_feature(
                 )
             initial_state = reset_invocation_guards(existing)
         else:
+            if existing is not None and existing.get("status") == "COMPLETED":
+                return write_run_summary(
+                    repo_root=repo_root,
+                    run_dir=run_dir,
+                    checkpoints_path=checkpoints_path,
+                    state=existing,
+                    started_at=started_at,
+                )
             if existing is not None and existing.get("status") not in TERMINAL_STATUSES:
                 raise RunFeatureError(
                     f"Une exécution inachevée existe déjà pour {feature_id}. Utiliser --resume."
@@ -111,6 +123,7 @@ def run_feature(
                 backlog_json=backlog_json,
                 feature_id=feature_id,
                 max_corrections=max_corrections,
+                started_at=started_at,
             )
 
         try:
@@ -126,6 +139,7 @@ def run_feature(
                 run_dir=run_dir,
                 checkpoints_path=checkpoints_path,
                 state=interrupted_state,
+                started_at=started_at,
             )
             raise RunFeatureError(str(exc)) from exc
 
@@ -134,6 +148,7 @@ def run_feature(
         run_dir=run_dir,
         checkpoints_path=checkpoints_path,
         state=final_state,
+        started_at=started_at,
     )
     return summary
 
@@ -261,7 +276,13 @@ def load_and_validate_backlog(backlog_json: Path) -> dict[str, Any]:
     return backlog
 
 
-def build_initial_state(*, backlog_json: Path, feature_id: str, max_corrections: int) -> RunFeatureState:
+def build_initial_state(
+    *,
+    backlog_json: Path,
+    feature_id: str,
+    max_corrections: int,
+    started_at: datetime,
+) -> RunFeatureState:
     return {
         "backlog_path": str(backlog_json),
         "feature_id": feature_id,
@@ -278,6 +299,7 @@ def build_initial_state(*, backlog_json: Path, feature_id: str, max_corrections:
         "transition_count": 0,
         "max_transitions": MAX_WORKFLOW_TRANSITIONS,
         "selection_signatures": [],
+        "started_at": started_at.isoformat(),
     }
 
 
@@ -742,6 +764,7 @@ def determine_task_resume_action(*, repo_root: Path, task_id: str) -> ResumeDeci
     worktree_present = worktree_exists or worktree_registered(repo_root, worktree)
     produced_commit = resolve_resume_produced_commit(
         repo_root=repo_root,
+        task_id=task_id,
         branch=branch,
         run_dir=run_dir,
         branch_present=branch_present,
@@ -809,19 +832,14 @@ def load_optional_json(path: Path) -> dict[str, Any]:
 
 
 def resolve_task_worktree(*, repo_root: Path, task_id: str, run_dir: Path) -> Path:
-    run_result = load_optional_json(run_dir / "result.json")
-    task_record = load_optional_json(run_dir / "task.json")
-    raw_value = (
-        run_result.get("worktree")
-        or task_record.get("worktree")
-        or str(repo_root / ".autodev" / "worktrees" / task_id)
-    )
-    return Path(str(raw_value))
+    _, run_result, task_record = resolve_task_metadata(repo_root, task_id)
+    return resolve_worktree(repo_root, task_id, run_result, task_record)
 
 
 def resolve_resume_produced_commit(
     *,
     repo_root: Path,
+    task_id: str,
     branch: str,
     run_dir: Path,
     branch_present: bool,
@@ -829,13 +847,14 @@ def resolve_resume_produced_commit(
     worktree_exists: bool,
 ) -> str | None:
     run_result = load_optional_json(run_dir / "result.json")
-    task_record = load_optional_json(run_dir / "task.json")
     produced_commit = run_result.get("produced_commit")
     if isinstance(produced_commit, str) and produced_commit.strip():
         return produced_commit
 
-    base_commit = run_result.get("base_commit") or task_record.get("base_commit")
-    if not isinstance(base_commit, str) or not base_commit.strip():
+    try:
+        _, _, task_record = resolve_task_metadata(repo_root, task_id)
+        base_commit = resolve_base_commit(task_id, run_result, task_record)
+    except GitContextError:
         return None
 
     try:
@@ -869,6 +888,7 @@ def write_run_summary(
     run_dir: Path,
     checkpoints_path: Path,
     state: RunFeatureState,
+    started_at: datetime,
 ) -> dict[str, Any]:
     backlog_path = Path(state["backlog_path"])
     backlog = load_and_validate_backlog(backlog_path)
@@ -895,10 +915,91 @@ def write_run_summary(
         "max_corrections": state.get("max_corrections", 3),
         "checkpoints_path": str(checkpoints_path),
         "reports_path": str(run_dir),
+        "started_at": state.get("started_at", started_at.isoformat()),
+        "finished_at": datetime.now(timezone.utc).isoformat(),
     }
     write_json(run_dir / "run-feature-result.json", summary)
     write_json(run_dir / "last-state.json", state)
+    if summary["status"] == "COMPLETED":
+        write_feature_final_reports(repo_root=repo_root, backlog=backlog, run_dir=run_dir, summary=summary)
     return summary
+
+
+def write_feature_final_reports(
+    *,
+    repo_root: Path,
+    backlog: dict[str, Any],
+    run_dir: Path,
+    summary: dict[str, Any],
+) -> None:
+    tasks_payload: list[dict[str, Any]] = []
+    for task in backlog["tasks"]:
+        task_id = task["id"]
+        task_run_dir = repo_root / ".autodev" / "runs" / task_id
+        result = load_optional_json(task_run_dir / "result.json")
+        review = load_optional_json(task_run_dir / "review" / "review-result.json")
+        integration = load_optional_json(task_run_dir / "integration" / "integration-result.json")
+        corrections_dir = task_run_dir / "corrections"
+        correction_count = len([child for child in corrections_dir.iterdir() if child.is_dir()]) if corrections_dir.is_dir() else 0
+        tasks_payload.append(
+            {
+                "task_id": task_id,
+                "title": task["title"],
+                "branch": f"autodev/{task_id}",
+                "produced_commit": result.get("produced_commit"),
+                "integration_commit": integration.get("integration_commit"),
+                "review_verdict": review.get("verdict"),
+                "integration_status": integration.get("status"),
+                "correction_count": correction_count,
+                "validations": result.get("validation_summary", []),
+                "delivered_files": result.get("modified_paths", []),
+            }
+        )
+
+    final_report = {
+        "feature_id": backlog["feature_id"],
+        "feature_title": backlog["feature_title"],
+        "specification_path": backlog.get("specification_path", "SPEC.md"),
+        "summary": backlog["summary"],
+        "tasks": tasks_payload,
+        "status": summary["status"],
+        "started_at": summary["started_at"],
+        "finished_at": summary["finished_at"],
+        "tasks_integrated": summary["tasks_integrated"],
+        "tasks_remaining": summary["tasks_remaining"],
+        "baseline_comparison": "Voir les artefacts d'intégration de chaque tâche.",
+        "incidents": [item for item in [summary.get("error")] if item],
+        "business_files_delivered": sorted(
+            {
+                path
+                for task in tasks_payload
+                for path in task["delivered_files"]
+                if not str(path).startswith("autodev/")
+            }
+        ),
+    }
+    write_json(run_dir / "final-report.json", final_report)
+    report_path = repo_root / "reports" / "dev" / f"{backlog['feature_id']}.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [
+        f"# {backlog['feature_id']}",
+        "",
+        f"- spécification source : `{final_report['specification_path']}`",
+        f"- statut final : `{final_report['status']}`",
+        f"- tâches intégrées : {', '.join(summary['tasks_integrated']) or '—'}",
+        f"- corrections totales : {sum(task['correction_count'] for task in tasks_payload)}",
+        f"- fichiers métier livrés : {', '.join(final_report['business_files_delivered']) or '—'}",
+        "",
+        "## Tâches",
+        "",
+    ]
+    for task in tasks_payload:
+        lines.extend(
+            [
+                f"- `{task['task_id']}` : verdict `{task['review_verdict']}`, intégration `{task['integration_status']}`, corrections `{task['correction_count']}`",
+            ]
+        )
+    report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def load_checkpoint_state(graph: Any, config: dict[str, Any]) -> RunFeatureState | None:

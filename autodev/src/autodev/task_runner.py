@@ -4,10 +4,13 @@ import json
 import os
 import re
 import shlex
-import subprocess
 from pathlib import Path
 from typing import Any
 
+from autodev.generated_artifacts import (
+    filter_generated_artifacts,
+    is_dependency_manifest,
+)
 from autodev.git_tools import (
     GitError,
     add_worktree,
@@ -19,11 +22,13 @@ from autodev.git_tools import (
     diff_patch,
     ensure_clean_worktree,
     head_commit,
+    is_path_tracked,
     worktree_registered,
 )
 from autodev.path_rules import normalize_repo_relative_path
 from autodev.task_dependencies import get_unfinished_dependencies
 from autodev.planner import PlanningError, find_repo_root, load_json, validate_backlog_consistency
+from autodev.process_runner import TIMEOUTS_SECONDS, run_process_capturing_timeout, timeout_for_command
 
 FORBIDDEN_COMMAND_TOKENS = (";", "&&", "||", ">", ">>", "<", "|", "`", "$(")
 CLAUDE_ALLOWED_TOOLS = "Bash,Edit,Write,Read,Glob,Grep"
@@ -102,14 +107,19 @@ def run_task(
         claude_result = claude_runner(worktree=worktree, prompt=prompt)
         result["claude"] = claude_result
         result["claude_exit_code"] = claude_result["returncode"]
+        result["claude_timeout"] = claude_result.get("timed_out", False)
         (run_dir / "claude.stdout.log").write_text(claude_result["stdout"], encoding="utf-8")
         (run_dir / "claude.stderr.log").write_text(claude_result["stderr"], encoding="utf-8")
 
         ensure_claude_completed_successfully(claude_result)
 
-        modified_paths = changed_paths_since(repo_root, worktree, base_commit)
+        modified_paths = filter_generated_artifacts(
+            changed_paths_since(repo_root, worktree, base_commit),
+            is_tracked=lambda path: is_path_tracked(repo_root, path, cwd=worktree),
+        )
         result["modified_paths"] = modified_paths
         ensure_changes_present(repo_root, worktree, base_commit, modified_paths)
+        ensure_dependency_changes_allowed(task, modified_paths)
         ensure_paths_allowed(repo_root, task["allowed_paths"], modified_paths)
 
         if commit_count_since(repo_root, worktree, base_commit) <= 0:
@@ -257,23 +267,18 @@ def run_claude_non_interactive(worktree: Path, prompt: str) -> dict[str, Any]:
         "--output-format",
         "text",
     ]
-    result = subprocess.run(
-        command,
+    result = run_process_capturing_timeout(
+        command=command,
         cwd=worktree,
-        input=prompt,
-        capture_output=True,
-        text=True,
-        check=False,
+        input_text=prompt,
+        timeout_seconds=TIMEOUTS_SECONDS["claude_task"],
     )
-    return {
-        "command": command,
-        "returncode": result.returncode,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-    }
+    return result.to_dict()
 
 
 def ensure_claude_completed_successfully(claude_result: dict[str, Any]) -> None:
+    if claude_result.get("timed_out"):
+        raise RunTaskError("Claude a expiré : statut TIMEOUT.")
     if claude_result["returncode"] != 0:
         raise RunTaskError(format_claude_failure(claude_result))
     if claude_requested_permissions(claude_result):
@@ -283,6 +288,8 @@ def ensure_claude_completed_successfully(claude_result: dict[str, Any]) -> None:
 
 
 def format_claude_failure(claude_result: dict[str, Any]) -> str:
+    if claude_result.get("timed_out"):
+        return "Claude a expiré : statut TIMEOUT."
     stderr = str(claude_result.get("stderr", "")).strip()
     stdout = str(claude_result.get("stdout", "")).strip()
     detail = stderr or stdout or "erreur Claude inconnue"
@@ -373,13 +380,11 @@ def run_validation_commands(
     results: list[dict[str, Any]] = []
     for command in commands:
         argv = validate_command_safe(command)
-        result = subprocess.run(
-            argv,
+        result = run_process_capturing_timeout(
+            command=argv,
             cwd=worktree,
-            capture_output=True,
-            text=True,
-            check=False,
-            env=None if extra_env is None else {**os.environ, **extra_env},
+            timeout_seconds=timeout_for_command(command),
+            extra_env=extra_env,
         )
         results.append(
             {
@@ -388,6 +393,7 @@ def run_validation_commands(
                 "returncode": result.returncode,
                 "stdout": result.stdout,
                 "stderr": result.stderr,
+                "timed_out": result.timed_out,
             }
         )
     return results
@@ -405,3 +411,13 @@ def write_json(path: Path, payload: Any) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def ensure_dependency_changes_allowed(task: dict[str, Any], modified_paths: list[str]) -> None:
+    if not any(is_dependency_manifest(path) for path in modified_paths):
+        return
+    reason = str(task.get("dependency_change_reason", "")).strip()
+    if not reason:
+        raise RunTaskError(
+            "Changement de dépendances détecté hors scope autorisé. Retourner HUMAN_REVIEW_REQUIRED avec une tâche préalable dédiée."
+        )

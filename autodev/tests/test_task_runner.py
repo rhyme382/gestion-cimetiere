@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
+import autodev.task_runner as task_runner_module
 from autodev.path_rules import normalize_repo_relative_path
+from autodev.process_runner import ProcessExecutionResult
 from autodev.task_runner import (
     RunTaskError,
     ensure_paths_allowed,
@@ -301,17 +303,24 @@ def test_run_claude_non_interactive_sends_prompt_via_stdin(monkeypatch: pytest.M
     worktree.mkdir()
     captured: dict[str, object] = {}
 
-    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return subprocess.CompletedProcess(args[0], 0, stdout="ok", stderr="")
+    def fake_runner(**kwargs: object) -> ProcessExecutionResult:
+        captured.update(kwargs)
+        return ProcessExecutionResult(
+            command=list(kwargs["command"]),
+            cwd=str(Path(kwargs["cwd"]).resolve()),
+            returncode=0,
+            stdout="ok",
+            stderr="",
+            timed_out=False,
+            timeout_seconds=1800,
+            duration_seconds=0.1,
+        )
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(task_runner_module, "run_process_capturing_timeout", fake_runner)
 
     result = run_claude_non_interactive(worktree, "prompt complet")
 
-    command = captured["args"][0]
-    kwargs = captured["kwargs"]
+    command = captured["command"]
     assert command == [
         "claude",
         "-p",
@@ -323,12 +332,9 @@ def test_run_claude_non_interactive_sends_prompt_via_stdin(monkeypatch: pytest.M
         "text",
     ]
     assert "dontAsk" not in command
-    assert kwargs["cwd"] == worktree
-    assert kwargs["input"] == "prompt complet"
-    assert kwargs["text"] is True
-    assert kwargs["capture_output"] is True
-    assert kwargs["check"] is False
-    assert "shell" not in kwargs
+    assert captured["cwd"] == worktree
+    assert captured["input_text"] == "prompt complet"
+    assert captured["timeout_seconds"] == 1800
     assert result["returncode"] == 0
 
 

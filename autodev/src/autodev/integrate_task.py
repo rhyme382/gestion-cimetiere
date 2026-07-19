@@ -3,15 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from autodev.git_context import GitContextError, build_current_task_git_state
 from autodev.git_tools import (
     GitError,
     branch_exists,
-    branch_head,
-    changed_paths_between,
     commit_merge,
     current_branch,
     current_head,
-    diff_patch_between,
     ensure_clean_worktree,
     git_output,
     git_status_porcelain,
@@ -89,46 +87,47 @@ def integrate_task(backlog_json: Path, task_id: str) -> dict[str, Any]:
         full_commands = list(quality_gates["full"].get("commands", []))
         if not full_commands:
             raise IntegrateTaskError("Aucune commande FULL configurée dans quality-gates.yaml.")
-        base_commit = resolve_base_commit(run_result, task_record)
-        worktree = resolve_worktree(repo_root, task_id, run_result, task_record)
-        produced_commit = resolve_produced_commit(repo_root, branch)
+        try:
+            git_state = build_current_task_git_state(repo_root, task_id)
+        except GitContextError as exc:
+            raise IntegrateTaskError(str(exc)) from exc
         target_branch = current_branch(repo_root)
         target_before = current_head(repo_root)
 
         result["target_branch"] = target_branch
-        result["base_commit"] = base_commit
-        result["produced_commit"] = produced_commit
+        result["base_commit"] = git_state.base_commit
+        result["produced_commit"] = git_state.produced_commit
 
         record_text(integration_dir / "git-before.txt", build_git_snapshot(repo_root))
 
-        ensure_task_worktree_ready(repo_root, worktree)
-        if not is_ancestor(repo_root, base_commit, produced_commit):
+        ensure_task_worktree_ready(repo_root, git_state.worktree)
+        if not is_ancestor(repo_root, git_state.base_commit, git_state.produced_commit):
             raise IntegrateTaskError(
                 "Le commit produit ne descend pas du base_commit enregistré."
             )
 
-        current_diff = collect_current_diff(
-            repo_root=repo_root,
-            base_commit=base_commit,
-            produced_commit=produced_commit,
-        )
+        current_diff = {
+            "modified_paths": git_state.modified_paths,
+            "name_status": git_state.name_status,
+            "patch": git_state.diff_text,
+        }
         write_current_diff_artifacts(
             integration_dir=integration_dir,
-            base_commit=base_commit,
-            produced_commit=produced_commit,
+            base_commit=git_state.base_commit,
+            produced_commit=git_state.produced_commit,
             current_diff=current_diff,
         )
 
         modified_paths = current_diff["modified_paths"]
         ensure_paths_allowed(repo_root, task["allowed_paths"], modified_paths)
 
-        if is_ancestor(repo_root, produced_commit, target_before):
+        if is_ancestor(repo_root, git_state.produced_commit, target_before):
             raise IntegrateTaskError(
-                f"Le commit produit {produced_commit} est déjà intégré dans {target_branch}."
+                f"Le commit produit {git_state.produced_commit} est déjà intégré dans {target_branch}."
             )
 
         task_pre_merge = run_validation_set(
-            worktree,
+            git_state.worktree,
             list(task["validation_commands"]),
             integration_dir / "task-pre-merge",
             label="TASK_PRE_MERGE",
@@ -220,7 +219,7 @@ def integrate_task(backlog_json: Path, task_id: str) -> dict[str, Any]:
         integration_commit = current_head(repo_root)
         result["integration_commit"] = integration_commit
 
-        cleanup_worktree(repo_root, worktree, result)
+        cleanup_worktree(repo_root, git_state.worktree, result)
         result["status"] = "INTEGRATED"
         record_text(integration_dir / "git-after.txt", build_git_snapshot(repo_root))
         record_text(integration_dir / "stdout.log", stdout_log)
@@ -272,53 +271,6 @@ def load_required_json(path: Path) -> dict[str, Any]:
     try:
         return load_json(path)
     except PlanningError as exc:
-        raise IntegrateTaskError(str(exc)) from exc
-
-
-def resolve_base_commit(run_result: dict[str, Any], task_record: dict[str, Any]) -> str:
-    base_commit = run_result.get("base_commit") or task_record.get("base_commit")
-    if not isinstance(base_commit, str) or not base_commit.strip():
-        raise IntegrateTaskError("Commit de départ introuvable dans les artefacts run-task.")
-    return base_commit
-
-
-def resolve_worktree(
-    repo_root: Path,
-    task_id: str,
-    run_result: dict[str, Any],
-    task_record: dict[str, Any],
-) -> Path:
-    raw_value = (
-        run_result.get("worktree")
-        or task_record.get("worktree")
-        or str(repo_root / ".autodev" / "worktrees" / task_id)
-    )
-    return Path(str(raw_value))
-
-
-def resolve_produced_commit(
-    repo_root: Path,
-    branch: str,
-) -> str:
-    try:
-        return branch_head(repo_root, branch)
-    except GitError as exc:
-        raise IntegrateTaskError(str(exc)) from exc
-
-
-def collect_current_diff(
-    *,
-    repo_root: Path,
-    base_commit: str,
-    produced_commit: str,
-) -> dict[str, Any]:
-    try:
-        return {
-            "modified_paths": changed_paths_between(repo_root, base_commit, produced_commit),
-            "name_status": name_status_between(repo_root, base_commit, produced_commit),
-            "patch": diff_patch_between(repo_root, base_commit, produced_commit),
-        }
-    except GitError as exc:
         raise IntegrateTaskError(str(exc)) from exc
 
 

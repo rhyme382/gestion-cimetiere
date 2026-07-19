@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-import subprocess
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from autodev.process_runner import run_process_capturing_timeout, timeout_for_command
 from autodev.task_runner import RunTaskError, validate_command_safe, write_json
 
 PASS = "PASS"
@@ -98,13 +97,11 @@ def run_validation_set(
             continue
 
         try:
-            completed = subprocess.run(
-                argv,
+            completed = run_process_capturing_timeout(
+                command=argv,
                 cwd=worktree,
-                capture_output=True,
-                text=True,
-                check=False,
-                env=None if extra_env is None else {**os.environ, **extra_env},
+                timeout_seconds=timeout_for_command(command),
+                extra_env=extra_env,
             )
             results.append(
                 {
@@ -115,6 +112,7 @@ def run_validation_set(
                     "returncode": completed.returncode,
                     "stdout": completed.stdout,
                     "stderr": completed.stderr,
+                    "timed_out": completed.timed_out,
                 }
             )
         except OSError as exc:
@@ -360,6 +358,8 @@ def build_failure(
 
 
 def classify_failure_kind(command: str, output: str, result: dict[str, Any]) -> str:
+    if result.get("timed_out"):
+        return CONFIGURATION_ERROR
     lowered_command = command.lower()
     lowered_output = output.lower()
 

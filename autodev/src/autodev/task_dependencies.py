@@ -31,3 +31,19 @@ def get_unfinished_dependencies(repo_root: Path, task: dict[str, object]) -> lis
         for dependency_id in dependencies
         if isinstance(dependency_id, str) and not is_task_integrated(repo_root, dependency_id)
     ]
+
+
+def get_next_task_id(backlog: dict[str, object], task_id: str) -> str | None:
+    tasks = backlog.get("tasks", [])
+    if not isinstance(tasks, list):
+        return None
+    found = False
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        if found:
+            next_id = task.get("id")
+            return next_id if isinstance(next_id, str) else None
+        if task.get("id") == task_id:
+            found = True
+    return None

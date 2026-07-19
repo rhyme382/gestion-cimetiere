@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from autodev.generated_artifacts import filter_generated_artifacts
 from autodev.git_tools import (
     GitError,
     amend_head_commit,
@@ -15,6 +16,7 @@ from autodev.git_tools import (
     git_status_porcelain,
     git_status_with_branch,
     head_commit,
+    is_path_tracked,
     restore_paths,
     stage_all,
 )
@@ -23,6 +25,7 @@ from autodev.planner import PlanningError, find_repo_root, load_json, validate_b
 from autodev.task_runner import (
     RunTaskError,
     build_prompt,
+    ensure_dependency_changes_allowed,
     ensure_claude_completed_successfully,
     is_relative_to,
     find_task,
@@ -396,7 +399,10 @@ def run_correction_attempt(
                 "Claude a créé ou modifié l'historique Git pendant la correction ; opération refusée."
             )
 
-        after_paths = changed_paths_since(repo_root, worktree, current_head)
+        after_paths = filter_generated_artifacts(
+            changed_paths_since(repo_root, worktree, current_head),
+            is_tracked=lambda path: is_path_tracked(repo_root, path, cwd=worktree),
+        )
         correction_paths = sorted(set(after_paths) - set(before_dirty_paths))
         modified_union.update(correction_paths)
 
@@ -406,7 +412,15 @@ def run_correction_attempt(
             restore_paths(repo_root, worktree, current_head, out_of_scope_paths)
             restored_union.update(out_of_scope_paths)
 
-        remaining_paths = sorted(set(changed_paths_since(repo_root, worktree, current_head)) - set(before_dirty_paths))
+        remaining_paths = sorted(
+            set(
+                filter_generated_artifacts(
+                    changed_paths_since(repo_root, worktree, current_head),
+                    is_tracked=lambda path: is_path_tracked(repo_root, path, cwd=worktree),
+                )
+            )
+            - set(before_dirty_paths)
+        )
         remaining_allowed_paths, remaining_out_of_scope_paths = partition_paths(task["allowed_paths"], remaining_paths)
 
         write_json(correction_dir / "modified-paths.json", sorted(modified_union))
@@ -418,6 +432,7 @@ def run_correction_attempt(
             raise CorrectTaskError(f"Des chemins hors périmètre subsistent après restauration : {joined}")
 
         if remaining_allowed_paths:
+            ensure_dependency_changes_allowed(task, remaining_allowed_paths)
             return {
                 "claude_exit_code": latest_exit_code,
                 "modified_paths": sorted(modified_union),

@@ -144,6 +144,14 @@
               "type": "string",
               "minLength": 10
             }
+          },
+          "dependency_change_reason": {
+            "type": "string",
+            "minLength": 10
+          },
+          "validation_scope_justification": {
+            "type": "string",
+            "minLength": 10
           }
         }
       }

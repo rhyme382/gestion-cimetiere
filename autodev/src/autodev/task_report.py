@@ -54,5 +54,25 @@ def verify_task_report(report_dir: Path, expected_payload: dict[str, Any]) -> No
         write_task_report(report_dir=report_dir, payload=expected_payload)
         return
     actual = json.loads(report_path.read_text(encoding="utf-8"))
-    if actual != expected_payload:
+    if not isinstance(actual, dict):
+        raise TaskReportError("Le rapport de tâche courant est incohérent avec le diff et les validations actuels.")
+
+    expected_modified_files = expected_payload["modified_files"]
+    actual_modified_files = actual.get("modified_files")
+    if actual_modified_files != expected_modified_files:
+        raise TaskReportError("Le rapport de tâche courant est incohérent avec le diff et les validations actuels.")
+
+    expected_validations = expected_payload["validations"]
+    actual_validations = actual.get("validations")
+    if actual_validations != expected_validations:
+        raise TaskReportError("Le rapport de tâche courant est incohérent avec le diff et les validations actuels.")
+
+    expected_problems = expected_payload["problems"]
+    actual_problems = actual.get("problems")
+    if actual_problems != expected_problems:
+        raise TaskReportError("Le rapport de tâche courant est incohérent avec le diff et les validations actuels.")
+
+    expected_next_task = expected_payload["next_task"]
+    actual_next_task = actual.get("next_task")
+    if actual_next_task != expected_next_task:
         raise TaskReportError("Le rapport de tâche courant est incohérent avec le diff et les validations actuels.")

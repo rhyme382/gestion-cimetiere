@@ -17,6 +17,7 @@ from autodev.task_runner import (
     RunTaskError,
     find_task,
     run_validation_commands,
+    summarize_validations,
     validate_command_safe,
     write_json,
 )
@@ -52,8 +53,6 @@ def review_task(
     review_dir = run_dir / "review"
     review_dir.mkdir(parents=True, exist_ok=True)
 
-    run_result = load_optional_json(run_dir / "result.json")
-    task_record = load_optional_json(run_dir / "task.json")
     try:
         git_state = build_current_task_git_state(repo_root, task_id)
     except GitContextError as exc:
@@ -62,18 +61,26 @@ def review_task(
     modified_paths = review_delivery["modified_paths"]
     unexpected_paths = find_unexpected_paths(task["allowed_paths"], modified_paths)
 
-    validation_results, validation_source = load_or_rerun_validations(
+    validation_results, validation_summary = rerun_current_validations(
         repo_root=repo_root,
         worktree=git_state.worktree,
         task=task,
-        run_result=run_result,
     )
     validation_payload = {
         "task_id": task_id,
-        "source": validation_source,
+        "source": "review-task",
         "results": validation_results,
+        "summary": validation_summary,
     }
     write_json(review_dir / "validation-results.json", validation_payload)
+    write_current_task_state(
+        review_dir=review_dir,
+        task_id=task_id,
+        git_state=git_state,
+        validation_commands=task["validation_commands"],
+        validation_results=validation_results,
+        validation_summary=validation_summary,
+    )
 
     expected_report = build_task_report_payload(
         backlog=backlog,
@@ -213,20 +220,15 @@ def is_relative_to(path: Path, parent: Path) -> bool:
         return False
 
 
-def load_or_rerun_validations(
+def rerun_current_validations(
     repo_root: Path,
     worktree: Path,
     task: dict[str, Any],
-    run_result: dict[str, Any],
-) -> tuple[list[dict[str, Any]], str]:
-    recorded = run_result.get("validations")
-    if isinstance(recorded, list) and recorded:
-        return recorded, "recorded"
+) -> tuple[list[dict[str, Any]], list[str]]:
     if not worktree.exists():
-        raise ReviewTaskError(
-            "Aucun résultat de validation enregistré et worktree introuvable pour relancer les tests."
-        )
-    return rerun_validations(repo_root, worktree, task["validation_commands"]), "rerun"
+        raise ReviewTaskError("Worktree introuvable pour relancer les validations de revue.")
+    results = rerun_validations(repo_root, worktree, task["validation_commands"])
+    return results, summarize_validations(results)
 
 
 def rerun_validations(
@@ -250,6 +252,29 @@ def rerun_validations(
     if before_status != after_status:
         raise ReviewTaskError("Les validations ont modifié le worktree, revue annulée.")
     return results
+
+
+def write_current_task_state(
+    *,
+    review_dir: Path,
+    task_id: str,
+    git_state: Any,
+    validation_commands: list[str],
+    validation_results: list[dict[str, Any]],
+    validation_summary: list[str],
+) -> None:
+    write_json(
+        review_dir / "current-task-state.json",
+        {
+            "task_id": task_id,
+            "base_commit": git_state.base_commit,
+            "current_commit": git_state.produced_commit,
+            "current_paths": git_state.modified_paths,
+            "validation_commands": list(validation_commands),
+            "validation_results": validation_results,
+            "validation_summary": validation_summary,
+        },
+    )
 
 
 def resolve_specification_path(repo_root: Path, backlog: dict[str, Any]) -> Path:

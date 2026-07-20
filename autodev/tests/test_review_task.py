@@ -9,7 +9,7 @@ import pytest
 
 from autodev.planner import PlanningError, validate_backlog_consistency
 from autodev.review_task import ReviewTaskError, review_task
-from autodev.task_runner import run_task
+from autodev.task_runner import RunTaskError, run_task
 
 from test_task_runner import commit_all, init_repo, make_task, write_backlog
 
@@ -172,7 +172,12 @@ def test_review_task_records_approved_result(tmp_path: Path) -> None:
     assert (review_dir / "review-result.json").is_file()
     assert (review_dir / "codex.stdout.log").read_text(encoding="utf-8") == "ok"
     validation_results = json.loads((review_dir / "validation-results.json").read_text(encoding="utf-8"))
-    assert validation_results["source"] == "recorded"
+    assert validation_results["source"] == "review-task"
+    current_state = json.loads((review_dir / "current-task-state.json").read_text(encoding="utf-8"))
+    assert current_state["task_id"] == "TASK-APPROVED"
+    assert current_state["current_paths"] == ["src/reviewed.txt"]
+    assert current_state["validation_commands"] == [f'{sys.executable} -c "print(\'ok\')"']
+    assert current_state["validation_summary"] == [f'{sys.executable} -c "print(\'ok\')"=OK']
 
 
 def test_review_task_accepts_simple_task_id_exact_match(tmp_path: Path) -> None:
@@ -444,8 +449,9 @@ def test_review_task_reruns_validations_without_real_codex(tmp_path: Path) -> No
     validation_results = json.loads(
         (repo / ".autodev" / "runs" / "TASK-RERUN" / "review" / "validation-results.json").read_text(encoding="utf-8")
     )
-    assert validation_results["source"] == "rerun"
+    assert validation_results["source"] == "review-task"
     assert validation_results["results"][0]["stdout"].strip() == "rerun-ok"
+    assert validation_results["summary"] == [f'{sys.executable} -c "print(\'rerun-ok\')"=OK']
 
 
 def test_review_task_rebuilds_review_scope_from_current_branch_head(tmp_path: Path) -> None:
@@ -506,7 +512,7 @@ def test_review_task_rebuilds_review_scope_from_current_branch_head(tmp_path: Pa
                 "backlog": str(backlog),
                 "task": make_task("TASK-AMEND-REVIEW"),
                 "branch": branch,
-                "worktree": str(repo / ".autodev" / "worktrees" / "TASK-AMEND-REVIEW"),
+                "worktree": str(repo),
                 "base_commit": base_commit,
             },
             ensure_ascii=False,
@@ -520,7 +526,7 @@ def test_review_task_rebuilds_review_scope_from_current_branch_head(tmp_path: Pa
                 "task_id": "TASK-AMEND-REVIEW",
                 "status": "success",
                 "branch": branch,
-                "worktree": str(repo / ".autodev" / "worktrees" / "TASK-AMEND-REVIEW"),
+                "worktree": str(repo),
                 "base_commit": base_commit,
                 "produced_commit": stale_commit,
                 "modified_paths": ["src/reviewed.txt", "tests/e2e/10-diagnostic.spec.ts"],
@@ -593,8 +599,129 @@ def test_review_task_rebuilds_review_scope_from_current_branch_head(tmp_path: Pa
     assert current_paths["produced_commit"] == current_commit
     assert current_paths["modified_paths"] == ["src/reviewed.txt"]
     assert current_paths["name_status"] == ["A\tsrc/reviewed.txt"]
+    current_state = json.loads((review_dir / "current-task-state.json").read_text(encoding="utf-8"))
+    assert current_state["current_commit"] == current_commit
+    assert current_state["current_paths"] == ["src/reviewed.txt"]
     assert "10-diagnostic.spec.ts" not in (review_dir / "current-diff.patch").read_text(encoding="utf-8")
     assert (review_dir / "current-name-status.txt").read_text(encoding="utf-8").strip() == "A\tsrc/reviewed.txt"
+
+
+def test_review_task_ignores_stale_run_result_metadata_and_accepts_current_report(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    backlog = write_backlog(repo, [make_task("T1")])
+    commit_all(repo, "add backlog")
+
+    def fake_claude_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        worktree = Path(kwargs["worktree"])
+        allowed = worktree / "src" / "reviewed.txt"
+        allowed.parent.mkdir(parents=True, exist_ok=True)
+        allowed.write_text("current\n", encoding="utf-8")
+        outside = worktree / "tests" / "e2e" / "10-diagnostic.spec.ts"
+        outside.parent.mkdir(parents=True, exist_ok=True)
+        outside.write_text("obsolete\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=worktree, check=True)
+        subprocess.run(["git", "commit", "-m", "stale scope"], cwd=worktree, check=True, capture_output=True, text=True)
+        return {"command": ["claude", "-p"], "returncode": 0, "stdout": "done", "stderr": ""}
+
+    with pytest.raises(RunTaskError, match="hors périmètre autorisé"):
+        run_task(backlog, "T1", dry_run=False, claude_runner=fake_claude_runner)
+
+    run_dir = repo / ".autodev" / "runs" / "T1"
+    result_path = run_dir / "result.json"
+    stale_result = json.loads(result_path.read_text(encoding="utf-8"))
+    assert stale_result["status"] == "failed"
+    assert stale_result["produced_commit"] is None
+    assert stale_result["modified_paths"] == ["src/reviewed.txt", "tests/e2e/10-diagnostic.spec.ts"]
+
+    worktree = repo / ".autodev" / "worktrees" / "T1"
+    subprocess.run(
+        ["git", "rm", "--", "tests/e2e/10-diagnostic.spec.ts"],
+        cwd=worktree,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(["git", "commit", "--amend", "--no-edit"], cwd=worktree, check=True, capture_output=True, text=True)
+    current_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=worktree,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    branch_commit = subprocess.run(
+        ["git", "rev-parse", "autodev/T1"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert current_commit == branch_commit
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "T1",
+                "verdict": "APPROVED",
+                "summary": "ok",
+                "requirement_checks": [{"requirement_id": "REQ-001", "status": "PASS", "evidence": []}],
+                "acceptance_checks": [{"criterion": "Accepter", "status": "PASS", "evidence": []}],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    result = review_task(backlog, "T1", codex_runner=fake_codex_runner)
+
+    assert result["verdict"] == "APPROVED"
+    review_dir = run_dir / "review"
+    current_state = json.loads((review_dir / "current-task-state.json").read_text(encoding="utf-8"))
+    assert current_state["current_commit"] == current_commit
+    assert current_state["current_paths"] == ["src/reviewed.txt"]
+    assert current_state["validation_summary"] == [f'{sys.executable} -c "print(\'ok\')"=OK']
+    report = json.loads((run_dir / "task-report.json").read_text(encoding="utf-8"))
+    assert report["modified_files"] == ["src/reviewed.txt"]
+    assert "tests/e2e/10-diagnostic.spec.ts" not in report["modified_files"]
+
+
+def test_review_task_rejects_stale_false_success_report_before_codex(tmp_path: Path) -> None:
+    repo, backlog = prepare_reviewable_task(tmp_path, "TASK-FALSE-SUCCESS")
+    data = json.loads(backlog.read_text(encoding="utf-8"))
+    data["tasks"][0]["validation_commands"] = [f'{sys.executable} -c "raise SystemExit(1)"']
+    backlog.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    run_dir = repo / ".autodev" / "runs" / "TASK-FALSE-SUCCESS"
+    (run_dir / "task-report.json").write_text(
+        json.dumps(
+            {
+                "task_id": "TASK-FALSE-SUCCESS",
+                "feature_id": "FEATURE-TEST",
+                "objective": "Titre TASK-FALSE-SUCCESS",
+                "modified_files": ["src/reviewed.txt"],
+                "validations": [
+                    {
+                        "command": f'{sys.executable} -c "raise SystemExit(1)"',
+                        "returncode": 0,
+                    }
+                ],
+                "problems": [],
+                "next_task": None,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def codex_must_not_run(**_: object) -> dict[str, object]:
+        raise AssertionError("codex should not run when the task report is stale")
+
+    with pytest.raises(ReviewTaskError, match="rapport de tâche courant est incohérent"):
+        review_task(backlog, "TASK-FALSE-SUCCESS", codex_runner=codex_must_not_run)
 
 
 def test_validate_backlog_rejects_absolute_allowed_path() -> None:
@@ -769,7 +896,7 @@ def test_review_task_uses_integrated_dependency_proof_without_requiring_dependen
                 "backlog": str(backlog),
                 "task": make_task("TASK-UI", depends_on=["TASK-CONTRACT"]),
                 "branch": branch,
-                "worktree": str(repo / ".autodev" / "worktrees" / "TASK-UI"),
+                "worktree": str(repo),
                 "base_commit": base_commit,
             },
             ensure_ascii=False,
@@ -783,7 +910,7 @@ def test_review_task_uses_integrated_dependency_proof_without_requiring_dependen
                 "task_id": "TASK-UI",
                 "status": "success",
                 "branch": branch,
-                "worktree": str(repo / ".autodev" / "worktrees" / "TASK-UI"),
+                "worktree": str(repo),
                 "base_commit": base_commit,
                 "produced_commit": ui_commit,
                 "modified_paths": ["src/ui.tsx"],

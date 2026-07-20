@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -6,11 +7,17 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from autodev.acceptance_criteria import (
+    AcceptanceCriteriaError,
+    build_coverage_matrix,
+    migrate_backlog_acceptance_criteria,
+    render_coverage_text,
+)
 from autodev.feature_status import FeatureStatusError, read_feature_status
 from autodev.integrate_task import IntegrateTaskError, integrate_task
 from autodev.monitor import monitor_feature
 from autodev.monitor_state import MonitorStateError
-from autodev.planner import PlanningError, plan_feature
+from autodev.planner import PlanningError, find_repo_root, load_json, plan_feature
 from autodev.run_feature import RunFeatureError, run_feature
 from autodev.review_task import ReviewTaskError, review_task
 from autodev.task_runner import RunTaskError, run_task
@@ -378,6 +385,85 @@ def monitor_command(
     except MonitorStateError as exc:
         console.print(f"\n[bold red]Échec :[/bold red] {exc}")
         raise typer.Exit(code=1) from exc
+
+
+@app.command("coverage")
+def coverage_command(
+    backlog_json: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
+        help="Chemin du backlog JSON.",
+    ),
+    as_json: bool = typer.Option(
+        False,
+        "--json",
+        help="Retourne la matrice de couverture en JSON.",
+    ),
+    once: bool = typer.Option(
+        False,
+        "--once",
+        help="Option acceptée pour compatibilité CLI; la commande est instantanée.",
+    ),
+) -> None:
+    """Affiche la couverture déterministe des critères d'acceptation."""
+    del once
+    try:
+        repo_root = find_repo_root(backlog_json.parent)
+        backlog = load_json(backlog_json)
+        coverage = build_coverage_matrix(backlog, repo_root)
+    except (AcceptanceCriteriaError, OSError, ValueError, RuntimeError, PlanningError) as exc:
+        console.print(f"\n[bold red]Échec :[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    if as_json:
+        console.print_json(json.dumps(coverage, ensure_ascii=False, indent=2))
+        return
+
+    console.print(render_coverage_text(coverage))
+
+
+@app.command("migrate-backlog")
+def migrate_backlog_command(
+    backlog_json: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
+        help="Chemin du backlog JSON à migrer.",
+    ),
+    output: Path = typer.Option(
+        ...,
+        "--output",
+        file_okay=True,
+        dir_okay=False,
+        resolve_path=True,
+        help="Chemin du backlog migré.",
+    ),
+) -> None:
+    """Migre un backlog legacy vers des critères structurés propriétaires."""
+    if output == backlog_json:
+        console.print("\n[bold red]Échec :[/bold red] --output doit être différent du fichier source.")
+        raise typer.Exit(code=1)
+
+    try:
+        backlog = load_json(backlog_json)
+        migrated = migrate_backlog_acceptance_criteria(backlog)
+    except (AcceptanceCriteriaError, RuntimeError, PlanningError) as exc:
+        console.print(f"\n[bold red]Échec :[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(migrated, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    console.print(f"[bold green]Backlog migré :[/bold green] {output}")
 
 
 if __name__ == "__main__":

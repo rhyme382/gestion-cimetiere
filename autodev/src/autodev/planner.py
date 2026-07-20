@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from autodev.acceptance_criteria import AcceptanceCriteriaError, normalize_backlog_acceptance_criteria
 from autodev.generated_artifacts import (
     command_installs_dependencies,
     command_is_manifestly_wide,
@@ -104,7 +105,12 @@ def validate_agent_assignment(task: dict[str, Any]) -> None:
 
 
 def validate_backlog_consistency(backlog: dict[str, Any]) -> None:
-    requirements = backlog.get("requirements", [])
+    try:
+        normalized_backlog = normalize_backlog_acceptance_criteria(backlog)
+    except AcceptanceCriteriaError as exc:
+        raise PlanningError(str(exc)) from exc
+
+    requirements = normalized_backlog.get("requirements", [])
     tasks = backlog.get("tasks", [])
 
     requirement_ids = {
@@ -159,7 +165,7 @@ def validate_backlog_consistency(backlog: dict[str, Any]) -> None:
         missing = ", ".join(sorted(uncovered))
         raise PlanningError(f"Exigences non couvertes par les tâches : {missing}")
 
-    validate_requirement_allocations(tasks)
+    validate_requirement_allocations(backlog, normalized_backlog)
     _validate_no_dependency_cycle(tasks)
 
 
@@ -283,7 +289,17 @@ def validate_shared_requirement_justifications(
         seen_requirement_ids.add(requirement_id)
 
 
-def validate_requirement_allocations(tasks: list[dict[str, Any]]) -> None:
+def validate_requirement_allocations(
+    original_backlog: dict[str, Any],
+    normalized_backlog: dict[str, Any],
+) -> None:
+    tasks = normalized_backlog.get("tasks", [])
+    requirements = normalized_backlog.get("requirements", [])
+    original_requirements = {
+        requirement["id"]: requirement
+        for requirement in original_backlog.get("requirements", [])
+        if isinstance(requirement, dict) and "id" in requirement
+    }
     assignments: dict[str, list[dict[str, Any]]] = {}
     for task in tasks:
         for requirement_id in task["requirement_ids"]:
@@ -296,6 +312,23 @@ def validate_requirement_allocations(tasks: list[dict[str, Any]]) -> None:
     }
 
     for requirement_id, attached_tasks in duplicated.items():
+        original_requirement = original_requirements.get(requirement_id, {})
+        raw_criteria = original_requirement.get("acceptance_criteria", [])
+        if raw_criteria and all(isinstance(item, dict) for item in raw_criteria):
+            owners = {
+                criterion["owner_task_id"]
+                for requirement in requirements
+                if requirement["id"] == requirement_id
+                for criterion in requirement["acceptance_criteria"]
+            }
+            missing_owner = sorted(task["id"] for task in attached_tasks if task["id"] not in owners)
+            if missing_owner:
+                missing_list = ", ".join(missing_owner)
+                raise PlanningError(
+                    f"Exigence {requirement_id} répartie sans critère propriétaire pour : {missing_list}"
+                )
+            continue
+
         missing_justification = [
             task["id"]
             for task in attached_tasks
@@ -320,6 +353,10 @@ def validate_requirement_allocations(tasks: list[dict[str, Any]]) -> None:
                 f"Exigence {requirement_id} rattachée à plusieurs tâches ({task_list}) "
                 f"sans justification explicite pour : {missing_list}"
             )
+
+    for requirement in requirements:
+        if not requirement["acceptance_criteria"]:
+            raise PlanningError(f"{requirement['id']} doit conserver au moins un critère.")
 
 
 def plan_feature(spec_path: Path) -> tuple[Path, dict[str, Any]]:

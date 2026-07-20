@@ -7,6 +7,7 @@ import shlex
 from pathlib import Path
 from typing import Any
 
+from autodev.acceptance_criteria import owned_criteria_by_task
 from autodev.generated_artifacts import (
     filter_generated_artifacts,
     is_dependency_manifest,
@@ -173,16 +174,20 @@ def build_prompt(
     task: dict[str, Any],
 ) -> str:
     spec_path = repo_root / "SPEC.md"
-    requirements = [
-        requirement
-        for requirement in backlog["requirements"]
-        if requirement["id"] in set(task["requirement_ids"])
-    ]
+    owned_criteria = owned_criteria_by_task(backlog).get(task["id"], [])
+    requirement_context: dict[str, list[dict[str, str]]] = {}
+    requirement_descriptions: dict[str, str] = {}
+    for criterion in owned_criteria:
+        requirement_context.setdefault(criterion["requirement_id"], []).append(criterion)
+        requirement_descriptions[criterion["requirement_id"]] = criterion["requirement_description"]
 
     requirement_lines = "\n".join(
-        f"- {requirement['id']} : {requirement['description']}\n"
-        + "\n".join(f"  - {criterion}" for criterion in requirement["acceptance_criteria"])
-        for requirement in requirements
+        f"- {requirement_id} : {requirement_descriptions[requirement_id]}\n"
+        + "\n".join(
+            f"  - {criterion['acceptance_criterion_id']} : {criterion['text']}"
+            for criterion in requirement_context[requirement_id]
+        )
+        for requirement_id in sorted(requirement_context)
     )
     task_acceptance = "\n".join(f"- {criterion}" for criterion in task["acceptance_criteria"])
     validation_commands = "\n".join(f"- {command}" for command in task["validation_commands"])

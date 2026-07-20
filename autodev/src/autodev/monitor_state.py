@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from autodev.acceptance_criteria import build_coverage_matrix
 from autodev.git_context import GitContextError, build_current_task_git_state
 from autodev.git_tools import GitError, branch_exists, dirty_paths, git_output, worktree_registered
 from autodev.planner import PlanningError, find_repo_root, load_json, validate_backlog_consistency
@@ -65,6 +66,12 @@ def read_feature_state(
         )
         for task in backlog["tasks"]
     ]
+    coverage = build_coverage_matrix(backlog, repo_root)
+    task_coverage = coverage["tasks"]
+    for task_state in tasks:
+        counts = task_coverage.get(task_state["task_id"], {})
+        task_state["owned_criteria"] = counts.get("owned", 0)
+        task_state["approved_criteria"] = counts.get("approved", 0)
     current_task = determine_current_task(last_state=last_state, tasks=tasks)
     current_task_id = current_task["task_id"] if current_task else None
     current_action = last_state.get("task_action") or (current_task.get("action_current") if current_task else None)
@@ -117,6 +124,7 @@ def read_feature_state(
         integrated_count=integrated_count,
         total_count=total_count,
         percentage=percentage,
+        coverage=coverage,
         current_task_id=current_task_id,
         current_action=current_action,
         last_updated=last_updated,
@@ -192,6 +200,8 @@ def read_task_state(
         "produced_commit": git_state["head"] or run_result.get("produced_commit") or "—",
         "integration_status": integration_result.get("status") or "—",
         "last_error": latest_error or "—",
+        "owned_criteria": 0,
+        "approved_criteria": 0,
         "git": git_state,
         "run_dir": str(run_dir),
     }
@@ -406,6 +416,7 @@ def build_render_model(
     integrated_count: int,
     total_count: int,
     percentage: int,
+    coverage: dict[str, Any],
     current_task_id: str | None,
     current_action: str | None,
     last_updated: str,
@@ -425,6 +436,7 @@ def build_render_model(
             "total": total_count,
             "percentage": percentage,
         },
+        "coverage": coverage,
         "current_task_id": current_task_id or "—",
         "current_action": current_action or "—",
         "last_updated": last_updated,

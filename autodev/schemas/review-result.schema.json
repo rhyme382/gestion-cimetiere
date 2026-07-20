@@ -37,11 +37,21 @@
         "additionalProperties": false,
         "required": [
           "requirement_id",
+          "acceptance_criterion_id",
+          "criterion",
           "status",
           "evidence"
         ],
         "properties": {
           "requirement_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "acceptance_criterion_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "criterion": {
             "type": "string",
             "minLength": 1
           },

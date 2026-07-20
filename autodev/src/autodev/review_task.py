@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from autodev.acceptance_criteria import owned_criteria_by_task
 from autodev.git_context import GitContextError, build_current_task_git_state
 from autodev.git_tools import (
     branch_exists,
@@ -131,7 +132,8 @@ def review_task(
         )
 
     review_result = load_json(output_path)
-    validate_review_result(review_result, task_id)
+    expected_owned_criteria = owned_criteria_by_task(backlog).get(task_id, [])
+    validate_review_result(review_result, task_id, expected_owned_criteria)
     review_result = enforce_review_constraints(
         review_result=review_result,
         task_id=task_id,
@@ -308,11 +310,24 @@ def build_review_prompt(
 ) -> str:
     specification = spec_path.read_text(encoding="utf-8")
     exact_task_id = task["id"]
-    requirements = [
-        requirement
-        for requirement in backlog["requirements"]
-        if requirement["id"] in set(task["requirement_ids"])
-    ]
+    owned_criteria = owned_criteria_by_task(backlog).get(task["id"], [])
+    requirement_context: dict[str, dict[str, Any]] = {}
+    for criterion in owned_criteria:
+        bucket = requirement_context.setdefault(
+            criterion["requirement_id"],
+            {
+                "id": criterion["requirement_id"],
+                "description": criterion["requirement_description"],
+                "owned_acceptance_criteria": [],
+            },
+        )
+        bucket["owned_acceptance_criteria"].append(
+            {
+                "id": criterion["acceptance_criterion_id"],
+                "text": criterion["text"],
+            }
+        )
+    requirements = [requirement_context[key] for key in sorted(requirement_context)]
     requirement_blob = json.dumps(requirements, ensure_ascii=False, indent=2)
     task_blob = json.dumps(task, ensure_ascii=False, indent=2)
     validation_blob = json.dumps(validation_payload, ensure_ascii=False, indent=2)
@@ -320,6 +335,10 @@ def build_review_prompt(
     modified_blob = "\n".join(f"- {path}" for path in modified_paths) or "- Aucun"
     name_status_blob = "\n".join(f"- {line}" for line in name_status_lines) or "- Aucun"
     unexpected_blob = "\n".join(f"- {path}" for path in unexpected_paths) or "- Aucun"
+    owned_criteria_lines = "\n".join(
+        f"- {criterion['acceptance_criterion_id']} ({criterion['requirement_id']}) : {criterion['text']}"
+        for criterion in owned_criteria
+    ) or "- Aucun"
 
     return f"""# Revue automatique de tâche autodev
 
@@ -347,8 +366,8 @@ Ne la préfixe pas, ne la normalise pas et ne la transforme pas.
 
 # Règles de verdict
 
-- `APPROVED` uniquement si toutes les exigences liées sont `PASS`, tous les critères d'acceptation sont `PASS`, les tests requis réussissent, aucun fichier hors périmètre n'est modifié et aucun problème `blocking` ou `major` n'est présent.
-- `CORRECTION_REQUIRED` si un critère ou une exigence est `FAIL`, si un test échoue, si un fichier hors périmètre est modifié ou si un problème `blocking` ou `major` est trouvé.
+- `APPROVED` uniquement si tous les critères propriétaires de requirement_checks sont `PASS`, tous les critères d'acceptation de la tâche sont `PASS`, les tests requis réussissent, aucun fichier hors périmètre n'est modifié et aucun problème `blocking` ou `major` n'est présent.
+- `CORRECTION_REQUIRED` si un critère propriétaire ou un critère d'acceptation de la tâche est `FAIL`, si un test échoue, si un fichier hors périmètre est modifié ou si un problème `blocking` ou `major` est trouvé.
 - `HUMAN_REVIEW_REQUIRED` uniquement si une ambiguïté métier, une information manquante ou une impossibilité d'évaluer automatiquement empêche la décision.
 
 # Règles spécifiques aux dépendances intégrées
@@ -373,13 +392,17 @@ Chemin : `{spec_path.relative_to(repo_root).as_posix()}`
 {task_blob}
 ```
 
-# Exigences liées
+# Contexte des exigences parentes
 
 ```json
 {requirement_blob}
 ```
 
-# Critères d'acceptation de la tâche
+# Critères propriétaires de la tâche au titre des exigences
+
+{owned_criteria_lines}
+
+# Critères d'acceptation propres à la tâche
 
 {chr(10).join(f"- {criterion}" for criterion in task["acceptance_criteria"])}
 
@@ -417,6 +440,8 @@ Chemin : `{spec_path.relative_to(repo_root).as_posix()}`
 
 La réponse doit respecter exactement le schéma JSON fourni par `--output-schema`.
 Le champ `task_id` doit reprendre exactement `{exact_task_id}`.
+- `requirement_checks` doit contenir uniquement les critères propriétaires listés ci-dessus, jamais un critère appartenant à une autre tâche.
+- Chaque entrée de `requirement_checks` doit contenir `requirement_id`, `acceptance_criterion_id`, `criterion`, `status`, `evidence`.
 """
 
 
@@ -500,7 +525,11 @@ def run_codex_review(
     return result.to_dict()
 
 
-def validate_review_result(review_result: dict[str, Any], expected_task_id: str) -> None:
+def validate_review_result(
+    review_result: dict[str, Any],
+    expected_task_id: str,
+    expected_owned_criteria: list[dict[str, str]],
+) -> None:
     required_keys = {
         "task_id",
         "verdict",
@@ -523,23 +552,53 @@ def validate_review_result(review_result: dict[str, Any], expected_task_id: str)
     if not isinstance(review_result["summary"], str):
         raise ReviewTaskError("Résultat Codex invalide : summary doit être une chaîne.")
 
-    validate_checks(review_result["requirement_checks"], "requirement_id")
-    validate_checks(review_result["acceptance_checks"], "criterion")
+    validate_requirement_checks(review_result["requirement_checks"])
+    validate_checks(review_result["acceptance_checks"], {"criterion", "status", "evidence"})
     validate_issues(review_result["issues"])
     validate_tests(review_result["tests"])
     validate_scope(review_result["scope"])
+    _validate_owned_requirement_checks(
+        review_result["requirement_checks"],
+        expected_owned_criteria,
+    )
 
 
-def validate_checks(items: Any, label_key: str) -> None:
+def validate_checks(items: Any, required_keys: set[str]) -> None:
     if not isinstance(items, list):
         raise ReviewTaskError("Résultat Codex invalide : liste de contrôles attendue.")
     for item in items:
         if not isinstance(item, dict):
             raise ReviewTaskError("Résultat Codex invalide : entrée de contrôle invalide.")
-        if set(item.keys()) != {label_key, "status", "evidence"}:
+        if set(item.keys()) != required_keys:
             raise ReviewTaskError("Résultat Codex invalide : clés de contrôle inattendues.")
-        if not isinstance(item[label_key], str):
+        for key in required_keys - {"status", "evidence"}:
+            if not isinstance(item[key], str):
+                raise ReviewTaskError("Résultat Codex invalide : identifiant de contrôle invalide.")
+        if item["status"] not in CHECK_STATUSES:
+            raise ReviewTaskError("Résultat Codex invalide : statut de contrôle inconnu.")
+        if not isinstance(item["evidence"], list) or not all(
+            isinstance(value, str) for value in item["evidence"]
+        ):
+            raise ReviewTaskError("Résultat Codex invalide : evidence doit être une liste de chaînes.")
+
+
+def validate_requirement_checks(items: Any) -> None:
+    if not isinstance(items, list):
+        raise ReviewTaskError("Résultat Codex invalide : liste de contrôles attendue.")
+    allowed_keysets = (
+        {"requirement_id", "acceptance_criterion_id", "criterion", "status", "evidence"},
+        {"requirement_id", "status", "evidence"},
+    )
+    for item in items:
+        if not isinstance(item, dict):
+            raise ReviewTaskError("Résultat Codex invalide : entrée de contrôle invalide.")
+        if set(item.keys()) not in allowed_keysets:
+            raise ReviewTaskError("Résultat Codex invalide : clés de contrôle inattendues.")
+        if not isinstance(item["requirement_id"], str):
             raise ReviewTaskError("Résultat Codex invalide : identifiant de contrôle invalide.")
+        for key in ("acceptance_criterion_id", "criterion"):
+            if key in item and not isinstance(item[key], str):
+                raise ReviewTaskError("Résultat Codex invalide : identifiant de contrôle invalide.")
         if item["status"] not in CHECK_STATUSES:
             raise ReviewTaskError("Résultat Codex invalide : statut de contrôle inconnu.")
         if not isinstance(item["evidence"], list) or not all(
@@ -582,6 +641,45 @@ def validate_scope(payload: Any) -> None:
         isinstance(value, str) for value in payload["unexpected_paths"]
     ):
         raise ReviewTaskError("Résultat Codex invalide : unexpected_paths invalide.")
+
+
+def _validate_owned_requirement_checks(
+    requirement_checks: list[dict[str, Any]],
+    expected_owned_criteria: list[dict[str, str]],
+) -> None:
+    if all(
+        "acceptance_criterion_id" not in item and "criterion" not in item
+        for item in requirement_checks
+    ):
+        if len(expected_owned_criteria) != len(requirement_checks):
+            raise ReviewTaskError(
+                "Résultat Codex invalide : format legacy insuffisant pour mapper les critères propriétaires."
+            )
+        for item, expected_item in zip(requirement_checks, expected_owned_criteria, strict=True):
+            if item["requirement_id"] != expected_item["requirement_id"]:
+                raise ReviewTaskError(
+                    "Résultat Codex invalide : contrôle d'exigence legacy incohérent."
+                )
+        return
+
+    expected = {
+        item["acceptance_criterion_id"]: (item["requirement_id"], item["text"])
+        for item in expected_owned_criteria
+    }
+    actual = {
+        item["acceptance_criterion_id"]: (item["requirement_id"], item["criterion"])
+        for item in requirement_checks
+    }
+    if set(actual) != set(expected):
+        raise ReviewTaskError(
+            "Résultat Codex invalide : les critères propriétaires revus ne correspondent pas au backlog."
+        )
+    for criterion_id, (requirement_id, criterion_text) in actual.items():
+        expected_requirement_id, expected_text = expected[criterion_id]
+        if requirement_id != expected_requirement_id or criterion_text != expected_text:
+            raise ReviewTaskError(
+                f"Résultat Codex invalide : critère propriétaire incohérent pour {criterion_id}."
+            )
 
 
 def enforce_review_constraints(

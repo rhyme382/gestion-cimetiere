@@ -78,6 +78,14 @@ def render_feature_summary(model: dict[str, Any]) -> Panel:
         "Progression",
         f'{model["progress"]["integrated"]}/{model["progress"]["total"]} ({model["progress"]["percentage"]}%)',
     )
+    summary.add_row(
+        "Couverture critères",
+        (
+            f'{model["coverage"]["summary"]["approved"]}/{model["coverage"]["summary"]["total"]} '
+            f'({model["coverage"]["summary"]["coverage_percentage"]}%)'
+        ),
+    )
+    summary.add_row("Critères intégrés", str(model["coverage"]["summary"]["integrated"]))
     summary.add_row("Tâche courante", model["current_task_id"])
     summary.add_row("Action courante", model["current_action"])
     summary.add_row("Dernière mise à jour", model["last_updated"])
@@ -116,6 +124,8 @@ def render_tasks_table(tasks: list[dict[str, Any]]) -> Table:
     table.add_column("Titre")
     table.add_column("Deps")
     table.add_column("État", no_wrap=True)
+    table.add_column("Crit.", justify="right", no_wrap=True)
+    table.add_column("OK", justify="right", no_wrap=True)
     table.add_column("Action")
     table.add_column("Review", no_wrap=True)
     table.add_column("Corr.", justify="right", no_wrap=True)
@@ -131,6 +141,8 @@ def render_tasks_table(tasks: list[dict[str, Any]]) -> Table:
             task["title"],
             task["depends_on"],
             style_status(task["status"]),
+            str(task["owned_criteria"]),
+            str(task["approved_criteria"]),
             task["action_current"],
             task["review_verdict"],
             str(task["correction_count"]),

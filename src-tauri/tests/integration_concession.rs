@@ -43,7 +43,7 @@ fn test_full_concession_workflow() {
     assert!(created_concession.id > 0);
     assert_eq!(created_concession.cemetery_id, created_cemetery.id);
     assert_eq!(created_concession.plot_id, Some(created_plot.id));
-    assert_eq!(created_concession.status, "active");
+    assert_eq!(created_concession.status, "PERPETUELLE");
 
     // List concessions for the cemetery
     let list = ConcessionRepository::list(&conn, Some(created_cemetery.id))
@@ -133,21 +133,33 @@ fn test_concession_update() {
     );
     let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
-    let concession = Concession::new(created_cemetery.id, None);
+    // Create a temporary concession that expired in the past
+    let mut concession = Concession::new(created_cemetery.id, None);
+    concession.concession_type = "TEMPORAIRE".to_string();
+    concession.duration_years = Some(1);
+    concession.start_date = Some("2020-01-01T00:00:00Z".to_string());
     let created = ConcessionRepository::create(&conn, &concession).unwrap();
     let id = created.id;
 
+    // Verify it was created with EXPIREE status (due to expired date)
+    assert_eq!(created.status, "EXPIREE");
+
+    // Update the concession with holder data
     let mut updated_concession = Concession::new(created_cemetery.id, None);
     updated_concession.id = id;
-    updated_concession.status = "expired".to_string();
+    updated_concession.concession_type = "TEMPORAIRE".to_string();
+    updated_concession.duration_years = Some(1);
+    updated_concession.start_date = Some("2020-01-01T00:00:00Z".to_string());
+    updated_concession.holder_first_name = Some("Jean".to_string());
 
     let updated = ConcessionRepository::update(&conn, id, &updated_concession).unwrap();
     assert_eq!(updated.id, id);
-    assert_eq!(updated.status, "expired");
+    assert_eq!(updated.status, "EXPIREE");
+    assert_eq!(updated.holder_first_name, Some("Jean".to_string()));
 
     // Verify persistence
     let retrieved = ConcessionRepository::get(&conn, id).unwrap();
-    assert_eq!(retrieved.status, "expired");
+    assert_eq!(retrieved.status, "EXPIREE");
 }
 
 #[test]

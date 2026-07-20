@@ -16,7 +16,7 @@
   "properties": {
     "task_id": {
       "type": "string",
-      "pattern": "^TASK-[A-Z0-9-]+$"
+      "minLength": 1
     },
     "verdict": {
       "type": "string",

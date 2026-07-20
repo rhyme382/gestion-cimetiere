@@ -82,7 +82,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^TASK-[A-Z0-9-]+$"
+            "pattern": "^[A-Z][A-Z0-9-]*$"
           },
           "title": {
             "type": "string",
@@ -108,7 +108,7 @@
             "type": "array",
             "items": {
               "type": "string",
-              "pattern": "^TASK-[A-Z0-9-]+$"
+              "pattern": "^[A-Z][A-Z0-9-]*$"
             }
           },
           "requirement_ids": {

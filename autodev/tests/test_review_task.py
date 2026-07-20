@@ -175,6 +175,156 @@ def test_review_task_records_approved_result(tmp_path: Path) -> None:
     assert validation_results["source"] == "recorded"
 
 
+def test_review_task_accepts_simple_task_id_exact_match(tmp_path: Path) -> None:
+    _, backlog = prepare_reviewable_task(tmp_path, "T1")
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "T1",
+                "verdict": "APPROVED",
+                "summary": "Identifiant exact conservé.",
+                "requirement_checks": [
+                    {
+                        "requirement_id": "REQ-001",
+                        "status": "PASS",
+                        "evidence": ["La tâche T1 est correctement revue."],
+                    }
+                ],
+                "acceptance_checks": [
+                    {
+                        "criterion": "Accepter",
+                        "status": "PASS",
+                        "evidence": ["Le reviewer retourne exactement T1."],
+                    }
+                ],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    result = review_task(backlog, "T1", codex_runner=fake_codex_runner)
+
+    assert result["task_id"] == "T1"
+    assert result["verdict"] == "APPROVED"
+
+
+def test_review_task_rejects_reformatted_simple_task_id(tmp_path: Path) -> None:
+    _, backlog = prepare_reviewable_task(tmp_path, "T1")
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "TASK-T1",
+                "verdict": "APPROVED",
+                "summary": "Identifiant reformatté à tort.",
+                "requirement_checks": [
+                    {
+                        "requirement_id": "REQ-001",
+                        "status": "PASS",
+                        "evidence": [],
+                    }
+                ],
+                "acceptance_checks": [
+                    {
+                        "criterion": "Accepter",
+                        "status": "PASS",
+                        "evidence": [],
+                    }
+                ],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    with pytest.raises(ReviewTaskError, match=r"attendu: T1, reçu: TASK-T1"):
+        review_task(backlog, "T1", codex_runner=fake_codex_runner)
+
+
+def test_review_task_accepts_prefixed_task_id_exact_match(tmp_path: Path) -> None:
+    _, backlog = prepare_reviewable_task(tmp_path, "TASK-PILOT-001")
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "TASK-PILOT-001",
+                "verdict": "APPROVED",
+                "summary": "Le format historique reste accepté.",
+                "requirement_checks": [
+                    {
+                        "requirement_id": "REQ-001",
+                        "status": "PASS",
+                        "evidence": ["L'identifiant historique est inchangé."],
+                    }
+                ],
+                "acceptance_checks": [
+                    {
+                        "criterion": "Accepter",
+                        "status": "PASS",
+                        "evidence": ["TASK-PILOT-001 est restitué tel quel."],
+                    }
+                ],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    result = review_task(backlog, "TASK-PILOT-001", codex_runner=fake_codex_runner)
+
+    assert result["task_id"] == "TASK-PILOT-001"
+    assert result["verdict"] == "APPROVED"
+
+
+def test_review_prompt_contains_exact_task_id_instruction(tmp_path: Path) -> None:
+    _, backlog = prepare_reviewable_task(tmp_path, "T1")
+    prompt_holder: dict[str, str] = {}
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        prompt_holder["prompt"] = str(kwargs["prompt"])
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "T1",
+                "verdict": "APPROVED",
+                "summary": "Prompt inspecté.",
+                "requirement_checks": [
+                    {
+                        "requirement_id": "REQ-001",
+                        "status": "PASS",
+                        "evidence": [],
+                    }
+                ],
+                "acceptance_checks": [
+                    {
+                        "criterion": "Accepter",
+                        "status": "PASS",
+                        "evidence": [],
+                    }
+                ],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    review_task(backlog, "T1", codex_runner=fake_codex_runner)
+
+    prompt = prompt_holder["prompt"]
+    assert "L'identifiant exact de la tâche est : `T1`" in prompt
+    assert "Retourne exactement cette valeur dans `task_id`." in prompt
+    assert "Ne la préfixe pas, ne la normalise pas et ne la transforme pas." in prompt
+
+
 def test_review_task_forces_correction_required_when_codex_reports_failure(tmp_path: Path) -> None:
     _, backlog = prepare_reviewable_task(tmp_path, "TASK-CORRECT")
 

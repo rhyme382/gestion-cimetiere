@@ -282,6 +282,7 @@ def build_review_prompt(
     diff_text: str,
 ) -> str:
     specification = spec_path.read_text(encoding="utf-8")
+    exact_task_id = task["id"]
     requirements = [
         requirement
         for requirement in backlog["requirements"]
@@ -309,9 +310,15 @@ Contraintes impératives :
 
 Backlog : `{backlog_json}`
 Feature : `{backlog["feature_id"]}` — {backlog["feature_title"]}
-Tâche revue : `{task["id"]}`
+Tâche revue : `{exact_task_id}`
 Commit de départ : `{base_commit}`
 Commit produit : `{produced_commit}`
+
+# Identifiant exact à restituer
+
+L'identifiant exact de la tâche est : `{exact_task_id}`
+Retourne exactement cette valeur dans `task_id`.
+Ne la préfixe pas, ne la normalise pas et ne la transforme pas.
 
 # Règles de verdict
 
@@ -384,6 +391,7 @@ Chemin : `{spec_path.relative_to(repo_root).as_posix()}`
 # Attendu pour la réponse
 
 La réponse doit respecter exactement le schéma JSON fourni par `--output-schema`.
+Le champ `task_id` doit reprendre exactement `{exact_task_id}`.
 """
 
 
@@ -481,7 +489,10 @@ def validate_review_result(review_result: dict[str, Any], expected_task_id: str)
     if set(review_result.keys()) != required_keys:
         raise ReviewTaskError("Résultat Codex invalide : structure JSON inattendue.")
     if review_result["task_id"] != expected_task_id:
-        raise ReviewTaskError("Résultat Codex invalide : task_id incohérent.")
+        raise ReviewTaskError(
+            "Résultat Codex invalide : "
+            f"task_id incohérent (attendu: {expected_task_id}, reçu: {review_result['task_id']})."
+        )
     if review_result["verdict"] not in REVIEW_VERDICTS:
         raise ReviewTaskError("Résultat Codex invalide : verdict inconnu.")
     if not isinstance(review_result["summary"], str):

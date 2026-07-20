@@ -8,6 +8,8 @@ from rich.table import Table
 
 from autodev.feature_status import FeatureStatusError, read_feature_status
 from autodev.integrate_task import IntegrateTaskError, integrate_task
+from autodev.monitor import monitor_feature
+from autodev.monitor_state import MonitorStateError
 from autodev.planner import PlanningError, plan_feature
 from autodev.run_feature import RunFeatureError, run_feature
 from autodev.review_task import ReviewTaskError, review_task
@@ -321,6 +323,61 @@ def status_command(
     table.add_row("États incohérents", " | ".join(status["inconsistencies"]) or "—")
     table.add_row("Rapports", status["reports_path"])
     console.print(table)
+
+
+@app.command("monitor")
+def monitor_command(
+    backlog_json: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
+        help="Chemin du backlog JSON.",
+    ),
+    refresh: float = typer.Option(
+        2.0,
+        "--refresh",
+        min=0.5,
+        help="Intervalle de rafraîchissement en secondes.",
+    ),
+    once: bool = typer.Option(
+        False,
+        "--once",
+        help="Affiche un instantané puis quitte.",
+    ),
+    logs: bool = typer.Option(
+        False,
+        "--logs",
+        help="Affiche également les dernières lignes de logs.",
+    ),
+    log_lines: int = typer.Option(
+        20,
+        "--log-lines",
+        min=1,
+        help="Nombre de lignes de logs affichées.",
+    ),
+    no_clear: bool = typer.Option(
+        False,
+        "--no-clear",
+        help="Ne nettoie pas le terminal entre les rafraîchissements.",
+    ),
+) -> None:
+    """Supervise localement une feature autodev en cours."""
+    try:
+        monitor_feature(
+            backlog_json,
+            refresh=refresh,
+            once=once,
+            include_logs=logs,
+            log_lines=log_lines,
+            no_clear=no_clear,
+            console=console,
+        )
+    except MonitorStateError as exc:
+        console.print(f"\n[bold red]Échec :[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
 
 
 if __name__ == "__main__":

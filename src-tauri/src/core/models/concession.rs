@@ -138,6 +138,12 @@ impl Concession {
 
     pub fn validate(&self) -> AppResult<()> {
         let concession_type = ConcessionType::from_str(&self.concession_type)?;
+        // Validate start_date format whenever a value is provided.
+        if let Some(start_date) = &self.start_date {
+            DateTime::parse_from_rfc3339(start_date).map_err(|_| {
+                AppError::InvalidInput(format!("Invalid start_date format: {}", start_date))
+            })?;
+        }
 
         match concession_type {
             ConcessionType::Temporaire => {

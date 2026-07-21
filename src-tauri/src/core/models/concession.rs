@@ -41,11 +41,6 @@ pub enum ConcessionStatus {
     Active,
     SoonExpiring,
     Expired,
-    Renewed,
-    Abandoned,
-    RepossessionInProgress,
-    Repossessed,
-    Archived,
     Perpetuelle,
 }
 
@@ -57,13 +52,6 @@ impl ConcessionStatus {
                 Ok(ConcessionStatus::SoonExpiring)
             }
             "EXPIREE" | "EXPIRED" => Ok(ConcessionStatus::Expired),
-            "RENEWED" => Ok(ConcessionStatus::Renewed),
-            "ABANDONED" => Ok(ConcessionStatus::Abandoned),
-            "REPOSSESSION_IN_PROGRESS" | "REPOSSESSIONINPROGRESS" => {
-                Ok(ConcessionStatus::RepossessionInProgress)
-            }
-            "REPOSSESSED" => Ok(ConcessionStatus::Repossessed),
-            "ARCHIVED" => Ok(ConcessionStatus::Archived),
             "PERPETUELLE" => Ok(ConcessionStatus::Perpetuelle),
             _ => Err(AppError::InvalidInput(format!(
                 "Invalid concession status: {}",
@@ -77,11 +65,6 @@ impl ConcessionStatus {
             ConcessionStatus::Active => "ACTIVE",
             ConcessionStatus::SoonExpiring => "ECHEANCE_PROCHE",
             ConcessionStatus::Expired => "EXPIREE",
-            ConcessionStatus::Renewed => "RENEWED",
-            ConcessionStatus::Abandoned => "ABANDONED",
-            ConcessionStatus::RepossessionInProgress => "REPOSSESSION_IN_PROGRESS",
-            ConcessionStatus::Repossessed => "REPOSSESSED",
-            ConcessionStatus::Archived => "ARCHIVED",
             ConcessionStatus::Perpetuelle => "PERPETUELLE",
         }
     }

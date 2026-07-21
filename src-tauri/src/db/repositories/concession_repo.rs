@@ -809,21 +809,24 @@ mod tests {
         let reference_date_past = chrono::DateTime::parse_from_rfc3339("2025-06-01T00:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
-        let concession_at_past = ConcessionRepository::get_at(&conn, created.id, reference_date_past).unwrap();
+        let concession_at_past =
+            ConcessionRepository::get_at(&conn, created.id, reference_date_past).unwrap();
         assert_eq!(concession_at_past.status, "ACTIVE");
 
         // Test with a reference date 11 months before expiry - should be ECHEANCE_PROCHE
         let reference_date_soon = chrono::DateTime::parse_from_rfc3339("2034-02-01T00:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
-        let concession_at_soon = ConcessionRepository::get_at(&conn, created.id, reference_date_soon).unwrap();
+        let concession_at_soon =
+            ConcessionRepository::get_at(&conn, created.id, reference_date_soon).unwrap();
         assert_eq!(concession_at_soon.status, "ECHEANCE_PROCHE");
 
         // Test with a reference date after expiry - should be EXPIREE
         let reference_date_future = chrono::DateTime::parse_from_rfc3339("2036-01-01T00:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
-        let concession_at_future = ConcessionRepository::get_at(&conn, created.id, reference_date_future).unwrap();
+        let concession_at_future =
+            ConcessionRepository::get_at(&conn, created.id, reference_date_future).unwrap();
         assert_eq!(concession_at_future.status, "EXPIREE");
     }
 
@@ -856,7 +859,9 @@ mod tests {
         let reference_date_2024 = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
-        let concessions_2024 = ConcessionRepository::list_at(&conn, Some(created_cemetery.id), reference_date_2024).unwrap();
+        let concessions_2024 =
+            ConcessionRepository::list_at(&conn, Some(created_cemetery.id), reference_date_2024)
+                .unwrap();
         assert_eq!(concessions_2024.len(), 2);
         assert!(concessions_2024.iter().all(|c| c.status == "ACTIVE"));
 
@@ -864,10 +869,18 @@ mod tests {
         let reference_date_2025_06 = chrono::DateTime::parse_from_rfc3339("2025-06-01T00:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
-        let concessions_2025_06 = ConcessionRepository::list_at(&conn, Some(created_cemetery.id), reference_date_2025_06).unwrap();
+        let concessions_2025_06 =
+            ConcessionRepository::list_at(&conn, Some(created_cemetery.id), reference_date_2025_06)
+                .unwrap();
         assert_eq!(concessions_2025_06.len(), 2);
-        let c1 = concessions_2025_06.iter().find(|c| c.duration_years == Some(1)).unwrap();
-        let c2 = concessions_2025_06.iter().find(|c| c.duration_years == Some(10)).unwrap();
+        let c1 = concessions_2025_06
+            .iter()
+            .find(|c| c.duration_years == Some(1))
+            .unwrap();
+        let c2 = concessions_2025_06
+            .iter()
+            .find(|c| c.duration_years == Some(10))
+            .unwrap();
         assert_eq!(c1.status, "ECHEANCE_PROCHE");
         assert_eq!(c2.status, "ACTIVE");
 
@@ -875,10 +888,18 @@ mod tests {
         let reference_date_2026 = chrono::DateTime::parse_from_rfc3339("2026-06-01T00:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
-        let concessions_2026 = ConcessionRepository::list_at(&conn, Some(created_cemetery.id), reference_date_2026).unwrap();
+        let concessions_2026 =
+            ConcessionRepository::list_at(&conn, Some(created_cemetery.id), reference_date_2026)
+                .unwrap();
         assert_eq!(concessions_2026.len(), 2);
-        let c1 = concessions_2026.iter().find(|c| c.duration_years == Some(1)).unwrap();
-        let c2 = concessions_2026.iter().find(|c| c.duration_years == Some(10)).unwrap();
+        let c1 = concessions_2026
+            .iter()
+            .find(|c| c.duration_years == Some(1))
+            .unwrap();
+        let c2 = concessions_2026
+            .iter()
+            .find(|c| c.duration_years == Some(10))
+            .unwrap();
         assert_eq!(c1.status, "EXPIREE");
         assert_eq!(c2.status, "ACTIVE");
 
@@ -886,10 +907,18 @@ mod tests {
         let reference_date_2034 = chrono::DateTime::parse_from_rfc3339("2034-06-01T00:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
-        let concessions_2034 = ConcessionRepository::list_at(&conn, Some(created_cemetery.id), reference_date_2034).unwrap();
+        let concessions_2034 =
+            ConcessionRepository::list_at(&conn, Some(created_cemetery.id), reference_date_2034)
+                .unwrap();
         assert_eq!(concessions_2034.len(), 2);
-        let c1 = concessions_2034.iter().find(|c| c.duration_years == Some(1)).unwrap();
-        let c2 = concessions_2034.iter().find(|c| c.duration_years == Some(10)).unwrap();
+        let c1 = concessions_2034
+            .iter()
+            .find(|c| c.duration_years == Some(1))
+            .unwrap();
+        let c2 = concessions_2034
+            .iter()
+            .find(|c| c.duration_years == Some(10))
+            .unwrap();
         assert_eq!(c1.status, "EXPIREE");
         assert_eq!(c2.status, "ECHEANCE_PROCHE");
     }
@@ -926,21 +955,36 @@ mod tests {
         let reference_date_before = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
-        let occupied_before = ConcessionRepository::is_plot_occupied_by_active_concession_at(&conn, created_plot.id, reference_date_before).unwrap();
+        let occupied_before = ConcessionRepository::is_plot_occupied_by_active_concession_at(
+            &conn,
+            created_plot.id,
+            reference_date_before,
+        )
+        .unwrap();
         assert!(occupied_before);
 
         // Test at 2034-06-01 (214 days before expiry 2035-01-01): plot should be occupied (ECHEANCE_PROCHE)
         let reference_date_soon = chrono::DateTime::parse_from_rfc3339("2034-06-01T00:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
-        let occupied_soon = ConcessionRepository::is_plot_occupied_by_active_concession_at(&conn, created_plot.id, reference_date_soon).unwrap();
+        let occupied_soon = ConcessionRepository::is_plot_occupied_by_active_concession_at(
+            &conn,
+            created_plot.id,
+            reference_date_soon,
+        )
+        .unwrap();
         assert!(occupied_soon);
 
         // Test at 2036-01-01 (after expiry): plot should be free (EXPIREE)
         let reference_date_after = chrono::DateTime::parse_from_rfc3339("2036-01-01T00:00:00Z")
             .unwrap()
             .with_timezone(&Utc);
-        let occupied_after = ConcessionRepository::is_plot_occupied_by_active_concession_at(&conn, created_plot.id, reference_date_after).unwrap();
+        let occupied_after = ConcessionRepository::is_plot_occupied_by_active_concession_at(
+            &conn,
+            created_plot.id,
+            reference_date_after,
+        )
+        .unwrap();
         assert!(!occupied_after);
     }
 }

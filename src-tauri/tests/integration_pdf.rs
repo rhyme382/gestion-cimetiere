@@ -1,3 +1,4 @@
+use gestion_cimetiere::db::migrations::run_migrations;
 use gestion_cimetiere::db::repositories::{
     BurialRepository, CemeteryRepository, ConcessionRepository, PlotRepository,
 };
@@ -8,16 +9,12 @@ use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn setup_test_db() -> Connection {
-    let conn = Connection::open_in_memory().unwrap();
+    let conn = Connection::open_in_memory().expect("Failed to open in-memory database");
 
-    let migrations = vec![
-        include_str!("../migrations/001_initial_schema.sql"),
-        include_str!("../migrations/0006_create_alerts_table.sql"),
-    ];
+    conn.execute("PRAGMA foreign_keys = ON", [])
+        .expect("Failed to enable foreign keys");
 
-    for migration in migrations {
-        conn.execute_batch(migration).unwrap();
-    }
+    run_migrations(&conn).expect("Failed to run migrations");
 
     conn
 }
@@ -80,8 +77,18 @@ fn test_integration_pdf_generation_basic() {
     ).unwrap();
 
     conn.execute(
-        "INSERT INTO concessions (cemetery_id, plot_id, status, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-        rusqlite::params![1, 1, "active", "2027-06-16", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],
+        "INSERT INTO concessions (cemetery_id, plot_id, concession_type, start_date, duration_years, expires_at, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        rusqlite::params![
+            1,
+            1,
+            "PERPETUELLE",
+            "2026-06-16T00:00:00Z",
+            Option::<i32>::None,
+            Option::<String>::None,
+            "PERPETUELLE",
+            "2026-06-16T00:00:00Z",
+            "2026-06-16T00:00:00Z"
+        ],
     ).unwrap();
 
     // Fetch data and generate PDF
@@ -136,8 +143,18 @@ fn test_integration_pdf_with_burials() {
     ).unwrap();
 
     conn.execute(
-        "INSERT INTO concessions (cemetery_id, plot_id, status, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-        rusqlite::params![1, 1, "active", "2027-06-16", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],
+        "INSERT INTO concessions (cemetery_id, plot_id, concession_type, start_date, duration_years, expires_at, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        rusqlite::params![
+            1,
+            1,
+            "PERPETUELLE",
+            "2026-06-16T00:00:00Z",
+            Option::<i32>::None,
+            Option::<String>::None,
+            "PERPETUELLE",
+            "2026-06-16T00:00:00Z",
+            "2026-06-16T00:00:00Z"
+        ],
     ).unwrap();
 
     conn.execute(
@@ -210,8 +227,18 @@ fn test_integration_pdf_with_multiple_burials() {
     ).unwrap();
 
     conn.execute(
-        "INSERT INTO concessions (cemetery_id, plot_id, status, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-        rusqlite::params![1, 1, "active", "2027-06-16", "2026-06-16 10:00:00", "2026-06-16 10:00:00"],
+        "INSERT INTO concessions (cemetery_id, plot_id, concession_type, start_date, duration_years, expires_at, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        rusqlite::params![
+            1,
+            1,
+            "PERPETUELLE",
+            "2026-06-16T00:00:00Z",
+            Option::<i32>::None,
+            Option::<String>::None,
+            "PERPETUELLE",
+            "2026-06-16T00:00:00Z",
+            "2026-06-16T00:00:00Z"
+        ],
     ).unwrap();
 
     // Add multiple individuals

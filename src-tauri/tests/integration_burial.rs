@@ -38,7 +38,8 @@ fn test_full_burial_workflow() {
     let created_plot = PlotRepository::create(&conn, &plot).expect("Failed to create plot");
 
     // Create concession
-    let concession = Concession::new(created_cemetery.id, Some(created_plot.id));
+    let mut concession = Concession::new(created_cemetery.id, Some(created_plot.id));
+    concession.start_date = Some("2026-01-01T00:00:00Z".to_string());
     let created_concession =
         ConcessionRepository::create(&conn, &concession).expect("Failed to create concession");
 
@@ -94,7 +95,8 @@ fn test_burial_create_and_list() {
     );
     let created_plot = PlotRepository::create(&conn, &plot).unwrap();
 
-    let concession = Concession::new(created_cemetery.id, Some(created_plot.id));
+    let mut concession = Concession::new(created_cemetery.id, Some(created_plot.id));
+    concession.start_date = Some("2026-01-01T00:00:00Z".to_string());
     let created_concession = ConcessionRepository::create(&conn, &concession).unwrap();
 
     let individual1 = Individual::new("Person 1".to_string(), None, None, "deceased".to_string());
@@ -131,7 +133,8 @@ fn test_burial_multiple_individuals_same_concession() {
     );
     let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
-    let concession = Concession::new(created_cemetery.id, None);
+    let mut concession = Concession::new(created_cemetery.id, None);
+    concession.start_date = Some("2026-01-01T00:00:00Z".to_string());
     let created_concession = ConcessionRepository::create(&conn, &concession).unwrap();
 
     // Create multiple individuals
@@ -163,7 +166,8 @@ fn test_burial_get_by_id() {
     let cemetery = Cemetery::new("Test Cemetery".to_string(), Some("Nice".to_string()), None);
     let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
-    let concession = Concession::new(created_cemetery.id, None);
+    let mut concession = Concession::new(created_cemetery.id, None);
+    concession.start_date = Some("2026-01-01T00:00:00Z".to_string());
     let created_concession = ConcessionRepository::create(&conn, &concession).unwrap();
 
     let individual = Individual::new(

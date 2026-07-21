@@ -6,6 +6,6 @@ pub mod plot;
 
 pub use burial::Burial;
 pub use cemetery::Cemetery;
-pub use concession::Concession;
+pub use concession::{Concession, ConcessionStatus, ConcessionType};
 pub use individual::Individual;
 pub use plot::Plot;

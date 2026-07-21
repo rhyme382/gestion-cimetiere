@@ -52,8 +52,8 @@ pub fn update_concession(
     concession.id = id;
     concession.concession_number = req.concession_number.or(existing.concession_number);
     concession.concession_type = req.concession_type.unwrap_or(existing.concession_type);
-    concession.duration_years = req.duration_years.or(existing.duration_years);
-    concession.start_date = req.start_date.or(existing.start_date);
+    concession.duration_years = req.duration_years.unwrap_or(existing.duration_years);
+    concession.start_date = req.start_date.unwrap_or(existing.start_date);
     concession.holder_first_name = req.holder_first_name.or(existing.holder_first_name);
     concession.holder_last_name = req.holder_last_name.or(existing.holder_last_name);
     concession.holder_address = req.holder_address.or(existing.holder_address);

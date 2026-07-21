@@ -1,7 +1,15 @@
 use crate::core::models::Concession;
 use crate::errors::AppResult;
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+fn deserialize_double_option<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
 use specta::Type;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -49,8 +57,18 @@ pub struct UpdateConcessionRequest {
     pub plot_id: Option<i64>,
     pub concession_number: Option<String>,
     pub concession_type: Option<String>,
-    pub duration_years: Option<i32>,
-    pub start_date: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub duration_years: Option<Option<i32>>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub start_date: Option<Option<String>>,
     pub holder_first_name: Option<String>,
     pub holder_last_name: Option<String>,
     pub holder_address: Option<String>,
@@ -88,5 +106,37 @@ impl ConcessionDTO {
         let calculated_status = concession.calculate_status(reference_date)?;
         self.status = calculated_status.as_str().to_owned();
         Ok(self)
+    }
+}
+
+#[cfg(test)]
+mod update_request_tests {
+    use super::UpdateConcessionRequest;
+    use serde_json::json;
+
+    #[test]
+    fn update_request_distinguishes_absent_null_and_value() {
+        let absent: UpdateConcessionRequest = serde_json::from_value(json!({})).unwrap();
+        assert_eq!(absent.duration_years, None);
+        assert_eq!(absent.start_date, None);
+
+        let cleared: UpdateConcessionRequest = serde_json::from_value(json!({
+            "duration_years": null,
+            "start_date": null
+        }))
+        .unwrap();
+        assert_eq!(cleared.duration_years, Some(None));
+        assert_eq!(cleared.start_date, Some(None));
+
+        let provided: UpdateConcessionRequest = serde_json::from_value(json!({
+            "duration_years": 30,
+            "start_date": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap();
+        assert_eq!(provided.duration_years, Some(Some(30)));
+        assert_eq!(
+            provided.start_date,
+            Some(Some("2026-01-01T00:00:00Z".to_string()))
+        );
     }
 }

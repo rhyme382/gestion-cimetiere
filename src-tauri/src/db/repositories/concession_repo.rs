@@ -208,7 +208,8 @@ mod tests {
         let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
         // Create a concession for the cemetery (default is PERPETUELLE)
-        let concession = Concession::new(created_cemetery.id, None);
+        let mut concession = Concession::new(created_cemetery.id, None);
+        concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
 
         let result = ConcessionRepository::create(&conn, &concession);
         assert!(result.is_ok());
@@ -248,9 +249,12 @@ mod tests {
         let created_cemetery2 = CemeteryRepository::create(&conn, &cemetery2).unwrap();
 
         // Create concessions for both cemeteries
-        let concession1 = Concession::new(created_cemetery.id, None);
-        let concession2 = Concession::new(created_cemetery.id, None);
-        let concession3 = Concession::new(created_cemetery2.id, None);
+        let mut concession1 = Concession::new(created_cemetery.id, None);
+        concession1.start_date = Some("2025-01-01T00:00:00Z".to_string());
+        let mut concession2 = Concession::new(created_cemetery.id, None);
+        concession2.start_date = Some("2025-01-01T00:00:00Z".to_string());
+        let mut concession3 = Concession::new(created_cemetery2.id, None);
+        concession3.start_date = Some("2025-01-01T00:00:00Z".to_string());
 
         ConcessionRepository::create(&conn, &concession1).unwrap();
         ConcessionRepository::create(&conn, &concession2).unwrap();
@@ -281,7 +285,8 @@ mod tests {
         let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
         // Create a concession (default is PERPETUELLE)
-        let concession = Concession::new(created_cemetery.id, None);
+        let mut concession = Concession::new(created_cemetery.id, None);
+        concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
         let created = ConcessionRepository::create(&conn, &concession).unwrap();
         let id = created.id;
         assert_eq!(created.status, "PERPETUELLE");
@@ -357,7 +362,8 @@ mod tests {
         let conn = setup_db();
 
         // Try to create a concession with non-existent cemetery_id
-        let concession = Concession::new(9999, None);
+        let mut concession = Concession::new(9999, None);
+        concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
         let result = ConcessionRepository::create(&conn, &concession);
 
         // Should fail with Database error (FK constraint violation)
@@ -499,6 +505,7 @@ mod tests {
         assert!(result.is_err());
 
         concession.duration_years = None;
+        concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
         assert!(concession.validate().is_ok());
     }
 
@@ -554,6 +561,22 @@ mod tests {
     }
 
     #[test]
+    fn test_perpetuelle_validation_requires_start_date() {
+        let mut concession = Concession::new(1, None);
+        concession.concession_type = "PERPETUELLE".to_string();
+        concession.start_date = None;
+
+        let result = concession.validate();
+        assert!(result.is_err());
+        match result {
+            Err(AppError::InvalidInput(msg)) => {
+                assert!(msg.contains("start_date"));
+            }
+            _ => panic!("Expected InvalidInput error"),
+        }
+    }
+
+    #[test]
     fn test_status_calculation_perpetuelle() {
         let conn = setup_db();
         let cemetery = Cemetery::new(
@@ -563,7 +586,8 @@ mod tests {
         );
         let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
-        let concession = Concession::new(created_cemetery.id, None);
+        let mut concession = Concession::new(created_cemetery.id, None);
+        concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
         let created = ConcessionRepository::create(&conn, &concession).unwrap();
 
         assert_eq!(created.concession_type, "PERPETUELLE");
@@ -650,6 +674,7 @@ mod tests {
         let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
         let mut concession = Concession::new(created_cemetery.id, None);
+        concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
         concession.holder_first_name = Some("Jean".to_string());
         concession.holder_last_name = Some("Dupont".to_string());
         concession.holder_address = Some("123 Rue de la Paix".to_string());
@@ -686,12 +711,14 @@ mod tests {
         let created_plot = PlotRepository::create(&conn, &plot).unwrap();
 
         // Create first concession on the plot (PERPETUELLE)
-        let concession1 = Concession::new(created_cemetery.id, Some(created_plot.id));
+        let mut concession1 = Concession::new(created_cemetery.id, Some(created_plot.id));
+        concession1.start_date = Some("2025-01-01T00:00:00Z".to_string());
         let created1 = ConcessionRepository::create(&conn, &concession1).unwrap();
         assert_eq!(created1.plot_id, Some(created_plot.id));
 
         // Try to create second concession on the same plot - should fail (plot occupied by PERPETUELLE)
-        let concession2 = Concession::new(created_cemetery.id, Some(created_plot.id));
+        let mut concession2 = Concession::new(created_cemetery.id, Some(created_plot.id));
+        concession2.start_date = Some("2025-01-01T00:00:00Z".to_string());
         let result = ConcessionRepository::create(&conn, &concession2);
         assert!(result.is_err());
         match result {
@@ -731,7 +758,8 @@ mod tests {
         assert_eq!(created1.status, "EXPIREE");
 
         // Create second concession on the same plot - should succeed (expired plot is free)
-        let concession2 = Concession::new(created_cemetery.id, Some(created_plot.id));
+        let mut concession2 = Concession::new(created_cemetery.id, Some(created_plot.id));
+        concession2.start_date = Some("2025-01-01T00:00:00Z".to_string());
         let result = ConcessionRepository::create(&conn, &concession2);
         assert!(result.is_ok());
         let created2 = result.unwrap();

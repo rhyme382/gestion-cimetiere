@@ -36,7 +36,8 @@ fn test_full_concession_workflow() {
     let created_plot = PlotRepository::create(&conn, &plot).expect("Failed to create plot");
 
     // Create a concession
-    let concession = Concession::new(created_cemetery.id, Some(created_plot.id));
+    let mut concession = Concession::new(created_cemetery.id, Some(created_plot.id));
+    concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
     let created_concession =
         ConcessionRepository::create(&conn, &concession).expect("Failed to create concession");
 
@@ -69,8 +70,10 @@ fn test_concession_create_and_list() {
     );
     let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
-    let concession1 = Concession::new(created_cemetery.id, None);
-    let concession2 = Concession::new(created_cemetery.id, None);
+    let mut concession1 = Concession::new(created_cemetery.id, None);
+    concession1.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    let mut concession2 = Concession::new(created_cemetery.id, None);
+    concession2.start_date = Some("2025-01-01T00:00:00Z".to_string());
 
     ConcessionRepository::create(&conn, &concession1).unwrap();
     ConcessionRepository::create(&conn, &concession2).unwrap();
@@ -101,9 +104,12 @@ fn test_concession_list_all() {
     let created_cemetery1 = CemeteryRepository::create(&conn, &cemetery1).unwrap();
     let created_cemetery2 = CemeteryRepository::create(&conn, &cemetery2).unwrap();
 
-    let concession1 = Concession::new(created_cemetery1.id, None);
-    let concession2 = Concession::new(created_cemetery2.id, None);
-    let concession3 = Concession::new(created_cemetery1.id, None);
+    let mut concession1 = Concession::new(created_cemetery1.id, None);
+    concession1.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    let mut concession2 = Concession::new(created_cemetery2.id, None);
+    concession2.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    let mut concession3 = Concession::new(created_cemetery1.id, None);
+    concession3.start_date = Some("2025-01-01T00:00:00Z".to_string());
 
     ConcessionRepository::create(&conn, &concession1).unwrap();
     ConcessionRepository::create(&conn, &concession2).unwrap();
@@ -182,7 +188,8 @@ fn test_concession_with_plot() {
     );
     let created_plot = PlotRepository::create(&conn, &plot).unwrap();
 
-    let concession = Concession::new(created_cemetery.id, Some(created_plot.id));
+    let mut concession = Concession::new(created_cemetery.id, Some(created_plot.id));
+    concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
     let created_concession = ConcessionRepository::create(&conn, &concession).unwrap();
 
     assert_eq!(created_concession.plot_id, Some(created_plot.id));

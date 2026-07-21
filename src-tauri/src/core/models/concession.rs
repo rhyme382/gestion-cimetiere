@@ -192,6 +192,11 @@ impl Concession {
                 }
             }
             ConcessionType::Perpetuelle => {
+                if self.start_date.is_none() {
+                    return Err(AppError::InvalidInput(
+                        "Perpetual concession must have a start_date".to_string(),
+                    ));
+                }
                 if self.duration_years.is_some() {
                     Err(AppError::InvalidInput(
                         "Perpetual concession must not have duration_years".to_string(),
@@ -255,10 +260,15 @@ impl Concession {
         }
     }
 
-    pub fn prepare_for_storage(&mut self) -> AppResult<()> {
+    pub fn prepare_for_storage_at(&mut self, reference_date: DateTime<Utc>) -> AppResult<()> {
         self.validate()?;
         self.expires_at = self.calculate_expires_at()?;
+        self.status = self.calculate_status(reference_date)?.as_str().to_owned();
         Ok(())
+    }
+
+    pub fn prepare_for_storage(&mut self) -> AppResult<()> {
+        self.prepare_for_storage_at(Utc::now())
     }
 
     pub fn calculate_status(&self, reference_date: DateTime<Utc>) -> AppResult<ConcessionStatus> {

@@ -359,6 +359,104 @@ cargo fmt --check --manifest-path src-tauri/Cargo.toml
 - DTOs de sortie : Contiennent les valeurs calculées (expires_at, status) toujours recalculées côté Rust
 - Repository : Valide et calcule tous les champs calculés systématiquement
 
+## Corrections suite au verdict Codex (T2 - Révision de conformité)
+
+### Problème identifié par Codex
+
+Le verdict de validation Codex a identifié deux lacunes dans la contrôlabilité des calculs d’état en test:
+
+1. **Calcul d’état non injectable sur les chemins réellement utilisés** : Les méthodes `list()`, `get()`, et `is_plot_occupied_by_active_concession()` figaient `Utc::now()`, rendant impossible le contrôle de la date de référence en test pour vérifier le calcul d’état.
+
+2. **Ambiguïté des champs calculés** : Les champs `expires_at` et `status` restaient des champs publics ordinaires sans indication explicite qu’ils sont uniquement calculés par le backend.
+
+### Corrections apportées
+
+#### 1. Clarification des champs calculés dans le modèle
+
+**Fichier** : `src-tauri/src/core/models/concession.rs`
+
+Ajout de commentaires de documentation pour `expires_at` et `status`:
+
+```rust
+/// Expiry date calculated automatically from start_date and duration_years.
+/// This is never set from user input; it is computed exclusively by the backend.
+pub expires_at: Option<String>,
+
+/// Status calculated automatically based on type and expiry date.
+/// This is never set from user input; it is computed exclusively by the backend.
+pub status: String,
+```
+
+Ces commentaires renforcent explicitement que ces champs sont dérivés, calculés uniquement côté backend, jamais modifiables directement.
+
+#### 2. Ajout de méthodes injectables au repository
+
+**Fichier** : `src-tauri/src/db/repositories/concession_repo.rs`
+
+Trois nouvelles méthodes permettent de contrôler la date de référence en test:
+
+1. **`list_at(conn, cemetery_id, reference_date)`** : Liste les concessions avec une date de référence injectée pour le calcul du statut
+   - Les implémentations non-suffixées (`list()`, `get()`) appellent les variantes `_at()` avec `Utc::now()`
+   - Permet les tests de vérifier le statut à différentes dates
+
+2. **`get_at(conn, id, reference_date)`** : Récupère une concession avec une date de référence injectée
+   - Le calcul du statut utilise la date fournie au lieu de `Utc::now()`
+
+3. **`is_plot_occupied_by_active_concession_at(conn, plot_id, reference_date)`** : Vérifie l’occupation d’un plot à une date donnée
+   - Permet de tester l’occupation à différentes dates (avant, pendant, après l’échéance)
+
+### Nouveaux tests de conformité
+
+Trois tests démontrent la contrôlabilité complète du calcul d’état:
+
+1. **`test_get_at_with_reference_date_active`** : Teste `get_at()` avec trois dates de référence différentes
+   - Vérifie que le même enregistrement retourne ACTIVE, ECHEANCE_PROCHE, puis EXPIREE selon la date
+   - Prouve que le calcul d’état est déterministe et injectable
+
+2. **`test_list_at_with_reference_date`** : Teste `list_at()` avec plusieurs concessions et dates
+   - Crée deux concessions avec des durées différentes (1 et 10 ans)
+   - Teste à 4 dates différentes pour vérifier la transition entre ACTIVE, ECHEANCE_PROCHE, EXPIREE
+   - Valide que chaque concession a le statut correct selon la date de référence
+
+3. **`test_plot_occupation_at_with_reference_date`** : Teste `is_plot_occupied_by_active_concession_at()` avec des dates progressives
+   - Crée une concession expirant 2026-01-01
+   - Teste l’occupation à 3 dates: avant expiry (occupé/ACTIVE), proche expiry (occupé/ECHEANCE_PROCHE), après expiry (libre/EXPIREE)
+   - Valide que l’occupation dépend correctement du statut calculé
+
+### Architecture de conformité
+
+Cette correction établit une architecture de test rigoureuse:
+
+```
+Frontend          (ne calcule jamais d’état)
+    ↓
+Commands Tauri    (valident et acceptent les données)
+    ↓
+Repository        (calculent le status avec reference_date injecte)
+    ↓
+Model Concession  (logique pure, calculate_status(reference_date) injectable)
+```
+
+Les tests peuvent maintenant:
+- Créer une concession à une date historique (via `prepare_for_storage_at()` ou fixtures)
+- Interroger son statut à une date future via `get_at()` ou `list_at()`
+- Vérifier l’occupation via `is_plot_occupied_by_active_concession_at()`
+- Tout cela sans dépendre de `Utc::now()`, donc sans être flaky
+
+### Résultats de validation finaux
+
+Commande exécutée : `cargo test -p gestion-cimetiere concession`
+
+Résultats après corrections:
+- Tests unitaires domaine (avec variantes `_at`) : 36 passants ✅
+- Tests d’intégration concession : 5 passants ✅
+- **Total : 41 tests, 0 échecs** ✅
+- **Todos les critères d’acceptation Codex désormais satisfaits**:
+  - ✅ Calcul d’état contrôlable via `_at()` variants
+  - ✅ Champs calculés documentés explicitement comme dérivés
+  - ✅ Tests déterministes sans dépendance à `Utc::now()`
+  - ✅ API repository injectable pour testing
+
 ## Problèmes connus
 
 Les tests d’intégration historiques de `src-tauri/tests/integration_concession.rs` ne font pas partie du périmètre T2. Leur adaptation aux nouveaux états métier appartient à T4.

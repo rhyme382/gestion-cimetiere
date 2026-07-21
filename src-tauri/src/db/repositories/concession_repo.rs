@@ -3,16 +3,23 @@ use crate::{
     dto::ConcessionDTO,
     errors::{AppError, AppResult},
 };
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 
 pub struct ConcessionRepository;
 
 impl ConcessionRepository {
     pub fn list(conn: &Connection, cemetery_id: Option<i64>) -> AppResult<Vec<ConcessionDTO>> {
+        Self::list_at(conn, cemetery_id, Utc::now())
+    }
+
+    pub fn list_at(
+        conn: &Connection,
+        cemetery_id: Option<i64>,
+        reference_date: DateTime<Utc>,
+    ) -> AppResult<Vec<ConcessionDTO>> {
         let sql = "SELECT id, cemetery_id, plot_id, concession_number, concession_type, duration_years, start_date, holder_first_name, holder_last_name, holder_address, holder_postal_code, holder_commune, observations, acquired_at, expires_at, renewed_at, status, created_at, updated_at FROM concessions";
 
-        let now = Utc::now();
         match cemetery_id {
             Some(id) => {
                 let mut stmt = conn.prepare(&format!(
@@ -24,7 +31,7 @@ impl ConcessionRepository {
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(AppError::from)?
                     .into_iter()
-                    .map(|dto| dto.with_calculated_status(now))
+                    .map(|dto| dto.with_calculated_status(reference_date))
                     .collect()
             }
             None => {
@@ -35,14 +42,21 @@ impl ConcessionRepository {
                     .collect::<Result<Vec<_>, _>>()
                     .map_err(AppError::from)?
                     .into_iter()
-                    .map(|dto| dto.with_calculated_status(now))
+                    .map(|dto| dto.with_calculated_status(reference_date))
                     .collect()
             }
         }
     }
 
     pub fn get(conn: &Connection, id: i64) -> AppResult<ConcessionDTO> {
-        let now = Utc::now();
+        Self::get_at(conn, id, Utc::now())
+    }
+
+    pub fn get_at(
+        conn: &Connection,
+        id: i64,
+        reference_date: DateTime<Utc>,
+    ) -> AppResult<ConcessionDTO> {
         conn.query_row(
             "SELECT id, cemetery_id, plot_id, concession_number, concession_type, duration_years, start_date, holder_first_name, holder_last_name, holder_address, holder_postal_code, holder_commune, observations, acquired_at, expires_at, renewed_at, status, created_at, updated_at FROM concessions WHERE id = ?",
             [id],
@@ -58,7 +72,7 @@ impl ConcessionRepository {
                 _ => AppError::Database(err),
             }
         })
-        .and_then(|dto| dto.with_calculated_status(now))
+        .and_then(|dto| dto.with_calculated_status(reference_date))
     }
 
     pub fn create(conn: &Connection, concession: &Concession) -> AppResult<ConcessionDTO> {
@@ -146,7 +160,15 @@ impl ConcessionRepository {
     }
 
     fn is_plot_occupied_by_active_concession(conn: &Connection, plot_id: i64) -> AppResult<bool> {
-        let now = Utc::now().to_rfc3339();
+        Self::is_plot_occupied_by_active_concession_at(conn, plot_id, Utc::now())
+    }
+
+    fn is_plot_occupied_by_active_concession_at(
+        conn: &Connection,
+        plot_id: i64,
+        reference_date: DateTime<Utc>,
+    ) -> AppResult<bool> {
+        let now = reference_date.to_rfc3339();
         let mut stmt = conn.prepare(
             "SELECT COUNT(*) FROM concessions WHERE plot_id = ? AND (UPPER(status) = 'PERPETUELLE' OR (UPPER(status) IN ('ACTIVE', 'ECHEANCE_PROCHE') AND (expires_at IS NULL OR expires_at > ?)))"
         )?;
@@ -764,5 +786,161 @@ mod tests {
         assert!(result.is_ok());
         let created2 = result.unwrap();
         assert_eq!(created2.plot_id, Some(created_plot.id));
+    }
+
+    #[test]
+    fn test_get_at_with_reference_date_active() {
+        let conn = setup_db();
+        let cemetery = Cemetery::new(
+            "Test Cemetery".to_string(),
+            Some("Test City".to_string()),
+            Some(500),
+        );
+        let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
+
+        // Create a concession that expires in 2035
+        let mut concession = Concession::new(created_cemetery.id, None);
+        concession.concession_type = "TEMPORAIRE".to_string();
+        concession.duration_years = Some(10);
+        concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
+        let created = ConcessionRepository::create(&conn, &concession).unwrap();
+
+        // Test with a reference date far in the past - should be ACTIVE
+        let reference_date_past = chrono::DateTime::parse_from_rfc3339("2025-06-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let concession_at_past = ConcessionRepository::get_at(&conn, created.id, reference_date_past).unwrap();
+        assert_eq!(concession_at_past.status, "ACTIVE");
+
+        // Test with a reference date 11 months before expiry - should be ECHEANCE_PROCHE
+        let reference_date_soon = chrono::DateTime::parse_from_rfc3339("2034-02-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let concession_at_soon = ConcessionRepository::get_at(&conn, created.id, reference_date_soon).unwrap();
+        assert_eq!(concession_at_soon.status, "ECHEANCE_PROCHE");
+
+        // Test with a reference date after expiry - should be EXPIREE
+        let reference_date_future = chrono::DateTime::parse_from_rfc3339("2036-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let concession_at_future = ConcessionRepository::get_at(&conn, created.id, reference_date_future).unwrap();
+        assert_eq!(concession_at_future.status, "EXPIREE");
+    }
+
+    #[test]
+    fn test_list_at_with_reference_date() {
+        let conn = setup_db();
+        let cemetery = Cemetery::new(
+            "Test Cemetery".to_string(),
+            Some("Test City".to_string()),
+            Some(500),
+        );
+        let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
+
+        // Create three concessions with different expiry dates
+        // Concession 1: expires 2026-01-01
+        let mut concession1 = Concession::new(created_cemetery.id, None);
+        concession1.concession_type = "TEMPORAIRE".to_string();
+        concession1.duration_years = Some(1);
+        concession1.start_date = Some("2025-01-01T00:00:00Z".to_string());
+        ConcessionRepository::create(&conn, &concession1).unwrap();
+
+        // Concession 2: expires 2035-01-01
+        let mut concession2 = Concession::new(created_cemetery.id, None);
+        concession2.concession_type = "TEMPORAIRE".to_string();
+        concession2.duration_years = Some(10);
+        concession2.start_date = Some("2025-01-01T00:00:00Z".to_string());
+        ConcessionRepository::create(&conn, &concession2).unwrap();
+
+        // Test at 2024-01-01: Concession1 should be ACTIVE (expires in 365 days), Concession2 should be ACTIVE
+        let reference_date_2024 = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let concessions_2024 = ConcessionRepository::list_at(&conn, Some(created_cemetery.id), reference_date_2024).unwrap();
+        assert_eq!(concessions_2024.len(), 2);
+        assert!(concessions_2024.iter().all(|c| c.status == "ACTIVE"));
+
+        // Test at 2025-06-01: Concession1 should be ECHEANCE_PROCHE (214 days until expiry), Concession2 should be ACTIVE
+        let reference_date_2025_06 = chrono::DateTime::parse_from_rfc3339("2025-06-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let concessions_2025_06 = ConcessionRepository::list_at(&conn, Some(created_cemetery.id), reference_date_2025_06).unwrap();
+        assert_eq!(concessions_2025_06.len(), 2);
+        let c1 = concessions_2025_06.iter().find(|c| c.duration_years == Some(1)).unwrap();
+        let c2 = concessions_2025_06.iter().find(|c| c.duration_years == Some(10)).unwrap();
+        assert_eq!(c1.status, "ECHEANCE_PROCHE");
+        assert_eq!(c2.status, "ACTIVE");
+
+        // Test at 2026-06-01: Concession1 should be EXPIREE, Concession2 should be ACTIVE
+        let reference_date_2026 = chrono::DateTime::parse_from_rfc3339("2026-06-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let concessions_2026 = ConcessionRepository::list_at(&conn, Some(created_cemetery.id), reference_date_2026).unwrap();
+        assert_eq!(concessions_2026.len(), 2);
+        let c1 = concessions_2026.iter().find(|c| c.duration_years == Some(1)).unwrap();
+        let c2 = concessions_2026.iter().find(|c| c.duration_years == Some(10)).unwrap();
+        assert_eq!(c1.status, "EXPIREE");
+        assert_eq!(c2.status, "ACTIVE");
+
+        // Test at 2034-06-01: Concession1 should be EXPIREE, Concession2 should be ECHEANCE_PROCHE
+        let reference_date_2034 = chrono::DateTime::parse_from_rfc3339("2034-06-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let concessions_2034 = ConcessionRepository::list_at(&conn, Some(created_cemetery.id), reference_date_2034).unwrap();
+        assert_eq!(concessions_2034.len(), 2);
+        let c1 = concessions_2034.iter().find(|c| c.duration_years == Some(1)).unwrap();
+        let c2 = concessions_2034.iter().find(|c| c.duration_years == Some(10)).unwrap();
+        assert_eq!(c1.status, "EXPIREE");
+        assert_eq!(c2.status, "ECHEANCE_PROCHE");
+    }
+
+    #[test]
+    fn test_plot_occupation_at_with_reference_date() {
+        let conn = setup_db();
+        let cemetery = Cemetery::new(
+            "Test Cemetery".to_string(),
+            Some("Test City".to_string()),
+            Some(500),
+        );
+        let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
+
+        let plot = Plot::new(
+            created_cemetery.id,
+            Some("A".to_string()),
+            Some(1),
+            Some(1),
+            10,
+        );
+        let created_plot = PlotRepository::create(&conn, &plot).unwrap();
+
+        // Create a concession that expires 2035-01-01 (10 years from 2025-01-01)
+        let mut concession = Concession::new(created_cemetery.id, Some(created_plot.id));
+        concession.concession_type = "TEMPORAIRE".to_string();
+        concession.duration_years = Some(10);
+        concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
+        let created = ConcessionRepository::create(&conn, &concession).unwrap();
+        // Status at creation time (now in 2025-07-21) will be ACTIVE since 2035-01-01 is > 366 days away
+        assert_eq!(created.status, "ACTIVE");
+
+        // Test at 2024-01-01 (far before expiry): plot should be occupied (ACTIVE)
+        let reference_date_before = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let occupied_before = ConcessionRepository::is_plot_occupied_by_active_concession_at(&conn, created_plot.id, reference_date_before).unwrap();
+        assert!(occupied_before);
+
+        // Test at 2034-06-01 (214 days before expiry 2035-01-01): plot should be occupied (ECHEANCE_PROCHE)
+        let reference_date_soon = chrono::DateTime::parse_from_rfc3339("2034-06-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let occupied_soon = ConcessionRepository::is_plot_occupied_by_active_concession_at(&conn, created_plot.id, reference_date_soon).unwrap();
+        assert!(occupied_soon);
+
+        // Test at 2036-01-01 (after expiry): plot should be free (EXPIREE)
+        let reference_date_after = chrono::DateTime::parse_from_rfc3339("2036-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let occupied_after = ConcessionRepository::is_plot_occupied_by_active_concession_at(&conn, created_plot.id, reference_date_after).unwrap();
+        assert!(!occupied_after);
     }
 }

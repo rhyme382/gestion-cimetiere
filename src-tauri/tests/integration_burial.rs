@@ -131,7 +131,8 @@ fn test_burial_multiple_individuals_same_concession() {
     );
     let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
-    let concession = Concession::new(created_cemetery.id, None);
+    let mut concession = Concession::new(created_cemetery.id, None);
+    concession.start_date = Some("2026-01-01T00:00:00Z".to_string());
     let created_concession = ConcessionRepository::create(&conn, &concession).unwrap();
 
     // Create multiple individuals

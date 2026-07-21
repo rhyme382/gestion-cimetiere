@@ -103,8 +103,12 @@ pub struct Concession {
     pub holder_commune: Option<String>,
     pub observations: Option<String>,
     pub acquired_at: Option<String>,
+    /// Expiry date calculated automatically from start_date and duration_years.
+    /// This is never set from user input; it is computed exclusively by the backend.
     pub expires_at: Option<String>,
     pub renewed_at: Option<String>,
+    /// Status calculated automatically based on type and expiry date.
+    /// This is never set from user input; it is computed exclusively by the backend.
     pub status: String,
     pub created_at: String,
     pub updated_at: String,

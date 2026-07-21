@@ -101,7 +101,8 @@ mod tests {
         let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
         // Create a concession for the cemetery
-        let concession = Concession::new(created_cemetery.id, None);
+        let mut concession = Concession::new(created_cemetery.id, None);
+        concession.start_date = Some("2026-01-01T00:00:00Z".to_string());
         let created_concession = ConcessionRepository::create(&conn, &concession).unwrap();
 
         // Create an individual
@@ -244,7 +245,8 @@ mod tests {
         );
         let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
-        let concession = Concession::new(created_cemetery.id, None);
+        let mut concession = Concession::new(created_cemetery.id, None);
+        concession.start_date = Some("2026-01-01T00:00:00Z".to_string());
         let created_concession = ConcessionRepository::create(&conn, &concession).unwrap();
 
         // Try to create a burial with non-existent individual_id

@@ -18,7 +18,7 @@ from autodev.cli import app
 from autodev.monitor import render_monitor
 from autodev.monitor_state import read_feature_state
 from autodev.planner import PlanningError, validate_backlog_consistency
-from autodev.review_task import review_task
+from autodev.review_task import ReviewTaskError, review_task
 
 from test_task_runner import commit_all, init_repo, make_task, write_backlog
 
@@ -58,6 +58,69 @@ def structured_backlog(repo: Path) -> Path:
         ],
         requirements=structured_requirements(),
     )
+
+
+def prepare_structured_review(repo: Path, backlog: Path, task_id: str) -> Path:
+    import subprocess
+
+    commit_all(repo, "add backlog")
+    branch = f"autodev/{task_id}"
+    (repo / "src" / "reviewed.txt").write_text("ok\n", encoding="utf-8")
+    subprocess.run(["git", "checkout", "-b", branch], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "add", "src/reviewed.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", task_id.lower()], cwd=repo, check=True, capture_output=True, text=True)
+
+    base_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD~1"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    produced_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    run_dir = repo / ".autodev" / "runs" / task_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    task = next(item for item in json.loads(backlog.read_text(encoding="utf-8"))["tasks"] if item["id"] == task_id)
+    (run_dir / "task.json").write_text(
+        json.dumps(
+            {
+                "backlog": str(backlog),
+                "task": task,
+                "branch": branch,
+                "worktree": str(repo),
+                "base_commit": base_commit,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "status": "success",
+                "branch": branch,
+                "worktree": str(repo),
+                "base_commit": base_commit,
+                "produced_commit": produced_commit,
+                "modified_paths": ["src/reviewed.txt"],
+                "validations": [],
+                "validation_summary": [],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return run_dir
 
 
 def write_review_result(
@@ -154,68 +217,7 @@ def test_requirement_without_criteria_is_rejected(tmp_path: Path) -> None:
 def test_review_prompt_excludes_other_task_criteria_for_t2(tmp_path: Path) -> None:
     repo = init_repo(tmp_path)
     backlog = structured_backlog(repo)
-    commit_all(repo, "add backlog")
-
-    branch = "autodev/T2"
-    (repo / "src" / "reviewed.txt").write_text("ok\n", encoding="utf-8")
-    import subprocess
-
-    subprocess.run(["git", "checkout", "-b", branch], cwd=repo, check=True, capture_output=True, text=True)
-    subprocess.run(["git", "add", "src/reviewed.txt"], cwd=repo, check=True)
-    subprocess.run(["git", "commit", "-m", "t2"], cwd=repo, check=True, capture_output=True, text=True)
-
-    run_dir = repo / ".autodev" / "runs" / "T2"
-    run_dir.mkdir(parents=True, exist_ok=True)
-    (run_dir / "task.json").write_text(
-        json.dumps(
-            {
-                "backlog": str(backlog),
-                "task": make_task("T2", requirement_ids=["R2"]),
-                "branch": branch,
-                "worktree": str(repo),
-                "base_commit": subprocess.run(
-                    ["git", "rev-parse", "HEAD~1"],
-                    cwd=repo,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                ).stdout.strip(),
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-    (run_dir / "result.json").write_text(
-        json.dumps(
-            {
-                "task_id": "T2",
-                "status": "success",
-                "branch": branch,
-                "worktree": str(repo),
-                "base_commit": subprocess.run(
-                    ["git", "rev-parse", "HEAD~1"],
-                    cwd=repo,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                ).stdout.strip(),
-                "produced_commit": subprocess.run(
-                    ["git", "rev-parse", "HEAD"],
-                    cwd=repo,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                ).stdout.strip(),
-                "modified_paths": ["src/reviewed.txt"],
-                "validations": [],
-                "validation_summary": [],
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+    prepare_structured_review(repo, backlog, "T2")
     prompt_holder: dict[str, str] = {}
 
     def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
@@ -260,6 +262,212 @@ def test_review_prompt_excludes_other_task_criteria_for_t2(tmp_path: Path) -> No
     assert "R2-AC1" in prompt
     assert "R2-AC2" in prompt
     assert "R2-AC3" not in prompt
+
+
+@pytest.mark.parametrize(
+    ("requirement_checks", "expected_error"),
+    [
+        (
+            [
+                {
+                    "requirement_id": "R404",
+                    "acceptance_criterion_id": "R2-AC1",
+                    "status": "PASS",
+                    "evidence": [],
+                },
+                {
+                    "requirement_id": "R2",
+                    "acceptance_criterion_id": "R2-AC2",
+                    "status": "PASS",
+                    "evidence": [],
+                },
+            ],
+            "exigence parente incohérente pour R2-AC1",
+        ),
+        (
+            [
+                {
+                    "requirement_id": "R2",
+                    "acceptance_criterion_id": "R2-AC1",
+                    "status": "PASS",
+                    "evidence": [],
+                },
+                {
+                    "requirement_id": "R2",
+                    "acceptance_criterion_id": "R2-AC3",
+                    "status": "PASS",
+                    "evidence": [],
+                },
+            ],
+            "critère propriétaire inconnu ou hors tâche pour R2-AC3",
+        ),
+        (
+            [
+                {
+                    "requirement_id": "R2",
+                    "acceptance_criterion_id": "R2-AC1",
+                    "status": "PASS",
+                    "evidence": [],
+                },
+                {
+                    "requirement_id": "R2",
+                    "acceptance_criterion_id": "R2-AC1",
+                    "status": "PASS",
+                    "evidence": [],
+                },
+            ],
+            "critère propriétaire dupliqué pour R2-AC1",
+        ),
+        (
+            [
+                {
+                    "requirement_id": "R2",
+                    "acceptance_criterion_id": "R2-AC1",
+                    "status": "PASS",
+                    "evidence": [],
+                }
+            ],
+            "critères propriétaires manquants : R2-AC2",
+        ),
+    ],
+)
+def test_review_task_rejects_invalid_owned_criterion_identity(
+    tmp_path: Path,
+    requirement_checks: list[dict[str, object]],
+    expected_error: str,
+) -> None:
+    repo = init_repo(tmp_path)
+    backlog = structured_backlog(repo)
+    prepare_structured_review(repo, backlog, "T2")
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        Path(kwargs["output_path"]).write_text(
+            json.dumps(
+                {
+                    "task_id": "T2",
+                    "verdict": "APPROVED",
+                    "summary": "ok",
+                    "requirement_checks": requirement_checks,
+                    "acceptance_checks": [{"criterion": "Accepter", "status": "PASS", "evidence": []}],
+                    "issues": [],
+                    "tests": {"status": "PASS", "details": []},
+                    "scope": {"status": "PASS", "unexpected_paths": []},
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        return {"command": ["codex"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    with pytest.raises(ReviewTaskError, match=expected_error):
+        review_task(backlog, "T2", codex_runner=fake_codex_runner)
+
+
+def test_review_task_accepts_reformulated_legacy_criterion_text_and_normalizes_it(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    backlog = structured_backlog(repo)
+    prepare_structured_review(repo, backlog, "T2")
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        Path(kwargs["output_path"]).write_text(
+            json.dumps(
+                {
+                    "task_id": "T2",
+                    "verdict": "APPROVED",
+                    "summary": "ok",
+                    "requirement_checks": [
+                        {
+                            "requirement_id": "R2",
+                            "acceptance_criterion_id": "R2-AC1",
+                            "criterion": "Type et durée jugés cohérents.",
+                            "status": "PASS",
+                            "evidence": [],
+                        },
+                        {
+                            "requirement_id": "R2",
+                            "acceptance_criterion_id": "R2-AC2",
+                            "criterion": "Le backend calcule bien la date d'échéance.",
+                            "status": "PASS",
+                            "evidence": [],
+                        },
+                    ],
+                    "acceptance_checks": [{"criterion": "Accepter", "status": "PASS", "evidence": []}],
+                    "issues": [],
+                    "tests": {"status": "PASS", "details": []},
+                    "scope": {"status": "PASS", "unexpected_paths": []},
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        return {"command": ["codex"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    result = review_task(backlog, "T2", codex_runner=fake_codex_runner)
+
+    assert result["requirement_checks"] == [
+        {
+            "requirement_id": "R2",
+            "acceptance_criterion_id": "R2-AC1",
+            "criterion": "Le type et la durée sont cohérents.",
+            "status": "PASS",
+            "evidence": [],
+        },
+        {
+            "requirement_id": "R2",
+            "acceptance_criterion_id": "R2-AC2",
+            "criterion": "L'échéance est calculée par le backend.",
+            "status": "PASS",
+            "evidence": [],
+        },
+    ]
+
+
+def test_review_task_accepts_owned_criteria_without_criterion_text(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    backlog = structured_backlog(repo)
+    prepare_structured_review(repo, backlog, "T2")
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        Path(kwargs["output_path"]).write_text(
+            json.dumps(
+                {
+                    "task_id": "T2",
+                    "verdict": "APPROVED",
+                    "summary": "ok",
+                    "requirement_checks": [
+                        {
+                            "requirement_id": "R2",
+                            "acceptance_criterion_id": "R2-AC1",
+                            "status": "PASS",
+                            "evidence": [],
+                        },
+                        {
+                            "requirement_id": "R2",
+                            "acceptance_criterion_id": "R2-AC2",
+                            "status": "PASS",
+                            "evidence": [],
+                        },
+                    ],
+                    "acceptance_checks": [{"criterion": "Accepter", "status": "PASS", "evidence": []}],
+                    "issues": [],
+                    "tests": {"status": "PASS", "details": []},
+                    "scope": {"status": "PASS", "unexpected_paths": []},
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        return {"command": ["codex"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    result = review_task(backlog, "T2", codex_runner=fake_codex_runner)
+
+    assert [item["criterion"] for item in result["requirement_checks"]] == [
+        "Le type et la durée sont cohérents.",
+        "L'échéance est calculée par le backend.",
+    ]
 
 
 def test_migration_non_ambiguous_is_deterministic(tmp_path: Path) -> None:

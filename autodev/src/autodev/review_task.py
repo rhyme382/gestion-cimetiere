@@ -139,6 +139,7 @@ def review_task(
         task_id=task_id,
         unexpected_paths=unexpected_paths,
         validation_results=validation_results,
+        expected_owned_criteria=expected_owned_criteria,
     )
     write_json(output_path, review_result)
     return review_result
@@ -441,7 +442,10 @@ Chemin : `{spec_path.relative_to(repo_root).as_posix()}`
 La réponse doit respecter exactement le schéma JSON fourni par `--output-schema`.
 Le champ `task_id` doit reprendre exactement `{exact_task_id}`.
 - `requirement_checks` doit contenir uniquement les critères propriétaires listés ci-dessus, jamais un critère appartenant à une autre tâche.
-- Chaque entrée de `requirement_checks` doit contenir `requirement_id`, `acceptance_criterion_id`, `criterion`, `status`, `evidence`.
+- Recopie exactement `requirement_id` et `acceptance_criterion_id` pour chaque entrée, sans les reformuler ni les permuter.
+- Suis strictement l'ordre des critères propriétaires fourni ci-dessus.
+- Ne génère jamais le texte du critère propriétaire et ne le reformule jamais.
+- Chaque entrée de `requirement_checks` doit contenir `requirement_id`, `acceptance_criterion_id`, `status`, `evidence`. Le champ legacy `criterion` est toléré mais ignoré.
 """
 
 
@@ -586,6 +590,7 @@ def validate_requirement_checks(items: Any) -> None:
     if not isinstance(items, list):
         raise ReviewTaskError("Résultat Codex invalide : liste de contrôles attendue.")
     allowed_keysets = (
+        {"requirement_id", "acceptance_criterion_id", "status", "evidence"},
         {"requirement_id", "acceptance_criterion_id", "criterion", "status", "evidence"},
         {"requirement_id", "status", "evidence"},
     )
@@ -662,24 +667,87 @@ def _validate_owned_requirement_checks(
                 )
         return
 
-    expected = {
-        item["acceptance_criterion_id"]: (item["requirement_id"], item["text"])
+    expected_by_id = {
+        item["acceptance_criterion_id"]: item
         for item in expected_owned_criteria
     }
-    actual = {
-        item["acceptance_criterion_id"]: (item["requirement_id"], item["criterion"])
-        for item in requirement_checks
-    }
-    if set(actual) != set(expected):
-        raise ReviewTaskError(
-            "Résultat Codex invalide : les critères propriétaires revus ne correspondent pas au backlog."
-        )
-    for criterion_id, (requirement_id, criterion_text) in actual.items():
-        expected_requirement_id, expected_text = expected[criterion_id]
-        if requirement_id != expected_requirement_id or criterion_text != expected_text:
+    expected_ids = [item["acceptance_criterion_id"] for item in expected_owned_criteria]
+    seen_ids: set[str] = set()
+    actual_ids: list[str] = []
+
+    for item in requirement_checks:
+        criterion_id = item.get("acceptance_criterion_id")
+        if not isinstance(criterion_id, str):
             raise ReviewTaskError(
-                f"Résultat Codex invalide : critère propriétaire incohérent pour {criterion_id}."
+                "Résultat Codex invalide : acceptance_criterion_id manquant pour un critère propriétaire."
             )
+        if criterion_id in seen_ids:
+            raise ReviewTaskError(
+                f"Résultat Codex invalide : critère propriétaire dupliqué pour {criterion_id}."
+            )
+        expected_item = expected_by_id.get(criterion_id)
+        if expected_item is None:
+            raise ReviewTaskError(
+                f"Résultat Codex invalide : critère propriétaire inconnu ou hors tâche pour {criterion_id}."
+            )
+        if item["requirement_id"] != expected_item["requirement_id"]:
+            raise ReviewTaskError(
+                f"Résultat Codex invalide : exigence parente incohérente pour {criterion_id}."
+            )
+        seen_ids.add(criterion_id)
+        actual_ids.append(criterion_id)
+
+    if actual_ids != expected_ids:
+        missing_ids = [criterion_id for criterion_id in expected_ids if criterion_id not in seen_ids]
+        if missing_ids:
+            raise ReviewTaskError(
+                "Résultat Codex invalide : critères propriétaires manquants : "
+                + ", ".join(missing_ids)
+                + "."
+            )
+        raise ReviewTaskError(
+            "Résultat Codex invalide : l'ordre des critères propriétaires ne correspond pas au backlog."
+        )
+
+
+def normalize_requirement_checks(
+    requirement_checks: list[dict[str, Any]],
+    expected_owned_criteria: list[dict[str, str]],
+) -> list[dict[str, Any]]:
+    if all(
+        "acceptance_criterion_id" not in item and "criterion" not in item
+        for item in requirement_checks
+    ):
+        normalized: list[dict[str, Any]] = []
+        for item, expected_item in zip(requirement_checks, expected_owned_criteria, strict=True):
+            normalized.append(
+                {
+                    "requirement_id": expected_item["requirement_id"],
+                    "acceptance_criterion_id": expected_item["acceptance_criterion_id"],
+                    "criterion": expected_item["text"],
+                    "status": item["status"],
+                    "evidence": list(item["evidence"]),
+                }
+            )
+        return normalized
+
+    expected_by_id = {
+        item["acceptance_criterion_id"]: item
+        for item in expected_owned_criteria
+    }
+    normalized = []
+    for item in requirement_checks:
+        expected_item = expected_by_id[item["acceptance_criterion_id"]]
+        normalized.append(
+            {
+                "requirement_id": expected_item["requirement_id"],
+                "acceptance_criterion_id": expected_item["acceptance_criterion_id"],
+                "criterion": expected_item["text"],
+                "status": item["status"],
+                "evidence": list(item["evidence"]),
+            }
+        )
+    return normalized
 
 
 def enforce_review_constraints(
@@ -687,9 +755,14 @@ def enforce_review_constraints(
     task_id: str,
     unexpected_paths: list[str],
     validation_results: list[dict[str, Any]],
+    expected_owned_criteria: list[dict[str, str]],
 ) -> dict[str, Any]:
     result = json.loads(json.dumps(review_result))
     result["task_id"] = task_id
+    result["requirement_checks"] = normalize_requirement_checks(
+        result["requirement_checks"],
+        expected_owned_criteria,
+    )
     result["scope"] = {
         "status": "FAIL" if unexpected_paths else "PASS",
         "unexpected_paths": unexpected_paths,

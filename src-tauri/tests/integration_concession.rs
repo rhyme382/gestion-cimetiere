@@ -580,7 +580,7 @@ fn test_concession_update_with_status_recalculation() {
         renewed_at: None,
         status: "ACTIVE".to_string(),
         created_at: created.created_at.clone(),
-        updated_at: Utc::now().to_rfc3339(),
+        updated_at: "2026-01-01T00:00:00Z".to_string(),
     };
 
     let updated_concession = ConcessionRepository::update(&conn, created.id, &updated).unwrap();

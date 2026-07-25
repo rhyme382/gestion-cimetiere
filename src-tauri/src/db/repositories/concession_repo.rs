@@ -75,6 +75,29 @@ impl ConcessionRepository {
         .and_then(|dto| dto.with_calculated_status(reference_date))
     }
 
+    pub fn get_in_tx(
+        tx: &rusqlite::Transaction,
+        id: i64,
+        reference_date: DateTime<Utc>,
+    ) -> AppResult<ConcessionDTO> {
+        tx.query_row(
+            "SELECT id, cemetery_id, plot_id, concession_number, concession_type, duration_years, start_date, holder_first_name, holder_last_name, holder_address, holder_postal_code, holder_commune, observations, acquired_at, expires_at, renewed_at, status, created_at, updated_at FROM concessions WHERE id = ?",
+            [id],
+            |row| {
+                Self::map_row_to_dto(row)
+            }
+        )
+        .map_err(|err| {
+            match err {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    AppError::NotFound(format!("Concession with id {} not found", id))
+                }
+                _ => AppError::Database(err),
+            }
+        })
+        .and_then(|dto| dto.with_calculated_status(reference_date))
+    }
+
     pub fn create(conn: &Connection, concession: &Concession) -> AppResult<ConcessionDTO> {
         let mut concession = concession.clone();
         concession.prepare_for_storage()?;
@@ -116,15 +139,54 @@ impl ConcessionRepository {
         Self::get(conn, id)
     }
 
-    pub fn update(conn: &Connection, id: i64, concession: &Concession) -> AppResult<ConcessionDTO> {
-        let existing = Self::get(conn, id)?;
+    pub fn create_in_tx(tx: &rusqlite::Transaction, concession: &Concession) -> AppResult<ConcessionDTO> {
         let mut concession = concession.clone();
         concession.prepare_for_storage()?;
 
         if let Some(plot_id) = concession.plot_id {
-            if Some(plot_id) != existing.plot_id
-                && Self::is_plot_occupied_by_active_concession(conn, plot_id)?
-            {
+            if Self::is_plot_occupied_by_active_concession_in_tx(tx, plot_id, Utc::now())? {
+                return Err(AppError::InvalidInput(format!(
+                    "Plot {} is already occupied by an active concession",
+                    plot_id
+                )));
+            }
+        }
+
+        tx.execute(
+            "INSERT INTO concessions (cemetery_id, plot_id, concession_number, concession_type, duration_years, start_date, holder_first_name, holder_last_name, holder_address, holder_postal_code, holder_commune, observations, acquired_at, expires_at, renewed_at, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            rusqlite::params![
+                concession.cemetery_id,
+                concession.plot_id,
+                &concession.concession_number,
+                &concession.concession_type,
+                &concession.duration_years,
+                &concession.start_date,
+                &concession.holder_first_name,
+                &concession.holder_last_name,
+                &concession.holder_address,
+                &concession.holder_postal_code,
+                &concession.holder_commune,
+                &concession.observations,
+                &concession.acquired_at,
+                &concession.expires_at,
+                &concession.renewed_at,
+                &concession.status,
+                &concession.created_at,
+                &concession.updated_at,
+            ]
+        )?;
+
+        let id = tx.last_insert_rowid();
+        Self::get_in_tx(tx, id, Utc::now())
+    }
+
+    pub fn update(conn: &Connection, id: i64, concession: &Concession) -> AppResult<ConcessionDTO> {
+        let _existing = Self::get(conn, id)?;
+        let mut concession = concession.clone();
+        concession.prepare_for_storage()?;
+
+        if let Some(plot_id) = concession.plot_id {
+            if Self::is_plot_occupied_by_active_concession_excluding(conn, plot_id, id)? {
                 return Err(AppError::InvalidInput(format!(
                     "Plot {} is already occupied by an active concession",
                     plot_id
@@ -159,6 +221,51 @@ impl ConcessionRepository {
         Self::get(conn, id)
     }
 
+    pub fn update_in_tx(
+        tx: &rusqlite::Transaction,
+        id: i64,
+        concession: &Concession,
+    ) -> AppResult<ConcessionDTO> {
+        let _existing = Self::get_in_tx(tx, id, Utc::now())?;
+        let mut concession = concession.clone();
+        concession.prepare_for_storage()?;
+
+        if let Some(plot_id) = concession.plot_id {
+            if Self::is_plot_occupied_by_active_concession_in_tx_excluding(tx, plot_id, id, Utc::now())? {
+                return Err(AppError::InvalidInput(format!(
+                    "Plot {} is already occupied by an active concession",
+                    plot_id
+                )));
+            }
+        }
+
+        tx.execute(
+            "UPDATE concessions SET cemetery_id = ?, plot_id = ?, concession_number = ?, concession_type = ?, duration_years = ?, start_date = ?, holder_first_name = ?, holder_last_name = ?, holder_address = ?, holder_postal_code = ?, holder_commune = ?, observations = ?, acquired_at = ?, expires_at = ?, renewed_at = ?, status = ?, updated_at = ? WHERE id = ?",
+            rusqlite::params![
+                concession.cemetery_id,
+                concession.plot_id,
+                &concession.concession_number,
+                &concession.concession_type,
+                &concession.duration_years,
+                &concession.start_date,
+                &concession.holder_first_name,
+                &concession.holder_last_name,
+                &concession.holder_address,
+                &concession.holder_postal_code,
+                &concession.holder_commune,
+                &concession.observations,
+                &concession.acquired_at,
+                &concession.expires_at,
+                &concession.renewed_at,
+                &concession.status,
+                &concession.updated_at,
+                id,
+            ]
+        )?;
+
+        Self::get_in_tx(tx, id, Utc::now())
+    }
+
     fn is_plot_occupied_by_active_concession(conn: &Connection, plot_id: i64) -> AppResult<bool> {
         Self::is_plot_occupied_by_active_concession_at(conn, plot_id, Utc::now())
     }
@@ -169,10 +276,68 @@ impl ConcessionRepository {
         reference_date: DateTime<Utc>,
     ) -> AppResult<bool> {
         let now = reference_date.to_rfc3339();
-        let mut stmt = conn.prepare(
-            "SELECT COUNT(*) FROM concessions WHERE plot_id = ? AND (UPPER(status) = 'PERPETUELLE' OR (UPPER(status) IN ('ACTIVE', 'ECHEANCE_PROCHE') AND (expires_at IS NULL OR expires_at > ?)))"
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM concessions WHERE plot_id = ? AND (UPPER(status) = 'PERPETUELLE' OR (UPPER(status) IN ('ACTIVE', 'ECHEANCE_PROCHE') AND (expires_at IS NULL OR expires_at > ?)))",
+            rusqlite::params![plot_id, &now],
+            |row| row.get(0)
         )?;
-        let count: i64 = stmt.query_row(rusqlite::params![plot_id, &now], |row| row.get(0))?;
+        Ok(count > 0)
+    }
+
+    fn is_plot_occupied_by_active_concession_in_tx(
+        tx: &rusqlite::Transaction,
+        plot_id: i64,
+        reference_date: DateTime<Utc>,
+    ) -> AppResult<bool> {
+        let now = reference_date.to_rfc3339();
+        let count: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM concessions WHERE plot_id = ? AND (UPPER(status) = 'PERPETUELLE' OR (UPPER(status) IN ('ACTIVE', 'ECHEANCE_PROCHE') AND (expires_at IS NULL OR expires_at > ?)))",
+            rusqlite::params![plot_id, &now],
+            |row| row.get(0)
+        )?;
+        Ok(count > 0)
+    }
+
+    fn is_plot_occupied_by_active_concession_excluding(
+        conn: &Connection,
+        plot_id: i64,
+        excluding_concession_id: i64,
+    ) -> AppResult<bool> {
+        Self::is_plot_occupied_by_active_concession_at_excluding(
+            conn,
+            plot_id,
+            excluding_concession_id,
+            Utc::now(),
+        )
+    }
+
+    fn is_plot_occupied_by_active_concession_at_excluding(
+        conn: &Connection,
+        plot_id: i64,
+        excluding_concession_id: i64,
+        reference_date: DateTime<Utc>,
+    ) -> AppResult<bool> {
+        let now = reference_date.to_rfc3339();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM concessions WHERE plot_id = ? AND id != ? AND (UPPER(status) = 'PERPETUELLE' OR (UPPER(status) IN ('ACTIVE', 'ECHEANCE_PROCHE') AND (expires_at IS NULL OR expires_at > ?)))",
+            rusqlite::params![plot_id, excluding_concession_id, &now],
+            |row| row.get(0)
+        )?;
+        Ok(count > 0)
+    }
+
+    fn is_plot_occupied_by_active_concession_in_tx_excluding(
+        tx: &rusqlite::Transaction,
+        plot_id: i64,
+        excluding_concession_id: i64,
+        reference_date: DateTime<Utc>,
+    ) -> AppResult<bool> {
+        let now = reference_date.to_rfc3339();
+        let count: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM concessions WHERE plot_id = ? AND id != ? AND (UPPER(status) = 'PERPETUELLE' OR (UPPER(status) IN ('ACTIVE', 'ECHEANCE_PROCHE') AND (expires_at IS NULL OR expires_at > ?)))",
+            rusqlite::params![plot_id, excluding_concession_id, &now],
+            |row| row.get(0)
+        )?;
         Ok(count > 0)
     }
 
@@ -986,5 +1151,231 @@ mod tests {
         )
         .unwrap();
         assert!(!occupied_after);
+    }
+
+    #[test]
+    fn test_create_with_nonexistent_cemetery() {
+        let conn = setup_db();
+
+        // Try to create a concession with a non-existent cemetery_id
+        let mut concession = Concession::new(9999, None);
+        concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
+
+        let result = ConcessionRepository::create(&conn, &concession);
+        assert!(result.is_err());
+        // Database error because foreign key constraint failed
+        match result {
+            Err(AppError::Database(_)) => (),
+            _ => panic!("Expected Database error for nonexistent cemetery"),
+        }
+    }
+
+    #[test]
+    fn test_create_with_nonexistent_plot() {
+        let conn = setup_db();
+
+        // Create a valid cemetery
+        let cemetery = Cemetery::new(
+            "Test Cemetery".to_string(),
+            Some("Test City".to_string()),
+            Some(500),
+        );
+        let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
+
+        // Try to create a concession with a non-existent plot_id
+        let mut concession = Concession::new(created_cemetery.id, Some(9999));
+        concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
+
+        let result = ConcessionRepository::create(&conn, &concession);
+        assert!(result.is_err());
+        // Database error because foreign key constraint failed
+        match result {
+            Err(AppError::Database(_)) => (),
+            _ => panic!("Expected Database error for nonexistent plot"),
+        }
+    }
+
+    #[test]
+    fn test_update_reactivate_concession_on_same_plot_with_active_conflict() {
+        let conn = setup_db();
+        let cemetery = Cemetery::new(
+            "Test Cemetery".to_string(),
+            Some("Test City".to_string()),
+            Some(500),
+        );
+        let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
+
+        let plot = Plot::new(
+            created_cemetery.id,
+            Some("A".to_string()),
+            Some(1),
+            Some(1),
+            10,
+        );
+        let created_plot = PlotRepository::create(&conn, &plot).unwrap();
+
+        // Create first concession that is currently active (PERPETUELLE)
+        let mut concession1 = Concession::new(created_cemetery.id, Some(created_plot.id));
+        concession1.start_date = Some("2025-01-01T00:00:00Z".to_string());
+        let created1 = ConcessionRepository::create(&conn, &concession1).unwrap();
+        assert_eq!(created1.status, "PERPETUELLE");
+
+        // Create second concession that is currently expired (started 2020, 1-year duration)
+        let mut concession2 = Concession::new(created_cemetery.id, Some(created_plot.id));
+        concession2.concession_type = "TEMPORAIRE".to_string();
+        concession2.duration_years = Some(1);
+        concession2.start_date = Some("2020-01-01T00:00:00Z".to_string());
+        // This should fail because plot is occupied by concession1 (PERPETUELLE)
+        let result = ConcessionRepository::create(&conn, &concession2);
+        assert!(result.is_err());
+
+        // Create second concession on a different approach: create on a different plot first
+        let plot2 = Plot::new(
+            created_cemetery.id,
+            Some("B".to_string()),
+            Some(1),
+            Some(2),
+            10,
+        );
+        let created_plot2 = PlotRepository::create(&conn, &plot2).unwrap();
+
+        let mut concession2 = Concession::new(created_cemetery.id, Some(created_plot2.id));
+        concession2.concession_type = "TEMPORAIRE".to_string();
+        concession2.duration_years = Some(1);
+        concession2.start_date = Some("2020-01-01T00:00:00Z".to_string());
+        let created2 = ConcessionRepository::create(&conn, &concession2).unwrap();
+        // Now it's expired because it started 2020 and duration is 1 year
+        assert_eq!(created2.status, "EXPIREE");
+
+        // Now try to update concession2: change its plot to created_plot.id (where concession1 is active)
+        // This should fail because the target plot is occupied
+        let mut updated_concession2 = created2.clone();
+        updated_concession2.plot_id = Some(created_plot.id);
+        updated_concession2.updated_at = Utc::now().to_rfc3339();
+
+        // Need to reconstruct the Concession from the DTO
+        let model_concession2 = Concession {
+            id: created2.id,
+            cemetery_id: created2.cemetery_id,
+            plot_id: Some(created_plot.id),
+            concession_number: created2.concession_number,
+            concession_type: created2.concession_type,
+            duration_years: created2.duration_years,
+            start_date: created2.start_date,
+            holder_first_name: created2.holder_first_name,
+            holder_last_name: created2.holder_last_name,
+            holder_address: created2.holder_address,
+            holder_postal_code: created2.holder_postal_code,
+            holder_commune: created2.holder_commune,
+            observations: created2.observations,
+            acquired_at: created2.acquired_at,
+            expires_at: created2.expires_at,
+            renewed_at: created2.renewed_at,
+            status: created2.status,
+            created_at: created2.created_at,
+            updated_at: Utc::now().to_rfc3339(),
+        };
+        let result = ConcessionRepository::update(&conn, created2.id, &model_concession2);
+        assert!(result.is_err());
+        match result {
+            Err(AppError::InvalidInput(msg)) => {
+                assert!(msg.contains("already occupied"));
+            }
+            _ => panic!("Expected InvalidInput error for occupied plot during update"),
+        }
+    }
+
+    #[test]
+    fn test_update_extend_concession_on_same_plot_with_active_conflict() {
+        let conn = setup_db();
+        let cemetery = Cemetery::new(
+            "Test Cemetery".to_string(),
+            Some("Test City".to_string()),
+            Some(500),
+        );
+        let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
+
+        let plot = Plot::new(
+            created_cemetery.id,
+            Some("A".to_string()),
+            Some(1),
+            Some(1),
+            10,
+        );
+        let created_plot = PlotRepository::create(&conn, &plot).unwrap();
+
+        // Create first concession: expires 2035 (TEMPORAIRE, 10 years from 2025-01-01)
+        let mut concession1 = Concession::new(created_cemetery.id, Some(created_plot.id));
+        concession1.concession_type = "TEMPORAIRE".to_string();
+        concession1.duration_years = Some(10);
+        concession1.start_date = Some("2025-01-01T00:00:00Z".to_string());
+        let created1 = ConcessionRepository::create(&conn, &concession1).unwrap();
+        assert_eq!(created1.status, "ACTIVE");
+
+        // Create second concession: expires 2024 (currently expired)
+        let mut concession2 = Concession::new(created_cemetery.id, Some(created_plot.id));
+        concession2.concession_type = "TEMPORAIRE".to_string();
+        concession2.duration_years = Some(1);
+        concession2.start_date = Some("2020-01-01T00:00:00Z".to_string());
+        // This will fail because concession1 is active on the same plot
+        let result = ConcessionRepository::create(&conn, &concession2);
+        assert!(result.is_err());
+
+        // Create concession2 on a different plot
+        let plot2 = Plot::new(
+            created_cemetery.id,
+            Some("B".to_string()),
+            Some(1),
+            Some(2),
+            10,
+        );
+        let created_plot2 = PlotRepository::create(&conn, &plot2).unwrap();
+
+        let mut concession2 = Concession::new(created_cemetery.id, Some(created_plot2.id));
+        concession2.concession_type = "TEMPORAIRE".to_string();
+        concession2.duration_years = Some(1);
+        concession2.start_date = Some("2020-01-01T00:00:00Z".to_string());
+        let created2 = ConcessionRepository::create(&conn, &concession2).unwrap();
+        assert_eq!(created2.status, "EXPIREE");
+
+        // Now try to update concession2: reactivate it on same plot (plot2)
+        // This should succeed because it's the same plot, no conflict with concession1 (which is on plot1)
+        let model_concession2 = Concession {
+            id: created2.id,
+            cemetery_id: created2.cemetery_id,
+            plot_id: created2.plot_id,
+            concession_number: created2.concession_number,
+            concession_type: created2.concession_type,
+            duration_years: Some(10),  // Extend duration
+            start_date: Some("2025-01-01T00:00:00Z".to_string()),  // Change start to reactivate
+            holder_first_name: created2.holder_first_name,
+            holder_last_name: created2.holder_last_name,
+            holder_address: created2.holder_address,
+            holder_postal_code: created2.holder_postal_code,
+            holder_commune: created2.holder_commune,
+            observations: created2.observations,
+            acquired_at: created2.acquired_at,
+            expires_at: None,  // Will be recalculated
+            renewed_at: created2.renewed_at,
+            status: "ACTIVE".to_string(),  // Frontend can't set this anyway, but we reset it
+            created_at: created2.created_at,
+            updated_at: Utc::now().to_rfc3339(),
+        };
+        let result = ConcessionRepository::update(&conn, created2.id, &model_concession2);
+        assert!(result.is_ok());
+        let updated2 = result.unwrap();
+        assert_eq!(updated2.status, "ACTIVE");
+
+        // Now move concession2 to plot1 (where concession1 is active) - this should fail
+        let mut model_concession2_moved = model_concession2.clone();
+        model_concession2_moved.plot_id = Some(created_plot.id);
+        let result2 = ConcessionRepository::update(&conn, created2.id, &model_concession2_moved);
+        assert!(result2.is_err());
+        match result2 {
+            Err(AppError::InvalidInput(msg)) => {
+                assert!(msg.contains("already occupied"));
+            }
+            _ => panic!("Expected InvalidInput error for occupied plot during update"),
+        }
     }
 }

@@ -1,4 +1,5 @@
 use thiserror::Error;
+use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Error)]
 pub enum AppError {
@@ -15,12 +16,28 @@ pub enum AppError {
     Internal(String),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiErrorResponse {
+    pub error_type: String,
+    pub message: String,
+}
+
 impl serde::Serialize for AppError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        serializer.serialize_str(&self.to_string())
+        let error_type = match self {
+            AppError::NotFound(_) => "NOT_FOUND",
+            AppError::InvalidInput(_) => "INVALID_INPUT",
+            AppError::Database(_) => "DATABASE_ERROR",
+            AppError::Internal(_) => "INTERNAL_ERROR",
+        };
+
+        ApiErrorResponse {
+            error_type: error_type.to_string(),
+            message: self.to_string(),
+        }.serialize(serializer)
     }
 }
 

@@ -38,8 +38,8 @@ pub struct ConcessionDTO {
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct CreateConcessionRequest {
     pub cemetery_id: i64,
-    pub plot_id: Option<i64>,
-    pub concession_number: Option<String>,
+    pub plot_id: i64,
+    pub concession_number: String,
     pub concession_type: String,
     pub duration_years: Option<i32>,
     pub start_date: Option<String>,

@@ -61,40 +61,76 @@ export interface UpdatePlotRequest {
 
 // --- Concession ---
 
+export type ConcessionType =
+  | "TEMPORAIRE"
+  | "TRENTENAIRE"
+  | "CINQUANTENAIRE"
+  | "PERPETUELLE";
+
+export type ConcessionStatus =
+  | "ACTIVE"
+  | "ECHEANCE_PROCHE"
+  | "EXPIREE"
+  | "PERPETUELLE";
+
 export interface ConcessionDTO {
   id: number;
   cemetery_id: number;
   plot_id: number | null;
+  concession_number: string | null;
+  concession_type: string;
+  duration_years: number | null;
+  start_date: string | null;
+  holder_first_name: string | null;
+  holder_last_name: string | null;
+  holder_address: string | null;
+  holder_postal_code: string | null;
+  holder_commune: string | null;
+  observations: string | null;
   acquired_at: string | null;
   expires_at: string | null;
   renewed_at: string | null;
-  status: ConcessionStatus;
+  status: string;
   created_at: string;
   updated_at: string;
 }
 
-export type ConcessionStatus =
-  | "active"
-  | "expiring_soon"
-  | "expired"
-  | "renewed"
-  | "abandoned"
-  | "reclaimed"
-  | "archived";
-
 export interface CreateConcessionRequest {
   cemetery_id: number;
-  plot_id?: number;
+  plot_id: number;
+  concession_number: string;
+  concession_type: string;
+  duration_years?: number;
+  start_date?: string;
+  holder_first_name?: string;
+  holder_last_name?: string;
+  holder_address?: string;
+  holder_postal_code?: string;
+  holder_commune?: string;
+  observations?: string;
   acquired_at?: string;
-  expires_at?: string;
 }
 
 export interface UpdateConcessionRequest {
   plot_id?: number;
+  concession_number?: string;
+  concession_type?: string;
+  duration_years?: number | null;
+  start_date?: string | null;
+  holder_first_name?: string;
+  holder_last_name?: string;
+  holder_address?: string;
+  holder_postal_code?: string;
+  holder_commune?: string;
+  observations?: string;
   acquired_at?: string;
-  expires_at?: string;
   renewed_at?: string;
+}
+
+export interface ConcessionFilters {
+  cemetery_id?: number;
   status?: ConcessionStatus;
+  search?: string;
 }
 
 // --- Individual (Personne) ---
@@ -209,3 +245,12 @@ export interface DiagnosticDTO {
   app_version: string;
   message: string;
 }
+
+// --- Error Response ---
+
+export interface ApiErrorResponse {
+  error_type: string;
+  message: string;
+}
+
+export type ApiError = ApiErrorResponse | Error;

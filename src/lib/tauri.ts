@@ -7,6 +7,7 @@ import type {
   BurialDTO, CreateBurialRequest,
   AlertDTO, AlertSummaryDTO,
   DiagnosticDTO,
+  ApiErrorResponse,
 } from "@/types/bindings";
 
 // Cemetery
@@ -25,8 +26,8 @@ export const updatePlot = (id: number, req: UpdatePlotRequest) => invoke<PlotDTO
 // Concession
 export const listConcessions = (cemeteryId?: number) => invoke<ConcessionDTO[]>("list_concessions", cemeteryId ? { cemetery_id: cemeteryId } : {});
 export const getConcession = (id: number) => invoke<ConcessionDTO>("get_concession", { id });
-export const createConcession = (req: CreateConcessionRequest) => invoke<ConcessionDTO>("create_concession", { request: req });
-export const updateConcession = (id: number, req: UpdateConcessionRequest) => invoke<ConcessionDTO>("update_concession", { id, request: req });
+export const createConcession = (req: CreateConcessionRequest) => invoke<ConcessionDTO>("create_concession", { req });
+export const updateConcession = (id: number, req: UpdateConcessionRequest) => invoke<ConcessionDTO>("update_concession", { id, req });
 
 // Individual
 export const listIndividuals = () => invoke<IndividualDTO[]>("list_individuals");

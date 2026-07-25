@@ -139,7 +139,7 @@ Le schéma de concessions (`0007_extend_concessions_for_lifecycle.sql`) n'a pas 
 |------|-----------|
 | `test_concession_holder_persistence` | Persistance nom, adresse, commune concessionnaire |
 | `test_concession_number_assignment` | Persistance numéro concession (ex: 2025-00001) |
-| `test_concession_number_is_required` | Numéro obligatoire ou None ; rejet ou validation approprié |
+| `test_concession_number_is_required` | Requête de création sans numéro rejetée dès la désérialisation du DTO obligatoire |
 | `test_concession_number_must_be_unique` | Numéro dupliqué rejeté ; unicité contrôlée en base |
 | `test_concession_acquired_date_tracking` | Persistance date d'acquisition |
 | `test_concession_renewable_status_tracking` | Persistance date de renouvellement |

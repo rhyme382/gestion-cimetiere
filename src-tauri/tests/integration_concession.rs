@@ -1,9 +1,9 @@
+use chrono::{DateTime, Utc};
 use gestion_cimetiere::core::models::{Cemetery, Concession, Plot};
 use gestion_cimetiere::db::migrations::run_migrations;
 use gestion_cimetiere::db::repositories::{
     CemeteryRepository, ConcessionRepository, PlotRepository,
 };
-use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 
 fn setup_db() -> Connection {
@@ -227,14 +227,12 @@ fn test_concession_status_transition_active_to_soon_expiring() {
 
     // At 2025-01-01 (far from expiry) -> ACTIVE
     let ref_date_early = reference_date("2025-01-01T00:00:00Z");
-    let concession_early =
-        ConcessionRepository::get_at(&conn, created.id, ref_date_early).unwrap();
+    let concession_early = ConcessionRepository::get_at(&conn, created.id, ref_date_early).unwrap();
     assert_eq!(concession_early.status, "ACTIVE");
 
     // At 2034-02-01 (11 months before expiry) -> ECHEANCE_PROCHE
     let ref_date_soon = reference_date("2034-02-01T00:00:00Z");
-    let concession_soon =
-        ConcessionRepository::get_at(&conn, created.id, ref_date_soon).unwrap();
+    let concession_soon = ConcessionRepository::get_at(&conn, created.id, ref_date_soon).unwrap();
     assert_eq!(concession_soon.status, "ECHEANCE_PROCHE");
 
     // At 2035-01-02 (1 day after expiry) -> EXPIREE
@@ -290,14 +288,12 @@ fn test_concession_30year_lifecycle() {
 
     // At 2028-01-01 (far from expiry) -> ACTIVE
     let ref_date_early = reference_date("2028-01-01T00:00:00Z");
-    let concession_early =
-        ConcessionRepository::get_at(&conn, created.id, ref_date_early).unwrap();
+    let concession_early = ConcessionRepository::get_at(&conn, created.id, ref_date_early).unwrap();
     assert_eq!(concession_early.status, "ACTIVE");
 
     // At 2029-07-01 (11 months before expiry) -> ECHEANCE_PROCHE
     let ref_date_soon = reference_date("2029-07-01T00:00:00Z");
-    let concession_soon =
-        ConcessionRepository::get_at(&conn, created.id, ref_date_soon).unwrap();
+    let concession_soon = ConcessionRepository::get_at(&conn, created.id, ref_date_soon).unwrap();
     assert_eq!(concession_soon.status, "ECHEANCE_PROCHE");
 
     // At 2031-01-01 (7 months after expiry) -> EXPIREE
@@ -336,8 +332,7 @@ fn test_concession_50year_lifecycle() {
 
     // At 2049-04-01 (11 months before expiry) -> ECHEANCE_PROCHE
     let ref_date_soon = reference_date("2049-04-01T00:00:00Z");
-    let concession_soon =
-        ConcessionRepository::get_at(&conn, created.id, ref_date_soon).unwrap();
+    let concession_soon = ConcessionRepository::get_at(&conn, created.id, ref_date_soon).unwrap();
     assert_eq!(concession_soon.status, "ECHEANCE_PROCHE");
 }
 
@@ -360,8 +355,7 @@ fn test_concession_short_term_lifecycle() {
 
     // At 2020-08-10 (start date) -> ACTIVE
     let ref_date_start = reference_date("2020-08-10T00:00:00Z");
-    let concession_start =
-        ConcessionRepository::get_at(&conn, created.id, ref_date_start).unwrap();
+    let concession_start = ConcessionRepository::get_at(&conn, created.id, ref_date_start).unwrap();
     assert_eq!(concession_start.status, "ACTIVE");
 
     // At 2025-08-15 (5 days before expiry of 2025-08-10) -> still ACTIVE or ECHEANCE_PROCHE
@@ -373,8 +367,7 @@ fn test_concession_short_term_lifecycle() {
 
     // At 2025-07-20 (21 days before expiry) -> ECHEANCE_PROCHE (within 366 days)
     let ref_date_soon = reference_date("2025-07-20T00:00:00Z");
-    let concession_soon =
-        ConcessionRepository::get_at(&conn, created.id, ref_date_soon).unwrap();
+    let concession_soon = ConcessionRepository::get_at(&conn, created.id, ref_date_soon).unwrap();
     assert_eq!(concession_soon.status, "ECHEANCE_PROCHE");
 }
 
@@ -515,13 +508,33 @@ fn test_multiple_concessions_different_statuses_at_same_reference_date() {
     // c4 (perpetuelle) -> PERPETUELLE
     let ref_date = reference_date("2034-06-01T00:00:00Z");
 
-    let concessions = ConcessionRepository::list_at(&conn, Some(created_cemetery.id), ref_date)
-        .unwrap();
+    let concessions =
+        ConcessionRepository::list_at(&conn, Some(created_cemetery.id), ref_date).unwrap();
 
-    let c1_status = concessions.iter().find(|c| c.id == created1.id).unwrap().status.clone();
-    let c2_status = concessions.iter().find(|c| c.id == created2.id).unwrap().status.clone();
-    let c3_status = concessions.iter().find(|c| c.id == created3.id).unwrap().status.clone();
-    let c4_status = concessions.iter().find(|c| c.id == created4.id).unwrap().status.clone();
+    let c1_status = concessions
+        .iter()
+        .find(|c| c.id == created1.id)
+        .unwrap()
+        .status
+        .clone();
+    let c2_status = concessions
+        .iter()
+        .find(|c| c.id == created2.id)
+        .unwrap()
+        .status
+        .clone();
+    let c3_status = concessions
+        .iter()
+        .find(|c| c.id == created3.id)
+        .unwrap()
+        .status
+        .clone();
+    let c4_status = concessions
+        .iter()
+        .find(|c| c.id == created4.id)
+        .unwrap()
+        .status
+        .clone();
 
     assert_eq!(c1_status, "EXPIREE");
     assert_eq!(c2_status, "EXPIREE");
@@ -647,7 +660,10 @@ fn test_concession_holder_persistence() {
 
     assert_eq!(retrieved.holder_first_name, Some("Marie".to_string()));
     assert_eq!(retrieved.holder_last_name, Some("Martin".to_string()));
-    assert_eq!(retrieved.holder_address, Some("42 Rue des Fleurs".to_string()));
+    assert_eq!(
+        retrieved.holder_address,
+        Some("42 Rue des Fleurs".to_string())
+    );
     assert_eq!(retrieved.holder_postal_code, Some("13000".to_string()));
     assert_eq!(retrieved.holder_commune, Some("Marseille".to_string()));
 }
@@ -754,9 +770,8 @@ fn test_concession_with_observations() {
 
     let mut concession = Concession::new(created_cemetery.id, None);
     concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
-    concession.observations = Some(
-        "Concession en bon état. Travaux de restauration prévus en 2026.".to_string(),
-    );
+    concession.observations =
+        Some("Concession en bon état. Travaux de restauration prévus en 2026.".to_string());
 
     let created = ConcessionRepository::create(&conn, &concession).unwrap();
     let retrieved = ConcessionRepository::get(&conn, created.id).unwrap();
@@ -784,7 +799,10 @@ fn test_concession_acquired_date_tracking() {
     let created = ConcessionRepository::create(&conn, &concession).unwrap();
     let retrieved = ConcessionRepository::get(&conn, created.id).unwrap();
 
-    assert_eq!(retrieved.acquired_at, Some("2024-12-15T10:30:00Z".to_string()));
+    assert_eq!(
+        retrieved.acquired_at,
+        Some("2024-12-15T10:30:00Z".to_string())
+    );
 }
 
 #[test]
@@ -806,36 +824,38 @@ fn test_concession_renewable_status_tracking() {
     let created = ConcessionRepository::create(&conn, &concession).unwrap();
     let retrieved = ConcessionRepository::get(&conn, created.id).unwrap();
 
-    assert_eq!(retrieved.renewed_at, Some("2024-06-15T00:00:00Z".to_string()));
+    assert_eq!(
+        retrieved.renewed_at,
+        Some("2024-06-15T00:00:00Z".to_string())
+    );
 }
 
 #[test]
 fn test_concession_number_is_required() {
-    let conn = setup_db();
-    let cemetery = Cemetery::new(
-        "Test Cemetery".to_string(),
-        Some("Test City".to_string()),
-        Some(500),
+    use gestion_cimetiere::dto::concession::CreateConcessionRequest;
+    use serde_json::json;
+
+    let result = serde_json::from_value::<CreateConcessionRequest>(json!({
+        "cemetery_id": 1,
+        "plot_id": 1,
+        "concession_type": "PERPETUELLE",
+        "duration_years": null,
+        "start_date": "2025-01-01T00:00:00Z",
+        "holder_first_name": null,
+        "holder_last_name": null,
+        "holder_address": null,
+        "holder_postal_code": null,
+        "holder_commune": null,
+        "observations": null,
+        "acquired_at": null
+    }));
+
+    let error = result.expect_err("A creation request without concession_number must be rejected");
+
+    assert!(
+        error.to_string().contains("concession_number"),
+        "The deserialization error must identify the missing field: {error}",
     );
-    let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
-
-    let mut concession = Concession::new(created_cemetery.id, None);
-    concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
-    concession.concession_number = None; // Empty number
-
-    // Number must be set for database storage; None/empty should fail validation or in creation
-    // If the repository enforces uniqueness on non-null values, None should be allowed
-    // But metadata or business logic may require it
-    let created = ConcessionRepository::create(&conn, &concession);
-
-    // Behavior depends on schema: if number is nullable with unique constraint, None is allowed
-    // If the feature requires it, validation should catch it
-    if created.is_ok() {
-        let concession = created.unwrap();
-        // If created, number must be None
-        assert!(concession.concession_number.is_none());
-    }
-    // If validation fails, that's also acceptable for the feature spec
 }
 
 #[test]
@@ -854,7 +874,10 @@ fn test_concession_number_must_be_unique() {
     concession1.concession_number = Some("2025-UNIQUE-001".to_string());
 
     let created1 = ConcessionRepository::create(&conn, &concession1).unwrap();
-    assert_eq!(created1.concession_number, Some("2025-UNIQUE-001".to_string()));
+    assert_eq!(
+        created1.concession_number,
+        Some("2025-UNIQUE-001".to_string())
+    );
 
     // Try to create second concession with duplicate number
     let mut concession2 = Concession::new(created_cemetery.id, None);
@@ -863,5 +886,8 @@ fn test_concession_number_must_be_unique() {
 
     let result = ConcessionRepository::create(&conn, &concession2);
     // Duplicate should fail
-    assert!(result.is_err(), "Duplicate concession number should not be allowed");
+    assert!(
+        result.is_err(),
+        "Duplicate concession number should not be allowed"
+    );
 }

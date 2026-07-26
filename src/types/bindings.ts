@@ -253,4 +253,14 @@ export interface ApiErrorResponse {
   message: string;
 }
 
+export type ErrorType =
+  | "NOT_FOUND"
+  | "INVALID_INPUT"
+  | "DATABASE_ERROR"
+  | "INTERNAL_ERROR";
+
+export interface ConcessionError extends ApiErrorResponse {
+  error_type: ErrorType;
+}
+
 export type ApiError = ApiErrorResponse | Error;

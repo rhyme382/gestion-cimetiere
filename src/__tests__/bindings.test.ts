@@ -1,5 +1,17 @@
 import { describe, it, expect } from "vitest";
-import type { CemeteryDTO, PlotDTO, ConcessionDTO, IndividualDTO, DiagnosticDTO, ApiErrorResponse, ConcessionFilters, ConcessionType, ConcessionStatus } from "@/types/bindings";
+import type {
+  CemeteryDTO,
+  PlotDTO,
+  ConcessionDTO,
+  IndividualDTO,
+  DiagnosticDTO,
+  ApiErrorResponse,
+  ConcessionFilters,
+  ConcessionType,
+  ConcessionStatus,
+  ErrorType,
+  ConcessionError,
+} from "@/types/bindings";
 
 describe("Types bindings — cohérence de forme", () => {
   it("CemeteryDTO a les champs attendus", () => {
@@ -155,5 +167,42 @@ describe("Types bindings — cohérence de forme", () => {
     const statuses: ConcessionStatus[] = ["ACTIVE", "ECHEANCE_PROCHE", "EXPIREE", "PERPETUELLE"];
     expect(statuses).toContain("ACTIVE");
     expect(statuses).toContain("ECHEANCE_PROCHE");
+  });
+
+  it("ErrorType énumère les codes d'erreur attendus", () => {
+    const errorTypes: ErrorType[] = ["NOT_FOUND", "INVALID_INPUT", "DATABASE_ERROR", "INTERNAL_ERROR"];
+    expect(errorTypes).toContain("NOT_FOUND");
+    expect(errorTypes).toContain("INVALID_INPUT");
+    expect(errorTypes).toContain("DATABASE_ERROR");
+    expect(errorTypes).toContain("INTERNAL_ERROR");
+  });
+
+  it("ConcessionError étend ApiErrorResponse avec error_type typé", () => {
+    const error: ConcessionError = {
+      error_type: "INVALID_INPUT",
+      message: "A concession with this number already exists",
+    };
+    expect(error.error_type).toBe("INVALID_INPUT");
+    expect(error.message).toContain("concession");
+  });
+
+  it("ConcessionError gère les différents types d'erreur métier", () => {
+    const notFoundError: ConcessionError = {
+      error_type: "NOT_FOUND",
+      message: "Concession not found",
+    };
+    expect(notFoundError.error_type).toBe("NOT_FOUND");
+
+    const invalidInputError: ConcessionError = {
+      error_type: "INVALID_INPUT",
+      message: "cemetery_id must be a positive integer",
+    };
+    expect(invalidInputError.error_type).toBe("INVALID_INPUT");
+
+    const databaseError: ConcessionError = {
+      error_type: "DATABASE_ERROR",
+      message: "Database error: constraint violation",
+    };
+    expect(databaseError.error_type).toBe("DATABASE_ERROR");
   });
 });

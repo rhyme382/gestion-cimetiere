@@ -1,6 +1,31 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { getDiagnostic, listConcessions, getConcession, createConcession, updateConcession } from "@/lib/tauri";
-import type { DiagnosticDTO, ConcessionDTO, CreateConcessionRequest, UpdateConcessionRequest } from "@/types/bindings";
+import {
+  getDiagnostic,
+  listConcessions,
+  getConcession,
+  createConcession,
+  updateConcession,
+  listCemeteries,
+  getCemetery,
+  createCemetery,
+  updateCemetery,
+  listIndividuals,
+  getIndividual,
+  createIndividual,
+  updateIndividual,
+} from "@/lib/tauri";
+import type {
+  DiagnosticDTO,
+  ConcessionDTO,
+  CreateConcessionRequest,
+  UpdateConcessionRequest,
+  CemeteryDTO,
+  CreateCemeteryRequest,
+  UpdateCemeteryRequest,
+  IndividualDTO,
+  CreateIndividualRequest,
+  UpdateIndividualRequest,
+} from "@/types/bindings";
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn(),
@@ -81,6 +106,114 @@ describe("Tauri client functions", () => {
       expect(typeof result.sqlite_available).toBe("boolean");
       expect(typeof result.app_version).toBe("string");
       expect(typeof result.message).toBe("string");
+    });
+  });
+
+  describe("Cemetery commands", () => {
+    it("createCemetery should invoke create_cemetery with req parameter (not request)", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const mockInvoke = invoke as ReturnType<typeof vi.fn>;
+
+      const req: CreateCemeteryRequest = {
+        name: "Cimetière Municipal",
+        commune: "Paris",
+        capacity: 500,
+      };
+
+      const mockCemetery: CemeteryDTO = {
+        id: 1,
+        ...req,
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+      };
+
+      mockInvoke.mockResolvedValueOnce(mockCemetery);
+
+      const result = await createCemetery(req);
+
+      expect(mockInvoke).toHaveBeenCalledWith("create_cemetery", { req });
+      expect(result.id).toBe(1);
+      expect(result.name).toBe("Cimetière Municipal");
+    });
+
+    it("updateCemetery should invoke update_cemetery with id and req parameters", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const mockInvoke = invoke as ReturnType<typeof vi.fn>;
+
+      const updateReq: UpdateCemeteryRequest = {
+        name: "Cimetière Rénové",
+      };
+
+      const mockCemetery: CemeteryDTO = {
+        id: 1,
+        name: "Cimetière Rénové",
+        commune: "Paris",
+        capacity: 500,
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-02T00:00:00Z",
+      };
+
+      mockInvoke.mockResolvedValueOnce(mockCemetery);
+
+      const result = await updateCemetery(1, updateReq);
+
+      expect(mockInvoke).toHaveBeenCalledWith("update_cemetery", { id: 1, req: updateReq });
+      expect(result.name).toBe("Cimetière Rénové");
+    });
+  });
+
+  describe("Individual commands", () => {
+    it("createIndividual should invoke create_individual with req parameter (not request)", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const mockInvoke = invoke as ReturnType<typeof vi.fn>;
+
+      const req: CreateIndividualRequest = {
+        name: "Jean Dupont",
+        email: "jean@example.com",
+        phone: "01234567890",
+        role: "deceased",
+      };
+
+      const mockIndividual: IndividualDTO = {
+        id: 1,
+        ...req,
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+      };
+
+      mockInvoke.mockResolvedValueOnce(mockIndividual);
+
+      const result = await createIndividual(req);
+
+      expect(mockInvoke).toHaveBeenCalledWith("create_individual", { req });
+      expect(result.id).toBe(1);
+      expect(result.name).toBe("Jean Dupont");
+    });
+
+    it("updateIndividual should invoke update_individual with id and req parameters", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const mockInvoke = invoke as ReturnType<typeof vi.fn>;
+
+      const updateReq: UpdateIndividualRequest = {
+        email: "newemail@example.com",
+      };
+
+      const mockIndividual: IndividualDTO = {
+        id: 1,
+        name: "Jean Dupont",
+        email: "newemail@example.com",
+        phone: "01234567890",
+        role: "deceased",
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-02T00:00:00Z",
+      };
+
+      mockInvoke.mockResolvedValueOnce(mockIndividual);
+
+      const result = await updateIndividual(1, updateReq);
+
+      expect(mockInvoke).toHaveBeenCalledWith("update_individual", { id: 1, req: updateReq });
+      expect(result.email).toBe("newemail@example.com");
     });
   });
 

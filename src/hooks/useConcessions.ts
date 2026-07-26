@@ -1,6 +1,6 @@
 import { useQuery } from "./useQuery";
 import { listConcessions, getConcession, createConcession, updateConcession } from "@/lib/tauri";
-import type { ConcessionDTO, CreateConcessionRequest, UpdateConcessionRequest, ApiErrorResponse } from "@/types/bindings";
+import type { ConcessionDTO, CreateConcessionRequest, UpdateConcessionRequest, ApiErrorResponse, ConcessionError, ErrorType } from "@/types/bindings";
 
 interface UseConcessionsOptions {
   enabled?: boolean;
@@ -26,15 +26,31 @@ export function getErrorMessage(error: unknown): string {
   if (typeof error === "string") return error;
   if (error instanceof Error) return error.message;
 
-  // Handle ApiErrorResponse structure
+  // Handle ConcessionError or ApiErrorResponse structure
   const apiError = error as Record<string, unknown>;
   if (apiError && typeof apiError === "object") {
     if ("message" in apiError && typeof apiError.message === "string") {
-      return apiError.message;
+      const message = apiError.message;
+      const errorType = apiError.error_type;
+      if (errorType && typeof errorType === "string") {
+        return `[${errorType}] ${message}`;
+      }
+      return message;
     }
   }
 
   return String(error);
+}
+
+export function isConcessionError(error: unknown): error is ConcessionError {
+  const e = error as Record<string, unknown>;
+  return (
+    e &&
+    typeof e === "object" &&
+    "error_type" in e &&
+    "message" in e &&
+    typeof e.message === "string"
+  );
 }
 
 export async function createConcessionAsync(request: CreateConcessionRequest): Promise<ConcessionDTO> {

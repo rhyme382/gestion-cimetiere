@@ -13,8 +13,8 @@ import type {
 // Cemetery
 export const listCemeteries = () => invoke<CemeteryDTO[]>("list_cemeteries");
 export const getCemetery = (id: number) => invoke<CemeteryDTO>("get_cemetery", { id });
-export const createCemetery = (req: CreateCemeteryRequest) => invoke<CemeteryDTO>("create_cemetery", { request: req });
-export const updateCemetery = (id: number, req: UpdateCemeteryRequest) => invoke<CemeteryDTO>("update_cemetery", { id, request: req });
+export const createCemetery = (req: CreateCemeteryRequest) => invoke<CemeteryDTO>("create_cemetery", { req });
+export const updateCemetery = (id: number, req: UpdateCemeteryRequest) => invoke<CemeteryDTO>("update_cemetery", { id, req });
 export const deleteCemetery = (id: number) => invoke<void>("delete_cemetery", { id });
 
 // Plot
@@ -32,8 +32,8 @@ export const updateConcession = (id: number, req: UpdateConcessionRequest) => in
 // Individual
 export const listIndividuals = () => invoke<IndividualDTO[]>("list_individuals");
 export const getIndividual = (id: number) => invoke<IndividualDTO>("get_individual", { id });
-export const createIndividual = (req: CreateIndividualRequest) => invoke<IndividualDTO>("create_individual", { request: req });
-export const updateIndividual = (id: number, req: UpdateIndividualRequest) => invoke<IndividualDTO>("update_individual", { id, request: req });
+export const createIndividual = (req: CreateIndividualRequest) => invoke<IndividualDTO>("create_individual", { req });
+export const updateIndividual = (id: number, req: UpdateIndividualRequest) => invoke<IndividualDTO>("update_individual", { id, req });
 export const searchIndividuals = (query: string) => invoke<IndividualDTO[]>("search_individuals", { query });
 
 // Burial

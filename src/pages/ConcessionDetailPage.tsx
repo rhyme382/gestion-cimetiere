@@ -45,13 +45,10 @@ export default function ConcessionDetailPage() {
   }
 
   const statusColors: Record<string, string> = {
-    active: "bg-green-100 text-green-800",
-    expiring_soon: "bg-orange-100 text-orange-800",
-    expired: "bg-red-100 text-red-800",
-    renewed: "bg-blue-100 text-blue-800",
-    abandoned: "bg-gray-100 text-gray-800",
-    reclaimed: "bg-purple-100 text-purple-800",
-    archived: "bg-slate-100 text-slate-800",
+    ACTIVE: "bg-green-100 text-green-800",
+    ECHEANCE_PROCHE: "bg-orange-100 text-orange-800",
+    EXPIREE: "bg-red-100 text-red-800",
+    PERPETUELLE: "bg-blue-100 text-blue-800",
   };
 
   return (
@@ -146,30 +143,75 @@ export default function ConcessionDetailPage() {
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-xs text-muted-foreground font-medium">ID</p>
-                    <p className="text-sm font-semibold mt-1">{concession.id}</p>
+                    <p className="text-xs text-muted-foreground font-medium">N° Concession</p>
+                    <p className="text-sm font-semibold mt-1">{concession.concession_number || `#${concession.id}`}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground font-medium">Type</p>
+                    <p className="text-sm font-semibold mt-1">
+                      {concession.concession_type === "PERPETUELLE"
+                        ? "Perpétuelle"
+                        : concession.concession_type === "TRENTENAIRE"
+                        ? "30 ans"
+                        : concession.concession_type === "CINQUANTENAIRE"
+                        ? "50 ans"
+                        : concession.concession_type === "TEMPORAIRE"
+                        ? "Temporaire"
+                        : concession.concession_type ?? "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground font-medium">Durée (années)</p>
+                    <p className="text-sm font-semibold mt-1">{concession.duration_years ?? "—"}</p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground font-medium">Cimetière</p>
-                    <p className="text-sm font-semibold mt-1">{concession.cemetery_id}</p>
+                    <p className="text-sm font-semibold mt-1">{cemetery?.name ?? `#${concession.cemetery_id}`}</p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground font-medium">Emplacement</p>
-                    <p className="text-sm font-semibold mt-1">{concession.plot_id ?? "—"}</p>
+                    <p className="text-sm font-semibold mt-1">
+                      {plot
+                        ? `${plot.section ?? "—"} • ${plot.row ?? "—"} • ${plot.number ?? "—"}`
+                        : concession.plot_id ?? "—"}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground font-medium">Statut</p>
-                    <p className="mt-1">
-                      <Badge className={`${statusColors[concession.status]} text-xs font-semibold`}>
-                        {concession.status === "active" && "Actif"}
-                        {concession.status === "expiring_soon" && "Expirant bientôt"}
-                        {concession.status === "expired" && "Expiré"}
-                        {concession.status === "renewed" && "Renouvelé"}
-                        {concession.status === "abandoned" && "Abandonné"}
-                        {concession.status === "reclaimed" && "Repris"}
-                        {concession.status === "archived" && "Archivé"}
+                    <div className="mt-1">
+                      <Badge className={`${statusColors[concession.status] || "bg-gray-100 text-gray-800"} text-xs font-semibold`}>
+                        {concession.status === "ACTIVE" && "Actif"}
+                        {concession.status === "ECHEANCE_PROCHE" && "Échéance proche"}
+                        {concession.status === "EXPIREE" && "Expiré"}
+                        {concession.status === "PERPETUELLE" && "Perpétuelle"}
                       </Badge>
-                    </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border-t pt-4">
+                  <h3 className="font-semibold text-sm mb-3">Concessionnaire</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs text-muted-foreground font-medium">Prénom</p>
+                      <p className="text-sm mt-1">{concession.holder_first_name ?? "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground font-medium">Nom</p>
+                      <p className="text-sm mt-1">{concession.holder_last_name ?? "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground font-medium">Adresse</p>
+                      <p className="text-sm mt-1">{concession.holder_address ?? "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground font-medium">Code postal</p>
+                      <p className="text-sm mt-1">{concession.holder_postal_code ?? "—"}</p>
+                    </div>
+                    <div className="col-span-2">
+                      <p className="text-xs text-muted-foreground font-medium">Commune</p>
+                      <p className="text-sm mt-1">{concession.holder_commune ?? "—"}</p>
+                    </div>
                   </div>
                 </div>
 
@@ -177,19 +219,36 @@ export default function ConcessionDetailPage() {
                   <h3 className="font-semibold text-sm mb-3">Dates importantes</h3>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
+                      <p className="text-xs text-muted-foreground font-medium">Date de début</p>
+                      <p className="text-sm mt-1">{concession.start_date ? formatDate(concession.start_date) : "—"}</p>
+                    </div>
+                    <div>
                       <p className="text-xs text-muted-foreground font-medium">Acquise le</p>
-                      <p className="text-sm mt-1">{formatDate(concession.acquired_at)}</p>
+                      <p className="text-sm mt-1">{concession.acquired_at ? formatDate(concession.acquired_at) : "—"}</p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground font-medium">Expire le</p>
-                      <p className="text-sm mt-1">{formatDate(concession.expires_at)}</p>
+                      <p className="text-sm mt-1">
+                        {concession.status === "PERPETUELLE"
+                          ? "Perpétuelle"
+                          : concession.expires_at
+                          ? formatDate(concession.expires_at)
+                          : "—"}
+                      </p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground font-medium">Renouvelée le</p>
-                      <p className="text-sm mt-1">{formatDate(concession.renewed_at)}</p>
+                      <p className="text-sm mt-1">{concession.renewed_at ? formatDate(concession.renewed_at) : "—"}</p>
                     </div>
                   </div>
                 </div>
+
+                {concession.observations && (
+                  <div className="border-t pt-4">
+                    <h3 className="font-semibold text-sm mb-2">Observations</h3>
+                    <p className="text-sm">{concession.observations}</p>
+                  </div>
+                )}
 
                 <div className="border-t pt-4">
                   <h3 className="font-semibold text-sm mb-3">Audit</h3>

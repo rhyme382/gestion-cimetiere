@@ -272,7 +272,11 @@ export default function ConcessionDetailPage() {
                 <CardTitle className="text-sm">Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
-                <Button className="w-full" variant="default">
+                <Button
+                  className="w-full"
+                  variant="default"
+                  onClick={() => navigate(`/concessions/${concessionId}/edit`)}
+                >
                   Éditer
                 </Button>
                 <Button className="w-full" variant="outline">

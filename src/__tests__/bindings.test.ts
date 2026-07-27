@@ -205,4 +205,162 @@ describe("Types bindings — cohérence de forme", () => {
     };
     expect(databaseError.error_type).toBe("DATABASE_ERROR");
   });
+
+  it("ConcessionDTO supporte les types TEMPORAIRE, TRENTENAIRE, CINQUANTENAIRE", () => {
+    const temporaire: ConcessionDTO = {
+      id: 10,
+      cemetery_id: 1,
+      plot_id: 1,
+      concession_number: "TEMP-001",
+      concession_type: "TEMPORAIRE",
+      duration_years: 15,
+      start_date: "2024-01-01",
+      holder_first_name: null,
+      holder_last_name: null,
+      holder_address: null,
+      holder_postal_code: null,
+      holder_commune: null,
+      observations: null,
+      acquired_at: null,
+      expires_at: "2039-01-01",
+      renewed_at: null,
+      status: "ACTIVE",
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+    };
+    expect(temporaire.concession_type).toBe("TEMPORAIRE");
+    expect(temporaire.duration_years).toBe(15);
+
+    const trentenaire: ConcessionDTO = {
+      ...temporaire,
+      id: 11,
+      concession_type: "TRENTENAIRE",
+      duration_years: 30,
+      expires_at: "2054-01-01",
+    };
+    expect(trentenaire.concession_type).toBe("TRENTENAIRE");
+    expect(trentenaire.duration_years).toBe(30);
+
+    const cinquantenaire: ConcessionDTO = {
+      ...temporaire,
+      id: 12,
+      concession_type: "CINQUANTENAIRE",
+      duration_years: 50,
+      expires_at: "2074-01-01",
+    };
+    expect(cinquantenaire.concession_type).toBe("CINQUANTENAIRE");
+    expect(cinquantenaire.duration_years).toBe(50);
+  });
+
+  it("PlotDTO gère les statuts available et occupied", () => {
+    const availablePlot: PlotDTO = {
+      id: 50,
+      cemetery_id: 1,
+      section: "B",
+      row: 3,
+      number: 10,
+      capacity: 2,
+      status: "available",
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+    };
+    expect(availablePlot.status).toBe("available");
+
+    const occupiedPlot: PlotDTO = {
+      ...availablePlot,
+      id: 51,
+      status: "occupied",
+    };
+    expect(occupiedPlot.status).toBe("occupied");
+  });
+
+  it("ConcessionDTO peut représenter un renouvellement", () => {
+    const renewed: ConcessionDTO = {
+      id: 20,
+      cemetery_id: 1,
+      plot_id: 1,
+      concession_number: "RENEW-001",
+      concession_type: "PERPETUELLE",
+      duration_years: null,
+      start_date: "2024-01-01",
+      holder_first_name: "Jean",
+      holder_last_name: "Dupont",
+      holder_address: "123 rue",
+      holder_postal_code: "75001",
+      holder_commune: "Paris",
+      observations: "Renouvellée en 2024",
+      acquired_at: "2024-01-01",
+      expires_at: null,
+      renewed_at: "2024-01-01",
+      status: "PERPETUELLE",
+      created_at: "2020-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+    };
+    expect(renewed.renewed_at).toBeDefined();
+    expect(renewed.renewed_at).toBe("2024-01-01");
+    expect(renewed.observations).toContain("Renouvellée");
+  });
+
+  it("CreateConcessionRequest valide le contrat de création", () => {
+    const createReq: CreateConcessionRequest = {
+      cemetery_id: 1,
+      plot_id: 5,
+      concession_number: "NEW-001",
+      concession_type: "TRENTENAIRE",
+      duration_years: 30,
+      start_date: "2024-01-01",
+      holder_first_name: "Alice",
+      holder_last_name: "Martin",
+      holder_address: "456 avenue",
+      holder_postal_code: "75002",
+      holder_commune: "Paris",
+      observations: "Nouvelle concession",
+    };
+    expect(createReq.cemetery_id).toBe(1);
+    expect(createReq.concession_type).toBe("TRENTENAIRE");
+    expect(createReq.holder_first_name).toBe("Alice");
+  });
+
+  it("UpdateConcessionRequest valide le contrat de mise à jour partielle", () => {
+    const updateReq1: UpdateConcessionRequest = {
+      holder_first_name: "Robert",
+    };
+    expect(updateReq1.holder_first_name).toBe("Robert");
+    expect(updateReq1.holder_last_name).toBeUndefined();
+
+    const updateReq2: UpdateConcessionRequest = {
+      holder_address: "789 rue",
+      observations: "Mise à jour adresse",
+    };
+    expect(updateReq2.holder_address).toBe("789 rue");
+    expect(updateReq2.observations).toContain("adresse");
+  });
+
+  it("ConcessionDTO avec null values pour champs optionnels", () => {
+    const minimal: ConcessionDTO = {
+      id: 99,
+      cemetery_id: 1,
+      plot_id: 1,
+      concession_number: "MIN-001",
+      concession_type: "PERPETUELLE",
+      duration_years: null,
+      start_date: "2024-01-01",
+      holder_first_name: null,
+      holder_last_name: null,
+      holder_address: null,
+      holder_postal_code: null,
+      holder_commune: null,
+      observations: null,
+      acquired_at: null,
+      expires_at: null,
+      renewed_at: null,
+      status: "PERPETUELLE",
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+    };
+    expect(minimal.holder_first_name).toBeNull();
+    expect(minimal.holder_last_name).toBeNull();
+    expect(minimal.observations).toBeNull();
+    expect(minimal.holder_address).toBeNull();
+  });
 });

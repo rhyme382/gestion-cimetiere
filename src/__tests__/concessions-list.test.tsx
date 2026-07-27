@@ -455,4 +455,155 @@ describe("ConcessionsPage", () => {
       expect(screen.getByText("A-001")).toBeInTheDocument();
     });
   });
+
+  it("filtre par statut ECHEANCE_PROCHE", async () => {
+    vi.spyOn(tauriLib, "listConcessions").mockResolvedValue(mockConcessions);
+
+    render(
+      <BrowserRouter>
+        <ConcessionsPage />
+      </BrowserRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("A-001")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    const echeanceButton = screen.getByRole("button", { name: /Échéance proche/ });
+    await user.click(echeanceButton);
+
+    await waitFor(() => {
+      expect(screen.queryByText("A-001")).not.toBeInTheDocument();
+      expect(screen.getByText("A-002")).toBeInTheDocument();
+      expect(screen.queryByText("B-001")).not.toBeInTheDocument();
+    });
+  });
+
+  it("filtre par statut EXPIREE", async () => {
+    vi.spyOn(tauriLib, "listConcessions").mockResolvedValue(mockConcessions);
+
+    render(
+      <BrowserRouter>
+        <ConcessionsPage />
+      </BrowserRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("A-001")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    const expiredButton = screen.getByRole("button", { name: /Expiré/ });
+    await user.click(expiredButton);
+
+    await waitFor(() => {
+      expect(screen.queryByText("A-001")).not.toBeInTheDocument();
+      expect(screen.queryByText("A-002")).not.toBeInTheDocument();
+      expect(screen.getByText("B-001")).toBeInTheDocument();
+    });
+  });
+
+  it("affiche les statuts ACTIVE et PERPETUELLE dans les filtres de statut", async () => {
+    vi.spyOn(tauriLib, "listConcessions").mockResolvedValue(mockConcessions);
+
+    render(
+      <BrowserRouter>
+        <ConcessionsPage />
+      </BrowserRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("A-001")).toBeInTheDocument();
+    });
+
+    // Vérifier que les boutons de filtre de statut existent
+    expect(screen.getByRole("button", { name: /Actif/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Perpétuelle/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Échéance proche/ })).toBeInTheDocument();
+  });
+
+  it("affiche les badges de statut corrects pour chaque concession", async () => {
+    vi.spyOn(tauriLib, "listConcessions").mockResolvedValue(mockConcessions);
+
+    render(
+      <BrowserRouter>
+        <ConcessionsPage />
+      </BrowserRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("A-001")).toBeInTheDocument();
+    });
+
+    // Vérifier que tous les statuts sont affichés (getAllByText car il y en a plusieurs)
+    expect(screen.getAllByText("Actif").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Échéance proche").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Expiré").length).toBeGreaterThan(0);
+  });
+
+  it("recherche insensible à la casse pour le numéro de concession", async () => {
+    vi.spyOn(tauriLib, "listConcessions").mockResolvedValue(mockConcessions);
+
+    render(
+      <BrowserRouter>
+        <ConcessionsPage />
+      </BrowserRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("A-001")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    const searchInput = screen.getByPlaceholderText("Numéro, concessionnaire...");
+    await user.type(searchInput, "a-001");
+
+    await waitFor(() => {
+      expect(screen.getByText("A-001")).toBeInTheDocument();
+      expect(screen.queryByText("A-002")).not.toBeInTheDocument();
+    });
+  });
+
+  it("recherche par prénom du concessionnaire", async () => {
+    vi.spyOn(tauriLib, "listConcessions").mockResolvedValue(mockConcessions);
+
+    render(
+      <BrowserRouter>
+        <ConcessionsPage />
+      </BrowserRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Jean Dupont")).toBeInTheDocument();
+    });
+
+    const user = userEvent.setup();
+    const searchInput = screen.getByPlaceholderText("Numéro, concessionnaire...");
+    await user.type(searchInput, "Pierre");
+
+    await waitFor(() => {
+      expect(screen.queryByText("Jean Dupont")).not.toBeInTheDocument();
+      expect(screen.queryByText("Marie Martin")).not.toBeInTheDocument();
+      expect(screen.getByText("Pierre Bernard")).toBeInTheDocument();
+    });
+  });
+
+  it("affiche le nombre correct d'années pour les concessions temporaires", async () => {
+    vi.spyOn(tauriLib, "listConcessions").mockResolvedValue(mockConcessions);
+
+    render(
+      <BrowserRouter>
+        <ConcessionsPage />
+      </BrowserRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("A-001")).toBeInTheDocument();
+    });
+
+    // Vérifier que "30 ans" et "50 ans" s'affichent
+    expect(screen.getByText("30 ans")).toBeInTheDocument();
+    expect(screen.getByText("50 ans")).toBeInTheDocument();
+  });
 });

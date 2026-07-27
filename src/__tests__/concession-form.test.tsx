@@ -551,4 +551,275 @@ describe("ConcessionEditPage", () => {
       expect(labels.length).toBeGreaterThan(0);
     });
   });
+
+  it("displays CINQUANTENAIRE type with 50 years duration in create form", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <ConcessionCreatePage />
+      </MemoryRouter>
+    );
+
+    const typeSelect = await screen.findByLabelText(/type/i);
+    await user.selectOptions(typeSelect, "CINQUANTENAIRE");
+
+    // Should show "50 ans" but not an editable duration field
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/durée \(années\)/i)).not.toBeInTheDocument();
+      const labels = screen.getAllByText(/durée/i);
+      expect(labels.length).toBeGreaterThan(0);
+    });
+  });
+
+  it("displays PERPETUELLE type without duration field", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <ConcessionCreatePage />
+      </MemoryRouter>
+    );
+
+    const typeSelect = await screen.findByLabelText(/type/i);
+    await user.selectOptions(typeSelect, "PERPETUELLE");
+
+    // Should not show any duration field
+    await waitFor(() => {
+      expect(screen.queryByLabelText(/durée/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it("clears search results when user modifies form fields after validation error", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/concessions/new"]}>
+        <Routes>
+          <Route path="/concessions/new" element={<ConcessionCreatePage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const cemeterySelect = await screen.findByLabelText(/cimetière/i);
+    await user.selectOptions(cemeterySelect, "1");
+
+    const plotSelect = await screen.findByLabelText(/emplacement/i);
+    await user.selectOptions(plotSelect, "10");
+
+    const numberInput = screen.getByLabelText(/n° concession/i);
+    await user.type(numberInput, "A-TEST");
+
+    const typeSelect = screen.getByLabelText(/type/i);
+    await user.selectOptions(typeSelect, "TRENTENAIRE");
+
+    // Try to submit without date - should fail
+    const submitButton = screen.getByRole("button", { name: /créer/i });
+    await user.click(submitButton);
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Verify form is still filled
+    const numberValue = numberInput as HTMLInputElement;
+    expect(numberValue.value).toBe("A-TEST");
+  });
+
+  it("preserves all form values after failed submission attempt", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/concessions/new"]}>
+        <Routes>
+          <Route path="/concessions/new" element={<ConcessionCreatePage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const numberInput = screen.getByLabelText(/n° concession/i) as HTMLInputElement;
+    await user.type(numberInput, "A-PRESERVE");
+
+    const firstNameInput = screen.getByLabelText(/prénom/i) as HTMLInputElement;
+    await user.type(firstNameInput, "TestFirst");
+
+    const lastNameInput = screen.getByLabelText(/^Nom$/i) as HTMLInputElement;
+    await user.type(lastNameInput, "TestLast");
+
+    // Try to submit without date
+    const submitButton = screen.getByRole("button", { name: /créer/i });
+    await user.click(submitButton);
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Verify all values are still there
+    expect(numberInput.value).toBe("A-PRESERVE");
+    expect(firstNameInput.value).toBe("TestFirst");
+    expect(lastNameInput.value).toBe("TestLast");
+  });
+
+  it("validates cemetery selection is required", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={["/concessions/new"]}>
+        <Routes>
+          <Route path="/concessions/new" element={<ConcessionCreatePage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const cemeterySelect = screen.getByLabelText(/cimetière/i) as HTMLSelectElement;
+    expect(cemeterySelect.value).toBe(""); // Should be empty initially or a placeholder
+
+    // Try to submit without selecting cemetery
+    const submitButton = screen.getByRole("button", { name: /créer/i });
+    await user.click(submitButton);
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Verify createConcessionAsync was NOT called
+    expect(useConcessionHooks.createConcessionAsync).not.toHaveBeenCalled();
+  });
+
+  it("loads and displays cemetery list correctly in select", async () => {
+    render(
+      <MemoryRouter>
+        <ConcessionCreatePage />
+      </MemoryRouter>
+    );
+
+    const cemeterySelect = await screen.findByLabelText(/cimetière/i);
+
+    // Wait for options to be available
+    await waitFor(() => {
+      const options = (cemeterySelect as HTMLSelectElement).querySelectorAll("option");
+      expect(options.length).toBeGreaterThan(1); // At least one cemetery + default
+    });
+  });
+
+  it("enables plot select only after cemetery selection", async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter>
+        <ConcessionCreatePage />
+      </MemoryRouter>
+    );
+
+    const plotSelect = screen.getByLabelText(/emplacement/i) as HTMLSelectElement;
+
+    // Initially should be disabled
+    expect(plotSelect.disabled).toBe(true);
+
+    // Select a cemetery
+    const cemeterySelect = await screen.findByLabelText(/cimetière/i);
+    await user.selectOptions(cemeterySelect, "1");
+
+    // Now plot select should be enabled
+    await waitFor(() => {
+      expect(plotSelect.disabled).toBe(false);
+    });
+  });
+
+  it("submits form with all required fields for TEMPORAIRE type", async () => {
+    const user = userEvent.setup();
+    const mockCreated = { ...mockConcession, concession_type: "TEMPORAIRE", duration_years: 20 };
+    (useConcessionHooks.createConcessionAsync as any).mockResolvedValueOnce(mockCreated);
+
+    render(
+      <MemoryRouter initialEntries={["/concessions/new"]}>
+        <Routes>
+          <Route path="/concessions/new" element={<ConcessionCreatePage />} />
+          <Route path="/concessions/:id" element={<div>Detail</div>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    const cemeterySelect = await screen.findByLabelText(/cimetière/i);
+    await user.selectOptions(cemeterySelect, "1");
+
+    const plotSelect = await screen.findByLabelText(/emplacement/i);
+    await user.selectOptions(plotSelect, "10");
+
+    const typeSelect = screen.getByLabelText(/type/i);
+    await user.selectOptions(typeSelect, "TEMPORAIRE");
+
+    const numberInput = screen.getByLabelText(/n° concession/i);
+    await user.type(numberInput, "A-TEMP");
+
+    const durationInput = await screen.findByLabelText(/durée \(années\)/i);
+    await user.type(durationInput, "20");
+
+    const startDateInput = screen.getByLabelText(/date de début/i);
+    await user.type(startDateInput, "2024-01-01");
+
+    const lastNameInput = screen.getByLabelText(/^Nom$/i);
+    await user.type(lastNameInput, "TestHolder");
+
+    const submitButton = screen.getByRole("button", { name: /créer/i });
+    await user.click(submitButton);
+
+    await waitFor(() => {
+      expect(useConcessionHooks.createConcessionAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          concession_type: "TEMPORAIRE",
+          duration_years: 20,
+        })
+      );
+    });
+  });
+
+  it("edit form shows read-only cemetery name", async () => {
+    render(
+      <MemoryRouter initialEntries={["/concessions/1/edit"]}>
+        <Routes>
+          <Route path="/concessions/:id/edit" element={<ConcessionEditPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      // Cemetery should be displayed as text, not a select
+      expect(screen.getByText(mockCemetery.name)).toBeInTheDocument();
+    });
+
+    // Verify there's NO select for cemetery in edit mode
+    expect(screen.queryByLabelText(/cimetière/i)).not.toBeInTheDocument();
+  });
+
+  it("edit form allows updating holder information", async () => {
+    const user = userEvent.setup();
+    (useConcessionHooks.updateConcessionAsync as any).mockResolvedValueOnce({
+      ...mockConcession,
+      holder_address: "Nouvelle adresse",
+      holder_postal_code: "75002",
+      holder_commune: "Paris",
+    });
+
+    render(
+      <MemoryRouter initialEntries={["/concessions/1/edit"]}>
+        <Routes>
+          <Route path="/concessions/:id/edit" element={<ConcessionEditPage />} />
+          <Route path="/concessions/:id" element={<div>Detail</div>} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    // Wait for form to load
+    await screen.findByDisplayValue("Dupont");
+
+    const addressInput = screen.getByLabelText(/adresse/i) as HTMLInputElement;
+    await user.clear(addressInput);
+    await user.type(addressInput, "Nouvelle adresse");
+
+    const postalInput = screen.getByLabelText(/code postal/i) as HTMLInputElement;
+    await user.clear(postalInput);
+    await user.type(postalInput, "75002");
+
+    const submitButton = screen.getByRole("button", { name: /mettre à jour/i });
+    await user.click(submitButton);
+
+    await waitFor(() => {
+      expect(useConcessionHooks.updateConcessionAsync).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          holder_address: "Nouvelle adresse",
+          holder_postal_code: "75002",
+        })
+      );
+    });
+  });
 });

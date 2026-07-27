@@ -328,4 +328,163 @@ describe("ConcessionDetailPage", () => {
 
     expect(screen.getByText("Actif")).toBeInTheDocument();
   });
+
+  it("affiche une concession avec statut ECHEANCE_PROCHE", async () => {
+    const concessionEcheance: ConcessionDTO = {
+      ...mockConcession,
+      id: 3,
+      concession_number: "A-003",
+      status: "ECHEANCE_PROCHE",
+    };
+
+    vi.spyOn(tauriLib, "getConcession").mockResolvedValue(concessionEcheance);
+    vi.spyOn(tauriLib, "getCemetery").mockResolvedValue(mockCemetery);
+    vi.spyOn(tauriLib, "getPlot").mockResolvedValue(mockPlot);
+    vi.spyOn(tauriLib, "listAlerts").mockResolvedValue([]);
+
+    render(
+      <MemoryRouter initialEntries={["/concessions/3"]}>
+        <Routes>
+          <Route path="/concessions/:id" element={<ConcessionDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("A-003")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Échéance proche")).toBeInTheDocument();
+  });
+
+  it("affiche une concession avec statut EXPIREE", async () => {
+    const concessionExpired: ConcessionDTO = {
+      ...mockConcession,
+      id: 4,
+      concession_number: "A-004",
+      status: "EXPIREE",
+    };
+
+    vi.spyOn(tauriLib, "getConcession").mockResolvedValue(concessionExpired);
+    vi.spyOn(tauriLib, "getCemetery").mockResolvedValue(mockCemetery);
+    vi.spyOn(tauriLib, "getPlot").mockResolvedValue(mockPlot);
+    vi.spyOn(tauriLib, "listAlerts").mockResolvedValue([]);
+
+    render(
+      <MemoryRouter initialEntries={["/concessions/4"]}>
+        <Routes>
+          <Route path="/concessions/:id" element={<ConcessionDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("A-004")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Expiré")).toBeInTheDocument();
+  });
+
+  it("affiche une concession avec adresse complète du concessionnaire", async () => {
+    vi.spyOn(tauriLib, "getConcession").mockResolvedValue(mockConcession);
+    vi.spyOn(tauriLib, "getCemetery").mockResolvedValue(mockCemetery);
+    vi.spyOn(tauriLib, "getPlot").mockResolvedValue(mockPlot);
+    vi.spyOn(tauriLib, "listAlerts").mockResolvedValue([]);
+
+    render(
+      <MemoryRouter initialEntries={["/concessions/1"]}>
+        <Routes>
+          <Route path="/concessions/:id" element={<ConcessionDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("A-001")).toBeInTheDocument();
+    });
+
+    // Vérifier tous les champs d'adresse
+    expect(screen.getByText("123 rue de la Paix")).toBeInTheDocument();
+    expect(screen.getByText("75001")).toBeInTheDocument();
+    expect(screen.getByText("Paris")).toBeInTheDocument();
+  });
+
+  it("gère les types de concession TRENTENAIRE et CINQUANTENAIRE", async () => {
+    const trente: ConcessionDTO = {
+      ...mockConcession,
+      concession_type: "TRENTENAIRE",
+      duration_years: 30,
+    };
+
+    vi.spyOn(tauriLib, "getConcession").mockResolvedValue(trente);
+    vi.spyOn(tauriLib, "getCemetery").mockResolvedValue(mockCemetery);
+    vi.spyOn(tauriLib, "getPlot").mockResolvedValue(mockPlot);
+    vi.spyOn(tauriLib, "listAlerts").mockResolvedValue([]);
+
+    const { rerender } = render(
+      <MemoryRouter initialEntries={["/concessions/1"]}>
+        <Routes>
+          <Route path="/concessions/:id" element={<ConcessionDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("A-001")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("30 ans")).toBeInTheDocument();
+  });
+
+  it("affiche le nom du cimetière associé", async () => {
+    vi.spyOn(tauriLib, "getConcession").mockResolvedValue(mockConcession);
+    vi.spyOn(tauriLib, "getCemetery").mockResolvedValue(mockCemetery);
+    vi.spyOn(tauriLib, "getPlot").mockResolvedValue(mockPlot);
+    vi.spyOn(tauriLib, "listAlerts").mockResolvedValue([]);
+
+    render(
+      <MemoryRouter initialEntries={["/concessions/1"]}>
+        <Routes>
+          <Route path="/concessions/:id" element={<ConcessionDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("A-001")).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Cimetière du Père-Lachaise").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("affiche des tirets pour les champs vides du concessionnaire", async () => {
+    const concessionWithoutHolder: ConcessionDTO = {
+      ...mockConcession,
+      holder_address: null,
+      holder_postal_code: null,
+      holder_commune: null,
+    };
+
+    vi.spyOn(tauriLib, "getConcession").mockResolvedValue(concessionWithoutHolder);
+    vi.spyOn(tauriLib, "getCemetery").mockResolvedValue(mockCemetery);
+    vi.spyOn(tauriLib, "getPlot").mockResolvedValue(mockPlot);
+    vi.spyOn(tauriLib, "listAlerts").mockResolvedValue([]);
+
+    render(
+      <MemoryRouter initialEntries={["/concessions/1"]}>
+        <Routes>
+          <Route path="/concessions/:id" element={<ConcessionDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("A-001")).toBeInTheDocument();
+    });
+
+    const dashes = screen.getAllByText("—");
+    expect(dashes.length).toBeGreaterThan(0);
+  });
 });

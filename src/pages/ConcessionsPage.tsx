@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, Badge, Button, DataLoader, ErrorMessage, Input } from "@/components/ui";
 import { useConcessions, useCemeteries } from "@/hooks";
 import { listPlots } from "@/lib/tauri";
-import { FileText, Search } from "lucide-react";
+import { FileText, Search, Plus } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import type { PlotDTO } from "@/types/bindings";
 
@@ -177,13 +177,23 @@ export default function ConcessionsPage() {
                 </span>
               )}
             </div>
-            {error && <ErrorMessage error={error} onRetry={refetch} />}
-            {(cemeteriesError || plotsError) && (
-              <span className="text-xs text-orange-600">
-                Avertissement: Certaines données annexes ne sont pas disponibles
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                onClick={() => navigate("/concessions/new")}
+                className="gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                Créer
+              </Button>
+              {error && <ErrorMessage error={error} onRetry={refetch} />}
+            </div>
           </div>
+          {(cemeteriesError || plotsError) && (
+            <span className="text-xs text-orange-600 mt-2">
+              Avertissement: Certaines données annexes ne sont pas disponibles
+            </span>
+          )}
         </CardHeader>
         <CardContent>
           <DataLoader

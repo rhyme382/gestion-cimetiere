@@ -61,13 +61,46 @@ Ce test constitue une **preuve E2E du parcours utilisateur complet**, distincte 
 Le harness est injecté via `page.addInitScript(() => { ... })` avant le chargement de la page:
 
 ```typescript
-(window as any).__TAURI_INVOKE_MOCK__ = {
-  listCemeteries: async () => [...],      // Retourne un cimetière test
-  listPlots: async (cemeteryId) => [...], // Retourne un emplacement test
-  createConcession: async (req) => {...},  // Crée en mémoire, calcule l'échéance
-  getConcession: async (id) => {...},      // Récupère depuis le magasin
-  listConcessions: async (cemeteryId?) => [...] // Liste depuis le magasin
-}
+const tauriInternals = {
+  invoke: async (
+    command: string,
+    args: Record<string, any> = {},
+  ): Promise<any> => {
+    switch (command) {
+      case "list_cemeteries":
+        return cemeteries;
+
+      case "list_plots":
+        return plots.filter(
+          (plot) => plot.cemetery_id === args.cemetery_id,
+        );
+
+      case "create_concession":
+        // Valide args.req, calcule expires_at et status,
+        // puis enregistre la concession dans store.concessions.
+        return concession;
+
+      case "get_concession":
+        return store.concessions.get(args.id);
+
+      case "list_concessions":
+        return Array.from(store.concessions.values());
+
+      default:
+        throw new Error(
+          `Unexpected Tauri command in T9: ${command}`,
+        );
+    }
+  },
+
+  transformCallback: () => 1,
+  unregisterCallback: () => {},
+};
+
+Object.defineProperty(window, "__TAURI_INTERNALS__", {
+  value: tauriInternals,
+  configurable: true,
+});
 ```
 
 **Propriétés du harness :**

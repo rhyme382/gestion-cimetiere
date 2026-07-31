@@ -50,9 +50,11 @@ Ce test constitue une **preuve E2E du parcours utilisateur complet**, distincte 
 
 | Fichier                                       | Raison                                                                  |
 |-----------------------------------------------|-------------------------------------------------------------------------|
-| `tests/e2e/03-concessions-list.spec.ts`      | Ajout du scénario T9 + tests de compatibilité backward                  |
-| `tests/e2e/04-concession-detail.spec.ts`     | Ajout du support harness pour tests de détail                           |
-| `reports/dev/MVP-CL-09.md`                   | Ce rapport                                                              |
+| `src/pages/ConcessionCreatePage.tsx`         | Normalisation de `useCemeteries()` lorsque `data` vaut `null`            |
+| `src/pages/ConcessionsPage.tsx`               | Normalisation des données de requête et gestion locale du rechargement   |
+| `tests/e2e/03-concessions-list.spec.ts`       | Ajout du scénario T9 et du harness Tauri stateful                        |
+| `tests/e2e/04-concession-detail.spec.ts`      | Assertions déterministes pour les tests de détail                        |
+| `reports/dev/MVP-CL-09.md`                    | Mise à jour du rapport de tâche                                          |
 
 ### 3.2 Architecture du harness
 

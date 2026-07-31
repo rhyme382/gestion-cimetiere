@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
 // ============================================================
 
 test.describe('Scenario 4: Fiche concession accessible (T9)', () => {
-  test('detail page loads with mocked concession data', async ({ page }) => {
+  test.beforeEach(async ({ page }) => {
     // Inject Tauri command mocking
     await page.addInitScript(() => {
       const referenceDate = new Date('2026-03-15T00:00:00Z');
@@ -14,6 +14,21 @@ test.describe('Scenario 4: Fiche concession accessible (T9)', () => {
         concessions: new Map<number, any>(),
         concessionIdCounter: 100,
       };
+
+      store.concessions.set(1, {
+        id: 1,
+        cemetery_id: 1,
+        plot_id: null,
+        concession_number: 'C-001',
+        holder_first_name: 'Jean',
+        holder_last_name: 'Dupont',
+        concession_type: 'TRENTENAIRE',
+        start_date: '2020-01-01',
+        expires_at: '2050-01-01',
+        status: 'ACTIVE',
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-01T00:00:00Z',
+      });
 
       const calculateStatus = (type: string, expiresAt: string | null): string => {
         if (type === 'PERPETUELLE') return 'PERPETUELLE';
@@ -27,36 +42,83 @@ test.describe('Scenario 4: Fiche concession accessible (T9)', () => {
         return 'ACTIVE';
       };
 
-      (window as any).__TAURI_INVOKE_MOCK__ = {
-        listCemeteries: async () => [
-          {
-            id: 1,
-            name: 'Cimetière Municipal',
-            commune: 'Test Commune',
-            capacity: 500,
-            created_at: '2025-01-01T00:00:00Z',
-            updated_at: '2025-01-01T00:00:00Z',
-          },
-        ],
-
-        getConcession: async (id: number) => {
-          const concession = store.concessions.get(id);
-          if (!concession) {
-            throw new Error(`Concession ${id} not found`);
-          }
-          return concession;
+      const cemeteries = [
+        {
+          id: 1,
+          name: "Cimetière Municipal",
+          commune: "Test Commune",
+          capacity: 500,
+          created_at: "2025-01-01T00:00:00Z",
+          updated_at: "2025-01-01T00:00:00Z",
         },
+      ];
 
-        listConcessions: async (cemeteryId?: number) => {
-          const concessions = Array.from(store.concessions.values());
-          if (cemeteryId !== undefined) {
-            return concessions.filter((c) => c.cemetery_id === cemeteryId);
+      const tauriInternals = {
+        invoke: async (
+          command: string,
+          args: Record<string, any> = {},
+        ): Promise<any> => {
+          switch (command) {
+            case "list_cemeteries":
+              return cemeteries;
+
+            case "get_cemetery": {
+              const cemetery = cemeteries.find(
+                (item) => item.id === args.id,
+              );
+
+              if (!cemetery) {
+                throw new Error(`Cemetery ${args.id} not found`);
+              }
+
+              return cemetery;
+            }
+
+            case "list_plots":
+              return [];
+
+            case "get_concession": {
+              const concession = store.concessions.get(args.id);
+
+              if (!concession) {
+                throw new Error(`Concession ${args.id} not found`);
+              }
+
+              return concession;
+            }
+
+            case "list_concessions": {
+              const concessions = Array.from(
+                store.concessions.values(),
+              );
+
+              if (args.cemetery_id !== undefined) {
+                return concessions.filter(
+                  (concession) =>
+                    concession.cemetery_id === args.cemetery_id,
+                );
+              }
+
+              return concessions;
+            }
+
+            default:
+              throw new Error(`Unhandled Tauri command: ${command}`);
           }
-          return concessions;
         },
+        transformCallback: () => 1,
+        unregisterCallback: () => {},
       };
+
+      Object.defineProperty(window, "__TAURI_INTERNALS__", {
+        value: tauriInternals,
+        configurable: true,
+      });
     });
 
+  });
+
+  test('detail page loads with mocked concession data', async ({ page }) => {
     await page.goto('/concessions/1');
     await page.waitForLoadState('networkidle');
 
@@ -79,13 +141,13 @@ test.describe('Scenario 4: Fiche concession accessible (T9)', () => {
     await page.goto('/concessions/1');
     await page.waitForLoadState('networkidle');
 
+    const detailContent = page.locator('[class*="detail"], [class*="card"]').first();
+    await expect(detailContent).toBeVisible();
+
     const actionButtons = page.locator('button');
     const buttonCount = await actionButtons.count();
 
-    const hasData = await page.locator('[class*="detail"], [class*="card"]').count() > 0;
-    if (hasData) {
-      expect(buttonCount).toBeGreaterThan(0);
-    }
+    expect(buttonCount).toBeGreaterThan(0);
   });
 
   test('navigation depuis la liste vers la fiche est possible', async ({ page }) => {
@@ -93,10 +155,11 @@ test.describe('Scenario 4: Fiche concession accessible (T9)', () => {
     await page.waitForLoadState('networkidle');
 
     const detailLink = page.locator('a[href*="/concessions/"], button:has-text("Détails")').first();
-    if (await detailLink.isVisible()) {
-      await detailLink.click();
-      await page.waitForLoadState('networkidle');
-      expect(page.url()).toContain('/concessions/');
-    }
+    await expect(detailLink).toBeVisible();
+
+    await detailLink.click();
+    await page.waitForLoadState('networkidle');
+
+    expect(page.url()).toContain('/concessions/');
   });
 });

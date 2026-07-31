@@ -207,7 +207,7 @@ npx playwright test tests/e2e/03-concessions-list.spec.ts tests/e2e/04-concessio
   ✅ fiche affiche des champs de détail ou message vide
   ✅ [autres tests backward compat]
 
-= Tests passed: 8/8 (Chromium)
+= Tests passed: 7/7 (Chromium)
 ```
 
 ---

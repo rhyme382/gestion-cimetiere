@@ -50,22 +50,57 @@ Ce test constitue une **preuve E2E du parcours utilisateur complet**, distincte 
 
 | Fichier                                       | Raison                                                                  |
 |-----------------------------------------------|-------------------------------------------------------------------------|
-| `tests/e2e/03-concessions-list.spec.ts`      | Ajout du scénario T9 + tests de compatibilité backward                  |
-| `tests/e2e/04-concession-detail.spec.ts`     | Ajout du support harness pour tests de détail                           |
-| `reports/dev/MVP-CL-09.md`                   | Ce rapport                                                              |
+| `src/pages/ConcessionCreatePage.tsx`         | Normalisation de `useCemeteries()` lorsque `data` vaut `null`            |
+| `src/pages/ConcessionsPage.tsx`               | Normalisation des données de requête et gestion locale du rechargement   |
+| `tests/e2e/03-concessions-list.spec.ts`       | Ajout du scénario T9 et du harness Tauri stateful                        |
+| `tests/e2e/04-concession-detail.spec.ts`      | Assertions déterministes pour les tests de détail                        |
+| `reports/dev/MVP-CL-09.md`                    | Mise à jour du rapport de tâche                                          |
 
 ### 3.2 Architecture du harness
 
 Le harness est injecté via `page.addInitScript(() => { ... })` avant le chargement de la page:
 
 ```typescript
-(window as any).__TAURI_INVOKE_MOCK__ = {
-  listCemeteries: async () => [...],      // Retourne un cimetière test
-  listPlots: async (cemeteryId) => [...], // Retourne un emplacement test
-  createConcession: async (req) => {...},  // Crée en mémoire, calcule l'échéance
-  getConcession: async (id) => {...},      // Récupère depuis le magasin
-  listConcessions: async (cemeteryId?) => [...] // Liste depuis le magasin
-}
+const tauriInternals = {
+  invoke: async (
+    command: string,
+    args: Record<string, any> = {},
+  ): Promise<any> => {
+    switch (command) {
+      case "list_cemeteries":
+        return cemeteries;
+
+      case "list_plots":
+        return plots.filter(
+          (plot) => plot.cemetery_id === args.cemetery_id,
+        );
+
+      case "create_concession":
+        // Valide args.req, calcule expires_at et status,
+        // puis enregistre la concession dans store.concessions.
+        return concession;
+
+      case "get_concession":
+        return store.concessions.get(args.id);
+
+      case "list_concessions":
+        return Array.from(store.concessions.values());
+
+      default:
+        throw new Error(
+          `Unexpected Tauri command in T9: ${command}`,
+        );
+    }
+  },
+
+  transformCallback: () => 1,
+  unregisterCallback: () => {},
+};
+
+Object.defineProperty(window, "__TAURI_INTERNALS__", {
+  value: tauriInternals,
+  configurable: true,
+});
 ```
 
 **Propriétés du harness :**
@@ -207,7 +242,7 @@ npx playwright test tests/e2e/03-concessions-list.spec.ts tests/e2e/04-concessio
   ✅ fiche affiche des champs de détail ou message vide
   ✅ [autres tests backward compat]
 
-= Tests passed: 8/8 (Chromium)
+= Tests passed: 7/7 (Chromium)
 ```
 
 ---

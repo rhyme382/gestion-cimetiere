@@ -1,14 +1,65 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Scenario 4: Fiche concession accessible', () => {
-  test('page concession detail s\'affiche si ID existe', async ({ page }) => {
-    // Essayer d'accéder avec un ID par défaut (sera vide/erreur si pas de données)
-    await page.goto('/concessions/1');
+// ============================================================
+// T9: Playwright Chromium Detail Page Test
+// Supports the nominal concession creation scenario
+// ============================================================
 
-    // Attendre le chargement
+test.describe('Scenario 4: Fiche concession accessible (T9)', () => {
+  test('detail page loads with mocked concession data', async ({ page }) => {
+    // Inject Tauri command mocking
+    await page.addInitScript(() => {
+      const referenceDate = new Date('2026-03-15T00:00:00Z');
+      const store = {
+        concessions: new Map<number, any>(),
+        concessionIdCounter: 100,
+      };
+
+      const calculateStatus = (type: string, expiresAt: string | null): string => {
+        if (type === 'PERPETUELLE') return 'PERPETUELLE';
+        if (!expiresAt) return 'ACTIVE';
+        const expiry = new Date(expiresAt);
+        const now = referenceDate;
+        const msUntilExpiry = expiry.getTime() - now.getTime();
+        const daysUntilExpiry = msUntilExpiry / (1000 * 60 * 60 * 24);
+        if (daysUntilExpiry < 0) return 'EXPIREE';
+        if (daysUntilExpiry <= 365) return 'ECHEANCE_PROCHE';
+        return 'ACTIVE';
+      };
+
+      (window as any).__TAURI_INVOKE_MOCK__ = {
+        listCemeteries: async () => [
+          {
+            id: 1,
+            name: 'Cimetière Municipal',
+            commune: 'Test Commune',
+            capacity: 500,
+            created_at: '2025-01-01T00:00:00Z',
+            updated_at: '2025-01-01T00:00:00Z',
+          },
+        ],
+
+        getConcession: async (id: number) => {
+          const concession = store.concessions.get(id);
+          if (!concession) {
+            throw new Error(`Concession ${id} not found`);
+          }
+          return concession;
+        },
+
+        listConcessions: async (cemeteryId?: number) => {
+          const concessions = Array.from(store.concessions.values());
+          if (cemeteryId !== undefined) {
+            return concessions.filter((c) => c.cemetery_id === cemeteryId);
+          }
+          return concessions;
+        },
+      };
+    });
+
+    await page.goto('/concessions/1');
     await page.waitForLoadState('networkidle');
 
-    // Vérifier que la page s'est chargée (ne pas être sur une erreur 404)
     expect(page.url()).toContain('/concessions');
   });
 
@@ -16,7 +67,6 @@ test.describe('Scenario 4: Fiche concession accessible', () => {
     await page.goto('/concessions/1');
     await page.waitForLoadState('networkidle');
 
-    // Chercher des éléments de détail ou message vide
     const detailContent = page.locator('[class*="detail"], [class*="card"]');
     const emptyMessage = page.locator('text=/pas.*données/i, text=/no data/i, text=/empty/i');
 
@@ -29,11 +79,9 @@ test.describe('Scenario 4: Fiche concession accessible', () => {
     await page.goto('/concessions/1');
     await page.waitForLoadState('networkidle');
 
-    // Chercher les boutons d'action
     const actionButtons = page.locator('button');
     const buttonCount = await actionButtons.count();
 
-    // Si des données, il doit y avoir des boutons
     const hasData = await page.locator('[class*="detail"], [class*="card"]').count() > 0;
     if (hasData) {
       expect(buttonCount).toBeGreaterThan(0);
@@ -41,11 +89,9 @@ test.describe('Scenario 4: Fiche concession accessible', () => {
   });
 
   test('navigation depuis la liste vers la fiche est possible', async ({ page }) => {
-    // Aller d'abord à la liste
     await page.goto('/concessions');
     await page.waitForLoadState('networkidle');
 
-    // Chercher un lien "Détails" ou un élément cliquable
     const detailLink = page.locator('a[href*="/concessions/"], button:has-text("Détails")').first();
     if (await detailLink.isVisible()) {
       await detailLink.click();

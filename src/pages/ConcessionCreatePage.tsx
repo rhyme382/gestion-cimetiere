@@ -8,7 +8,12 @@ import type { PlotDTO, CreateConcessionRequest } from "@/types/bindings";
 
 export default function ConcessionCreatePage() {
   const navigate = useNavigate();
-  const { data: cemeteries = [], loading: cemeteriesLoading } = useCemeteries();
+  const {
+    data: cemeteriesData,
+    loading: cemeteriesLoading,
+  } = useCemeteries();
+
+  const cemeteries = cemeteriesData ?? [];
 
   const [plots, setPlots] = useState<PlotDTO[]>([]);
   const [plotsLoading, setPlotsLoading] = useState(false);
@@ -112,16 +117,6 @@ export default function ConcessionCreatePage() {
     } finally {
       setIsSubmitting(false);
     }
-  };
-
-  const getConcessionTypeLabel = (type: string): string => {
-    const labels: Record<string, string> = {
-      TEMPORAIRE: "Temporaire",
-      TRENTENAIRE: "30 ans",
-      CINQUANTENAIRE: "50 ans",
-      PERPETUELLE: "Perpétuelle",
-    };
-    return labels[type] || type;
   };
 
   return (

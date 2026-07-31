@@ -9,8 +9,24 @@ import type { PlotDTO } from "@/types/bindings";
 
 export default function ConcessionsPage() {
   const navigate = useNavigate();
-  const { data: concessions, loading, isRefetching, error, refetch } = useConcessions();
-  const { data: cemeteries = [], loading: cemeteriesLoading, error: cemeteriesError } = useCemeteries();
+
+  const {
+    data: concessionsData,
+    loading,
+    error,
+    refetch,
+  } = useConcessions();
+
+  const concessions = concessionsData ?? [];
+  const isRefetching = loading && concessions.length > 0;
+
+  const {
+    data: cemeteriesData,
+    error: cemeteriesError,
+  } = useCemeteries();
+
+  const cemeteries = cemeteriesData ?? [];
+
   const [plots, setPlots] = useState<Map<number, PlotDTO>>(new Map());
   const [plotsLoading, setplotsLoading] = useState(false);
   const [plotsError, setPlotsError] = useState<string | null>(null);

@@ -12,7 +12,8 @@ export default function ConcessionEditPage() {
   const concessionId = id ? Number(id) : null;
 
   const { data: concession, loading: concessionLoading, error: concessionError, refetch } = useConcession(concessionId);
-  const { data: cemeteries = [], loading: cemeteriesLoading } = useCemeteries();
+  const { data: cemeteriesData } = useCemeteries();
+  const cemeteries = cemeteriesData ?? [];
 
   const [plots, setPlots] = useState<PlotDTO[]>([]);
   const [plotsLoading, setPlotsLoading] = useState(false);

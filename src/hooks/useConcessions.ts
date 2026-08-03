@@ -1,6 +1,6 @@
 import { useQuery } from "./useQuery";
 import { listConcessions, getConcession, createConcession, updateConcession } from "@/lib/tauri";
-import type { ConcessionDTO, CreateConcessionRequest, UpdateConcessionRequest, ApiErrorResponse, ConcessionError, ErrorType } from "@/types/bindings";
+import type { ConcessionDTO, CreateConcessionRequest, UpdateConcessionRequest, ConcessionError } from "@/types/bindings";
 
 interface UseConcessionsOptions {
   enabled?: boolean;

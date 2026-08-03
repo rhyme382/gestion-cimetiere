@@ -16,12 +16,12 @@ export default function ConcessionsPage() {
   const {
     data: concessionsData,
     loading,
-    isRefetching,
     error,
     refetch,
   } = useConcessions();
 
   const concessions = concessionsData ?? EMPTY_CONCESSIONS;
+  const isRefetching = loading && concessions.length > 0;
 
   const {
     data: cemeteriesData,

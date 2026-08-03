@@ -7,7 +7,6 @@ import type {
   BurialDTO, CreateBurialRequest,
   AlertDTO, AlertSummaryDTO,
   DiagnosticDTO,
-  ApiErrorResponse,
 } from "@/types/bindings";
 
 // Cemetery

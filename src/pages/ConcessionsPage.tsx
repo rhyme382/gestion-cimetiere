@@ -21,6 +21,8 @@ export default function ConcessionsPage() {
     refetch,
   } = useConcessions();
 
+  const concessions = concessionsData ?? EMPTY_CONCESSIONS;
+
   const {
     data: cemeteriesData,
     error: cemeteriesError,

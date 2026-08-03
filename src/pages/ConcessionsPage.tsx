@@ -5,7 +5,10 @@ import { useConcessions, useCemeteries } from "@/hooks";
 import { listPlots } from "@/lib/tauri";
 import { FileText, Search, Plus } from "lucide-react";
 import { formatDate } from "@/lib/utils";
-import type { PlotDTO } from "@/types/bindings";
+import type { ConcessionDTO, CemeteryDTO, PlotDTO } from "@/types/bindings";
+
+const EMPTY_CONCESSIONS: ConcessionDTO[] = [];
+const EMPTY_CEMETERIES: CemeteryDTO[] = [];
 
 export default function ConcessionsPage() {
   const navigate = useNavigate();
@@ -17,7 +20,7 @@ export default function ConcessionsPage() {
     refetch,
   } = useConcessions();
 
-  const concessions = concessionsData ?? [];
+  const concessions = concessionsData ?? EMPTY_CONCESSIONS;
   const isRefetching = loading && concessions.length > 0;
 
   const {
@@ -25,7 +28,7 @@ export default function ConcessionsPage() {
     error: cemeteriesError,
   } = useCemeteries();
 
-  const cemeteries = cemeteriesData ?? [];
+  const cemeteries = cemeteriesData ?? EMPTY_CEMETERIES;
 
   const [plots, setPlots] = useState<Map<number, PlotDTO>>(new Map());
   const [plotsLoading, setplotsLoading] = useState(false);

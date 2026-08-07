@@ -12,14 +12,11 @@ pub fn list_concessions(
     state: State<DbConnection>,
     cemetery_id: Option<i64>,
 ) -> Result<Vec<ConcessionDTO>, crate::errors::ApiErrorResponse> {
-    let conn = state.lock().map_err(|e| {
-        crate::errors::ApiErrorResponse {
-            error_type: "INTERNAL_ERROR".to_string(),
-            message: format!("Failed to acquire database lock: {}", e),
-        }
+    let conn = state.lock().map_err(|e| crate::errors::ApiErrorResponse {
+        error_type: "INTERNAL_ERROR".to_string(),
+        message: format!("Failed to acquire database lock: {}", e),
     })?;
-    ConcessionRepository::list(&conn, cemetery_id)
-        .map_err(|e| map_app_error(e))
+    ConcessionRepository::list(&conn, cemetery_id).map_err(|e| map_app_error(e))
 }
 
 #[tauri::command]
@@ -27,11 +24,9 @@ pub fn get_concession(
     state: State<DbConnection>,
     id: i64,
 ) -> Result<ConcessionDTO, crate::errors::ApiErrorResponse> {
-    let conn = state.lock().map_err(|e| {
-        crate::errors::ApiErrorResponse {
-            error_type: "INTERNAL_ERROR".to_string(),
-            message: format!("Failed to acquire database lock: {}", e),
-        }
+    let conn = state.lock().map_err(|e| crate::errors::ApiErrorResponse {
+        error_type: "INTERNAL_ERROR".to_string(),
+        message: format!("Failed to acquire database lock: {}", e),
     })?;
     ConcessionRepository::get(&conn, id).map_err(|e| map_app_error(e))
 }
@@ -41,22 +36,20 @@ pub fn create_concession(
     state: State<DbConnection>,
     req: CreateConcessionRequest,
 ) -> Result<ConcessionDTO, crate::errors::ApiErrorResponse> {
-    let mut conn = state.lock().map_err(|e| {
-        crate::errors::ApiErrorResponse {
-            error_type: "INTERNAL_ERROR".to_string(),
-            message: format!("Failed to acquire database lock: {}", e),
-        }
+    let mut conn = state.lock().map_err(|e| crate::errors::ApiErrorResponse {
+        error_type: "INTERNAL_ERROR".to_string(),
+        message: format!("Failed to acquire database lock: {}", e),
     })?;
 
     validate_create_concession_request(&conn, &req)?;
 
     // Use transaction for atomic write
-    let tx = conn.transaction().map_err(|e| {
-        crate::errors::ApiErrorResponse {
+    let tx = conn
+        .transaction()
+        .map_err(|e| crate::errors::ApiErrorResponse {
             error_type: "DATABASE_ERROR".to_string(),
             message: format!("Failed to start transaction: {}", e),
-        }
-    })?;
+        })?;
 
     let mut concession = Concession::new(req.cemetery_id, Some(req.plot_id));
     concession.concession_number = Some(req.concession_number);
@@ -75,9 +68,7 @@ pub fn create_concession(
         .and_then(|result| {
             tx.commit()
                 .map(|_| result)
-                .map_err(|e| {
-                    AppError::Database(e)
-                })
+                .map_err(|e| AppError::Database(e))
         })
         .map_err(|e| map_app_error(e))
 }
@@ -88,43 +79,34 @@ pub fn update_concession(
     id: i64,
     req: UpdateConcessionRequest,
 ) -> Result<ConcessionDTO, crate::errors::ApiErrorResponse> {
-    let mut conn = state.lock().map_err(|e| {
-        crate::errors::ApiErrorResponse {
-            error_type: "INTERNAL_ERROR".to_string(),
-            message: format!("Failed to acquire database lock: {}", e),
-        }
+    let mut conn = state.lock().map_err(|e| crate::errors::ApiErrorResponse {
+        error_type: "INTERNAL_ERROR".to_string(),
+        message: format!("Failed to acquire database lock: {}", e),
     })?;
 
     validate_update_concession_request(&conn, &req)?;
 
     // Use transaction for atomic write
-    let tx = conn.transaction().map_err(|e| {
-        crate::errors::ApiErrorResponse {
+    let tx = conn
+        .transaction()
+        .map_err(|e| crate::errors::ApiErrorResponse {
             error_type: "DATABASE_ERROR".to_string(),
             message: format!("Failed to start transaction: {}", e),
-        }
-    })?;
+        })?;
 
     let existing = ConcessionRepository::get_in_tx(&tx, id, chrono::Utc::now())
         .map_err(|e| map_app_error(e))?;
 
-    let mut concession = Concession::new(
-        existing.cemetery_id,
-        req.plot_id.or(existing.plot_id),
-    );
+    let mut concession = Concession::new(existing.cemetery_id, req.plot_id.or(existing.plot_id));
     concession.id = id;
     concession.concession_number = req.concession_number.or(existing.concession_number);
-    concession.concession_type =
-        req.concession_type.unwrap_or(existing.concession_type);
-    concession.duration_years =
-        req.duration_years.unwrap_or(existing.duration_years);
+    concession.concession_type = req.concession_type.unwrap_or(existing.concession_type);
+    concession.duration_years = req.duration_years.unwrap_or(existing.duration_years);
     concession.start_date = req.start_date.unwrap_or(existing.start_date);
-    concession.holder_first_name =
-        req.holder_first_name.or(existing.holder_first_name);
+    concession.holder_first_name = req.holder_first_name.or(existing.holder_first_name);
     concession.holder_last_name = req.holder_last_name.or(existing.holder_last_name);
     concession.holder_address = req.holder_address.or(existing.holder_address);
-    concession.holder_postal_code =
-        req.holder_postal_code.or(existing.holder_postal_code);
+    concession.holder_postal_code = req.holder_postal_code.or(existing.holder_postal_code);
     concession.holder_commune = req.holder_commune.or(existing.holder_commune);
     concession.observations = req.observations.or(existing.observations);
     concession.acquired_at = req.acquired_at.or(existing.acquired_at);
@@ -135,9 +117,7 @@ pub fn update_concession(
         .and_then(|result| {
             tx.commit()
                 .map(|_| result)
-                .map_err(|e| {
-                    AppError::Database(e)
-                })
+                .map_err(|e| AppError::Database(e))
         })
         .map_err(|e| map_app_error(e))
 }
@@ -159,7 +139,9 @@ fn map_app_error(e: AppError) -> crate::errors::ApiErrorResponse {
             // The index idx_concessions_number_unique is an expression index, so SQLite can
             // reference it by name in the error message. Also check for the column name.
             if err_str.contains("unique constraint failed") {
-                if err_str.contains("concession_number") || err_str.contains("idx_concessions_number_unique") {
+                if err_str.contains("concession_number")
+                    || err_str.contains("idx_concessions_number_unique")
+                {
                     return crate::errors::ApiErrorResponse {
                         error_type: "INVALID_INPUT".to_string(),
                         message: "A concession with this number already exists".to_string(),
@@ -181,7 +163,7 @@ fn map_app_error(e: AppError) -> crate::errors::ApiErrorResponse {
                 error_type: "DATABASE_ERROR".to_string(),
                 message: format!("Database error: {}", db_err),
             }
-        },
+        }
         AppError::Internal(msg) => crate::errors::ApiErrorResponse {
             error_type: "INTERNAL_ERROR".to_string(),
             message: msg,
@@ -189,7 +171,10 @@ fn map_app_error(e: AppError) -> crate::errors::ApiErrorResponse {
     }
 }
 
-fn validate_create_concession_request(conn: &std::sync::MutexGuard<rusqlite::Connection>, req: &CreateConcessionRequest) -> Result<(), crate::errors::ApiErrorResponse> {
+fn validate_create_concession_request(
+    conn: &std::sync::MutexGuard<rusqlite::Connection>,
+    req: &CreateConcessionRequest,
+) -> Result<(), crate::errors::ApiErrorResponse> {
     if req.cemetery_id <= 0 {
         return Err(crate::errors::ApiErrorResponse {
             error_type: "INVALID_INPUT".to_string(),
@@ -201,7 +186,10 @@ fn validate_create_concession_request(conn: &std::sync::MutexGuard<rusqlite::Con
     if let Err(AppError::NotFound(_)) = CemeteryRepository::get(conn, req.cemetery_id) {
         return Err(crate::errors::ApiErrorResponse {
             error_type: "INVALID_INPUT".to_string(),
-            message: format!("The specified cemetery with id {} does not exist", req.cemetery_id),
+            message: format!(
+                "The specified cemetery with id {} does not exist",
+                req.cemetery_id
+            ),
         });
     }
 
@@ -238,7 +226,10 @@ fn validate_create_concession_request(conn: &std::sync::MutexGuard<rusqlite::Con
     Ok(())
 }
 
-fn validate_update_concession_request(conn: &std::sync::MutexGuard<rusqlite::Connection>, req: &UpdateConcessionRequest) -> Result<(), crate::errors::ApiErrorResponse> {
+fn validate_update_concession_request(
+    conn: &std::sync::MutexGuard<rusqlite::Connection>,
+    req: &UpdateConcessionRequest,
+) -> Result<(), crate::errors::ApiErrorResponse> {
     // concession_number is Option<String>
     if let Some(num) = &req.concession_number {
         if num.trim().is_empty() {

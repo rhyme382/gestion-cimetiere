@@ -5,6 +5,9 @@
 )]
 
 use gestion_cimetiere::{commands, db};
+use std::fs;
+use std::path::PathBuf;
+use tauri::Manager;
 
 fn main() {
     #[cfg(debug_assertions)]
@@ -12,22 +15,57 @@ fn main() {
         let _ = gestion_cimetiere::export_bindings();
     }
 
-    let db_path = if cfg!(debug_assertions) {
-        ":memory:"
-    } else {
-        "gestion_cimetiere.db"
-    };
-
-    let db_conn = db::init_db(db_path).expect("Failed to initialize database");
-
-    {
-        let conn = db_conn.lock().unwrap();
-        db::run_migrations(&conn).expect("Failed to run migrations");
-    }
-
     tauri::Builder::default()
-        .manage(db_conn)
-        .manage(db_path.to_string())
+        .setup(|app| {
+            let db_path = if cfg!(debug_assertions) {
+                PathBuf::from(":memory:")
+            } else {
+                let app_data_dir = app.path().app_data_dir().map_err(|error| {
+                    std::io::Error::other(format!(
+                        "Failed to resolve application data directory: {error}"
+                    ))
+                })?;
+
+                fs::create_dir_all(&app_data_dir).map_err(|error| {
+                    std::io::Error::new(
+                        error.kind(),
+                        format!(
+                            "Failed to create application data directory '{}': {error}",
+                            app_data_dir.display()
+                        ),
+                    )
+                })?;
+
+                app_data_dir.join("gestion_cimetiere.db")
+            };
+
+            let db_path_string = db_path.to_string_lossy().into_owned();
+
+            let db_conn = db::init_db(&db_path_string).map_err(|error| {
+                std::io::Error::other(format!(
+                    "Failed to initialize database '{}': {error}",
+                    db_path.display()
+                ))
+            })?;
+
+            {
+                let conn = db_conn
+                    .lock()
+                    .map_err(|_| std::io::Error::other("Database mutex is poisoned"))?;
+
+                db::run_migrations(&conn).map_err(|error| {
+                    std::io::Error::other(format!(
+                        "Failed to run migrations on database '{}': {error}",
+                        db_path.display()
+                    ))
+                })?;
+            }
+
+            app.manage(db_conn);
+            app.manage(db_path_string);
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::list_cemeteries,
             commands::get_cemetery,
@@ -61,5 +99,5 @@ fn main() {
             commands::get_diagnostic,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("error while running Tauri application");
 }

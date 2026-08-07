@@ -44,7 +44,7 @@ fn test_full_concession_workflow() {
 
     // Create a concession
     let mut concession = Concession::new(created_cemetery.id, Some(created_plot.id));
-    concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession.start_date = Some("2025-01-01".to_string());
     let created_concession =
         ConcessionRepository::create(&conn, &concession).expect("Failed to create concession");
 
@@ -78,9 +78,9 @@ fn test_concession_create_and_list() {
     let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
     let mut concession1 = Concession::new(created_cemetery.id, None);
-    concession1.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession1.start_date = Some("2025-01-01".to_string());
     let mut concession2 = Concession::new(created_cemetery.id, None);
-    concession2.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession2.start_date = Some("2025-01-01".to_string());
 
     ConcessionRepository::create(&conn, &concession1).unwrap();
     ConcessionRepository::create(&conn, &concession2).unwrap();
@@ -112,11 +112,11 @@ fn test_concession_list_all() {
     let created_cemetery2 = CemeteryRepository::create(&conn, &cemetery2).unwrap();
 
     let mut concession1 = Concession::new(created_cemetery1.id, None);
-    concession1.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession1.start_date = Some("2025-01-01".to_string());
     let mut concession2 = Concession::new(created_cemetery2.id, None);
-    concession2.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession2.start_date = Some("2025-01-01".to_string());
     let mut concession3 = Concession::new(created_cemetery1.id, None);
-    concession3.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession3.start_date = Some("2025-01-01".to_string());
 
     ConcessionRepository::create(&conn, &concession1).unwrap();
     ConcessionRepository::create(&conn, &concession2).unwrap();
@@ -150,7 +150,7 @@ fn test_concession_update() {
     let mut concession = Concession::new(created_cemetery.id, None);
     concession.concession_type = "TEMPORAIRE".to_string();
     concession.duration_years = Some(1);
-    concession.start_date = Some("2020-01-01T00:00:00Z".to_string());
+    concession.start_date = Some("2020-01-01".to_string());
     let created = ConcessionRepository::create(&conn, &concession).unwrap();
     let id = created.id;
 
@@ -162,7 +162,7 @@ fn test_concession_update() {
     updated_concession.id = id;
     updated_concession.concession_type = "TEMPORAIRE".to_string();
     updated_concession.duration_years = Some(1);
-    updated_concession.start_date = Some("2020-01-01T00:00:00Z".to_string());
+    updated_concession.start_date = Some("2020-01-01".to_string());
     updated_concession.holder_first_name = Some("Jean".to_string());
 
     let updated = ConcessionRepository::update(&conn, id, &updated_concession).unwrap();
@@ -196,7 +196,7 @@ fn test_concession_with_plot() {
     let created_plot = PlotRepository::create(&conn, &plot).unwrap();
 
     let mut concession = Concession::new(created_cemetery.id, Some(created_plot.id));
-    concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession.start_date = Some("2025-01-01".to_string());
     let created_concession = ConcessionRepository::create(&conn, &concession).unwrap();
 
     assert_eq!(created_concession.plot_id, Some(created_plot.id));
@@ -222,7 +222,7 @@ fn test_concession_status_transition_active_to_soon_expiring() {
     let mut concession = Concession::new(created_cemetery.id, None);
     concession.concession_type = "TEMPORAIRE".to_string();
     concession.duration_years = Some(10);
-    concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession.start_date = Some("2025-01-01".to_string());
     let created = ConcessionRepository::create(&conn, &concession).unwrap();
 
     // At 2025-01-01 (far from expiry) -> ACTIVE
@@ -254,7 +254,7 @@ fn test_concession_status_perpetuelle_never_expires() {
 
     let mut concession = Concession::new(created_cemetery.id, None);
     concession.concession_type = "PERPETUELLE".to_string();
-    concession.start_date = Some("1900-01-01T00:00:00Z".to_string());
+    concession.start_date = Some("1900-01-01".to_string());
     let created = ConcessionRepository::create(&conn, &concession).unwrap();
     assert_eq!(created.status, "PERPETUELLE");
 
@@ -278,7 +278,7 @@ fn test_concession_30year_lifecycle() {
     let mut concession = Concession::new(created_cemetery.id, None);
     concession.concession_type = "TRENTENAIRE".to_string();
     concession.duration_years = Some(30);
-    concession.start_date = Some("2000-06-15T12:30:45Z".to_string());
+    concession.start_date = Some("2000-06-15".to_string());
     let created = ConcessionRepository::create(&conn, &concession).unwrap();
 
     // Verify expires_at is calculated
@@ -316,7 +316,7 @@ fn test_concession_50year_lifecycle() {
     let mut concession = Concession::new(created_cemetery.id, None);
     concession.concession_type = "CINQUANTENAIRE".to_string();
     concession.duration_years = Some(50);
-    concession.start_date = Some("2000-03-21T00:00:00Z".to_string());
+    concession.start_date = Some("2000-03-21".to_string());
     let created = ConcessionRepository::create(&conn, &concession).unwrap();
 
     // Verify expires_at calculation
@@ -350,7 +350,7 @@ fn test_concession_short_term_lifecycle() {
     let mut concession = Concession::new(created_cemetery.id, None);
     concession.concession_type = "TEMPORAIRE".to_string();
     concession.duration_years = Some(5);
-    concession.start_date = Some("2020-08-10T00:00:00Z".to_string());
+    concession.start_date = Some("2020-08-10".to_string());
     let created = ConcessionRepository::create(&conn, &concession).unwrap();
 
     // At 2020-08-10 (start date) -> ACTIVE
@@ -384,7 +384,7 @@ fn test_concession_expiry_boundary_1_day_window() {
     let mut concession = Concession::new(created_cemetery.id, None);
     concession.concession_type = "TEMPORAIRE".to_string();
     concession.duration_years = Some(10);
-    concession.start_date = Some("2024-01-01T00:00:00Z".to_string());
+    concession.start_date = Some("2024-01-01".to_string());
     let created = ConcessionRepository::create(&conn, &concession).unwrap();
     // Expires at 2034-01-01
 
@@ -432,7 +432,7 @@ fn test_concession_leap_year_expiry_feb29_to_non_leap() {
     let mut concession = Concession::new(created_cemetery.id, None);
     concession.concession_type = "TEMPORAIRE".to_string();
     concession.duration_years = Some(1);
-    concession.start_date = Some("2024-02-29T00:00:00Z".to_string());
+    concession.start_date = Some("2024-02-29".to_string());
     let created = ConcessionRepository::create(&conn, &concession).unwrap();
 
     let expires_at = created.expires_at.unwrap();
@@ -459,7 +459,7 @@ fn test_concession_leap_year_expiry_feb29_to_leap() {
     let mut concession = Concession::new(created_cemetery.id, None);
     concession.concession_type = "TEMPORAIRE".to_string();
     concession.duration_years = Some(4);
-    concession.start_date = Some("2020-02-29T00:00:00Z".to_string());
+    concession.start_date = Some("2020-02-29".to_string());
     let created = ConcessionRepository::create(&conn, &concession).unwrap();
 
     let expires_at = created.expires_at.unwrap();
@@ -480,21 +480,21 @@ fn test_multiple_concessions_different_statuses_at_same_reference_date() {
     let mut c1 = Concession::new(created_cemetery.id, None);
     c1.concession_type = "TEMPORAIRE".to_string();
     c1.duration_years = Some(1);
-    c1.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    c1.start_date = Some("2025-01-01".to_string());
 
     let mut c2 = Concession::new(created_cemetery.id, None);
     c2.concession_type = "TEMPORAIRE".to_string();
     c2.duration_years = Some(5);
-    c2.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    c2.start_date = Some("2025-01-01".to_string());
 
     let mut c3 = Concession::new(created_cemetery.id, None);
     c3.concession_type = "TEMPORAIRE".to_string();
     c3.duration_years = Some(10);
-    c3.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    c3.start_date = Some("2025-01-01".to_string());
 
     let mut c4 = Concession::new(created_cemetery.id, None);
     c4.concession_type = "PERPETUELLE".to_string();
-    c4.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    c4.start_date = Some("2025-01-01".to_string());
 
     let created1 = ConcessionRepository::create(&conn, &c1).unwrap();
     let created2 = ConcessionRepository::create(&conn, &c2).unwrap();
@@ -556,7 +556,7 @@ fn test_concession_update_with_status_recalculation() {
     let mut concession = Concession::new(created_cemetery.id, None);
     concession.concession_type = "TEMPORAIRE".to_string();
     concession.duration_years = Some(5);
-    concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession.start_date = Some("2025-01-01".to_string());
     let created = ConcessionRepository::create(&conn, &concession).unwrap();
     assert_eq!(created.status, "ACTIVE");
 
@@ -568,7 +568,7 @@ fn test_concession_update_with_status_recalculation() {
         concession_number: created.concession_number.clone(),
         concession_type: "TEMPORAIRE".to_string(),
         duration_years: Some(1),
-        start_date: Some("2020-01-01T00:00:00Z".to_string()), // Now expires 2021-01-01
+        start_date: Some("2020-01-01".to_string()), // Now expires 2021-01-01
         holder_first_name: None,
         holder_last_name: None,
         holder_address: None,
@@ -592,7 +592,7 @@ fn test_concession_update_with_status_recalculation() {
 fn test_concession_validation_temporal_with_invalid_duration() {
     let mut concession = Concession::new(1, None);
     concession.concession_type = "TEMPORAIRE".to_string();
-    concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession.start_date = Some("2025-01-01".to_string());
     concession.duration_years = Some(0); // Invalid: too low
 
     let result = concession.validate();
@@ -613,7 +613,7 @@ fn test_concession_validation_temporal_with_invalid_duration() {
 fn test_concession_validation_trentenaire_enforces_duration() {
     let mut concession = Concession::new(1, None);
     concession.concession_type = "TRENTENAIRE".to_string();
-    concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession.start_date = Some("2025-01-01".to_string());
     concession.duration_years = Some(20); // Invalid: must be exactly 30
 
     let result = concession.validate();
@@ -627,7 +627,7 @@ fn test_concession_validation_trentenaire_enforces_duration() {
 fn test_concession_validation_cinquantenaire_enforces_duration() {
     let mut concession = Concession::new(1, None);
     concession.concession_type = "CINQUANTENAIRE".to_string();
-    concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession.start_date = Some("2025-01-01".to_string());
     concession.duration_years = Some(40); // Invalid: must be exactly 50
 
     let result = concession.validate();
@@ -648,7 +648,7 @@ fn test_concession_holder_persistence() {
     let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
     let mut concession = Concession::new(created_cemetery.id, None);
-    concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession.start_date = Some("2025-01-01".to_string());
     concession.holder_first_name = Some("Marie".to_string());
     concession.holder_last_name = Some("Martin".to_string());
     concession.holder_address = Some("42 Rue des Fleurs".to_string());
@@ -679,7 +679,7 @@ fn test_concession_number_assignment() {
     let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
     let mut concession = Concession::new(created_cemetery.id, None);
-    concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession.start_date = Some("2025-01-01".to_string());
     concession.concession_number = Some("2025-00001".to_string());
 
     let created = ConcessionRepository::create(&conn, &concession).unwrap();
@@ -711,13 +711,13 @@ fn test_plot_occupation_prevents_duplicate_active_concessions() {
     let mut concession1 = Concession::new(created_cemetery.id, Some(created_plot.id));
     concession1.concession_type = "TEMPORAIRE".to_string();
     concession1.duration_years = Some(10);
-    concession1.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession1.start_date = Some("2025-01-01".to_string());
     let created1 = ConcessionRepository::create(&conn, &concession1).unwrap();
     assert_eq!(created1.status, "ACTIVE");
 
     // Try to create second concession on same plot - should fail
     let mut concession2 = Concession::new(created_cemetery.id, Some(created_plot.id));
-    concession2.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession2.start_date = Some("2025-01-01".to_string());
     let result = ConcessionRepository::create(&conn, &concession2);
     assert!(result.is_err());
 }
@@ -745,13 +745,13 @@ fn test_plot_occupation_allows_expired_concessions_to_be_replaced() {
     let mut concession1 = Concession::new(created_cemetery.id, Some(created_plot.id));
     concession1.concession_type = "TEMPORAIRE".to_string();
     concession1.duration_years = Some(1);
-    concession1.start_date = Some("2020-01-01T00:00:00Z".to_string());
+    concession1.start_date = Some("2020-01-01".to_string());
     let created1 = ConcessionRepository::create(&conn, &concession1).unwrap();
     assert_eq!(created1.status, "EXPIREE");
 
     // Try to create new concession on same plot - should succeed (expired plot is free)
     let mut concession2 = Concession::new(created_cemetery.id, Some(created_plot.id));
-    concession2.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession2.start_date = Some("2025-01-01".to_string());
     let result = ConcessionRepository::create(&conn, &concession2);
     assert!(result.is_ok());
     let created2 = result.unwrap();
@@ -769,7 +769,7 @@ fn test_concession_with_observations() {
     let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
     let mut concession = Concession::new(created_cemetery.id, None);
-    concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession.start_date = Some("2025-01-01".to_string());
     concession.observations =
         Some("Concession en bon état. Travaux de restauration prévus en 2026.".to_string());
 
@@ -793,7 +793,7 @@ fn test_concession_acquired_date_tracking() {
     let created_cemetery = CemeteryRepository::create(&conn, &cemetery).unwrap();
 
     let mut concession = Concession::new(created_cemetery.id, None);
-    concession.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession.start_date = Some("2025-01-01".to_string());
     concession.acquired_at = Some("2024-12-15T10:30:00Z".to_string());
 
     let created = ConcessionRepository::create(&conn, &concession).unwrap();
@@ -818,7 +818,7 @@ fn test_concession_renewable_status_tracking() {
     let mut concession = Concession::new(created_cemetery.id, None);
     concession.concession_type = "TEMPORAIRE".to_string();
     concession.duration_years = Some(30);
-    concession.start_date = Some("2000-01-01T00:00:00Z".to_string());
+    concession.start_date = Some("2000-01-01".to_string());
     concession.renewed_at = Some("2024-06-15T00:00:00Z".to_string());
 
     let created = ConcessionRepository::create(&conn, &concession).unwrap();
@@ -840,7 +840,7 @@ fn test_concession_number_is_required() {
         "plot_id": 1,
         "concession_type": "PERPETUELLE",
         "duration_years": null,
-        "start_date": "2025-01-01T00:00:00Z",
+        "start_date": "2025-01-01",
         "holder_first_name": null,
         "holder_last_name": null,
         "holder_address": null,
@@ -870,7 +870,7 @@ fn test_concession_number_must_be_unique() {
 
     // Create first concession with a specific number
     let mut concession1 = Concession::new(created_cemetery.id, None);
-    concession1.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession1.start_date = Some("2025-01-01".to_string());
     concession1.concession_number = Some("2025-UNIQUE-001".to_string());
 
     let created1 = ConcessionRepository::create(&conn, &concession1).unwrap();
@@ -881,7 +881,7 @@ fn test_concession_number_must_be_unique() {
 
     // Try to create second concession with duplicate number
     let mut concession2 = Concession::new(created_cemetery.id, None);
-    concession2.start_date = Some("2025-01-01T00:00:00Z".to_string());
+    concession2.start_date = Some("2025-01-01".to_string());
     concession2.concession_number = Some("2025-UNIQUE-001".to_string()); // Same number
 
     let result = ConcessionRepository::create(&conn, &concession2);

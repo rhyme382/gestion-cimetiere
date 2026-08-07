@@ -17,13 +17,13 @@ export const updateCemetery = (id: number, req: UpdateCemeteryRequest) => invoke
 export const deleteCemetery = (id: number) => invoke<void>("delete_cemetery", { id });
 
 // Plot
-export const listPlots = (cemeteryId: number) => invoke<PlotDTO[]>("list_plots", { cemetery_id: cemeteryId });
+export const listPlots = (cemeteryId: number) => invoke<PlotDTO[]>("list_plots", { cemeteryId });
 export const getPlot = (id: number) => invoke<PlotDTO>("get_plot", { id });
 export const createPlot = (req: CreatePlotRequest) => invoke<PlotDTO>("create_plot", { request: req });
 export const updatePlot = (id: number, req: UpdatePlotRequest) => invoke<PlotDTO>("update_plot", { id, request: req });
 
 // Concession
-export const listConcessions = (cemeteryId?: number) => invoke<ConcessionDTO[]>("list_concessions", cemeteryId ? { cemetery_id: cemeteryId } : {});
+export const listConcessions = (cemeteryId?: number) => invoke<ConcessionDTO[]>("list_concessions", cemeteryId ? { cemeteryId } : {});
 export const getConcession = (id: number) => invoke<ConcessionDTO>("get_concession", { id });
 export const createConcession = (req: CreateConcessionRequest) => invoke<ConcessionDTO>("create_concession", { req });
 export const updateConcession = (id: number, req: UpdateConcessionRequest) => invoke<ConcessionDTO>("update_concession", { id, req });

@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Error)]
 pub enum AppError {
@@ -37,7 +37,8 @@ impl serde::Serialize for AppError {
         ApiErrorResponse {
             error_type: error_type.to_string(),
             message: self.to_string(),
-        }.serialize(serializer)
+        }
+        .serialize(serializer)
     }
 }
 

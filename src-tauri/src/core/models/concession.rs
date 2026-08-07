@@ -1,5 +1,5 @@
 use crate::errors::{AppError, AppResult};
-use chrono::{DateTime, Datelike, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -127,8 +127,11 @@ impl Concession {
         let concession_type = ConcessionType::from_str(&self.concession_type)?;
         // Validate start_date format whenever a value is provided.
         if let Some(start_date) = &self.start_date {
-            DateTime::parse_from_rfc3339(start_date).map_err(|_| {
-                AppError::InvalidInput(format!("Invalid start_date format: {}", start_date))
+            NaiveDate::parse_from_str(start_date, "%Y-%m-%d").map_err(|_| {
+                AppError::InvalidInput(format!(
+                    "Invalid start_date format, expected YYYY-MM-DD: {}",
+                    start_date
+                ))
             })?;
         }
 
@@ -202,14 +205,13 @@ impl Concession {
             ConcessionType::Perpetuelle => Ok(None),
             _ => match (&self.start_date, &self.duration_years) {
                 (Some(start_date_str), Some(duration)) => {
-                    let start_date = DateTime::parse_from_rfc3339(start_date_str)
+                    let start_date = NaiveDate::parse_from_str(start_date_str, "%Y-%m-%d")
                         .map_err(|_| {
                             AppError::InvalidInput(format!(
-                                "Invalid start_date format: {}",
+                                "Invalid start_date format, expected YYYY-MM-DD: {}",
                                 start_date_str
                             ))
-                        })?
-                        .with_timezone(&Utc);
+                        })?;
 
                     let target_year = start_date.year() + *duration as i32;
 
@@ -240,7 +242,7 @@ impl Concession {
                                 .unwrap()
                         });
 
-                    Ok(Some(expires_date.to_rfc3339()))
+                    Ok(Some(expires_date.format("%Y-%m-%d").to_string()))
                 }
                 _ => Ok(None),
             },
@@ -268,16 +270,16 @@ impl Concession {
         match &self.expires_at {
             None => Ok(ConcessionStatus::Active),
             Some(expires_at_str) => {
-                let expires_at = DateTime::parse_from_rfc3339(expires_at_str)
-                    .map_err(|_| {
+                let expires_at =
+                    NaiveDate::parse_from_str(expires_at_str, "%Y-%m-%d").map_err(|_| {
                         AppError::InvalidInput(format!(
-                            "Invalid expires_at format: {}",
+                            "Invalid expires_at format, expected YYYY-MM-DD: {}",
                             expires_at_str
                         ))
-                    })?
-                    .with_timezone(&Utc);
+                    })?;
 
-                let duration_until_expiry = expires_at - reference_date;
+                let duration_until_expiry =
+                    expires_at.signed_duration_since(reference_date.date_naive());
                 let days_until_expiry = duration_until_expiry.num_days();
 
                 if days_until_expiry < 0 {
@@ -289,5 +291,105 @@ impl Concession {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{TimeZone, Utc};
+
+    fn concession(
+        concession_type: &str,
+        start_date: &str,
+        duration_years: Option<i32>,
+    ) -> Concession {
+        let mut concession = Concession::new(1, Some(1));
+        concession.concession_type = concession_type.to_string();
+        concession.start_date = Some(start_date.to_string());
+        concession.duration_years = duration_years;
+        concession
+    }
+
+    #[test]
+    fn validate_accepts_iso_civil_date() {
+        let concession = concession("PERPETUELLE", "2026-08-14", None);
+
+        assert!(concession.validate().is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_french_date_format() {
+        let concession = concession("PERPETUELLE", "14/08/2026", None);
+
+        assert!(concession.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_rfc3339_timestamp() {
+        let concession = concession("PERPETUELLE", "2026-08-14T00:00:00Z", None);
+
+        assert!(concession.validate().is_err());
+    }
+
+    #[test]
+    fn calculate_expires_at_uses_civil_date_format() {
+        let concession = concession("TRENTENAIRE", "2026-08-14", Some(30));
+
+        assert_eq!(
+            concession.calculate_expires_at().unwrap(),
+            Some("2056-08-14".to_string())
+        );
+    }
+
+    #[test]
+    fn calculate_expires_at_adjusts_leap_day() {
+        let concession = concession("TEMPORAIRE", "2024-02-29", Some(1));
+
+        assert_eq!(
+            concession.calculate_expires_at().unwrap(),
+            Some("2025-02-28".to_string())
+        );
+    }
+
+    #[test]
+    fn calculate_status_reports_active_soon_expiring_and_expired() {
+        let reference_date = Utc.with_ymd_and_hms(2026, 8, 7, 12, 0, 0).single().unwrap();
+
+        let mut active = concession("TEMPORAIRE", "2026-08-07", Some(2));
+        active.expires_at = Some("2028-08-07".to_string());
+
+        assert_eq!(
+            active.calculate_status(reference_date).unwrap(),
+            ConcessionStatus::Active
+        );
+
+        let mut soon_expiring = concession("TEMPORAIRE", "2025-08-08", Some(1));
+        soon_expiring.expires_at = Some("2026-08-08".to_string());
+
+        assert_eq!(
+            soon_expiring.calculate_status(reference_date).unwrap(),
+            ConcessionStatus::SoonExpiring
+        );
+
+        let mut expired = concession("TEMPORAIRE", "2025-08-06", Some(1));
+        expired.expires_at = Some("2026-08-06".to_string());
+
+        assert_eq!(
+            expired.calculate_status(reference_date).unwrap(),
+            ConcessionStatus::Expired
+        );
+    }
+
+    #[test]
+    fn prepare_for_storage_calculates_expiry_and_status() {
+        let reference_date = Utc.with_ymd_and_hms(2026, 8, 7, 12, 0, 0).single().unwrap();
+
+        let mut concession = concession("TRENTENAIRE", "2026-08-14", Some(30));
+
+        concession.prepare_for_storage_at(reference_date).unwrap();
+
+        assert_eq!(concession.expires_at.as_deref(), Some("2056-08-14"));
+        assert_eq!(concession.status, "ACTIVE");
     }
 }

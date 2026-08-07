@@ -244,7 +244,7 @@ describe("Tauri client functions", () => {
 
       const result = await listConcessions(1);
 
-      expect(mockInvoke).toHaveBeenCalledWith("list_concessions", { cemetery_id: 1 });
+      expect(mockInvoke).toHaveBeenCalledWith("list_concessions", { cemeteryId: 1 });
       expect(result).toEqual([]);
     });
 
@@ -467,7 +467,7 @@ describe("Tauri client functions", () => {
   });
 
   describe("Plot commands", () => {
-    it("listPlots should invoke list_plots with cemetery_id", async () => {
+    it("listPlots should invoke list_plots with cemeteryId", async () => {
       const { invoke } = await import("@tauri-apps/api/core");
       const mockInvoke = invoke as ReturnType<typeof vi.fn>;
 
@@ -476,7 +476,7 @@ describe("Tauri client functions", () => {
 
       const result = await listPlots(1);
 
-      expect(mockInvoke).toHaveBeenCalledWith("list_plots", { cemetery_id: 1 });
+      expect(mockInvoke).toHaveBeenCalledWith("list_plots", { cemeteryId: 1 });
       expect(result).toEqual([]);
     });
 

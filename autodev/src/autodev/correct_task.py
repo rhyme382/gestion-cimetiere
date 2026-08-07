@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from autodev.generated_artifacts import filter_generated_artifacts
+from autodev.git_context import GitContextError, build_current_task_git_state
 from autodev.git_tools import (
     GitError,
     amend_head_commit,
@@ -34,6 +35,7 @@ from autodev.task_runner import (
     summarize_validations,
     write_json,
 )
+from autodev.task_report import build_task_report_payload, write_task_report
 
 
 class CorrectTaskError(RuntimeError):
@@ -148,6 +150,21 @@ def correct_task(
     run_result["validation_summary"] = result["validation_summary"]
     run_result["status"] = "success"
     write_json(run_dir / "result.json", run_result)
+
+    if result["status"] == "success":
+        try:
+            current_git_state = build_current_task_git_state(repo_root, task_id)
+        except GitContextError as exc:
+            raise CorrectTaskError(str(exc)) from exc
+        _, unexpected_paths = partition_paths(task["allowed_paths"], current_git_state.modified_paths)
+        task_report = build_task_report_payload(
+            backlog=backlog,
+            task=task,
+            git_state={"modified_paths": current_git_state.modified_paths},
+            validations=result["validations"],
+            problems=unexpected_paths,
+        )
+        write_task_report(report_dir=run_dir, payload=task_report)
 
     write_correction_result(correction_dir, result)
     return result

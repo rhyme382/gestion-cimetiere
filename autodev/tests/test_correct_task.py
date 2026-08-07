@@ -116,6 +116,48 @@ def test_correction_within_scope_only_succeeds_and_writes_artifacts(tmp_path: Pa
     assert (correction_dir / "restored-paths.json").is_file()
 
 
+def test_successful_correction_rebuilds_task_report_from_current_delivery(tmp_path: Path) -> None:
+    repo, backlog, worktree, _ = prepare_correction_case(tmp_path)
+    run_dir = repo / ".autodev" / "runs" / "TASK-PILOT-002"
+    (run_dir / "task-report.json").write_text(
+        json.dumps(
+            {
+                "task_id": "TASK-PILOT-002",
+                "feature_id": "PILOT",
+                "objective": "Rapport obsolète",
+                "modified_files": [],
+                "validations": [],
+                "problems": ["rapport obsolète"],
+                "next_task": "TASK-PILOT-003",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    stale_report = read_json(run_dir / "task-report.json")
+
+    def change_src(target: Path) -> None:
+        (target / "src" / "task-pilot-002.py").write_text("fixed\n", encoding="utf-8")
+
+    result = correct_task(backlog, "TASK-PILOT-002", claude_runner=make_claude_runner([change_src]))
+
+    refreshed_report = read_json(run_dir / "task-report.json")
+    assert refreshed_report != stale_report
+    assert refreshed_report["modified_files"] == ["src/task-pilot-002.py"]
+    assert refreshed_report["validations"] == [
+        {
+            "command": item["command"],
+            "returncode": item["returncode"],
+        }
+        for item in result["validations"]
+    ]
+    assert refreshed_report["problems"] == []
+    assert refreshed_report["next_task"] == "TASK-PILOT-003"
+    assert not (run_dir / "task-report.json.tmp").exists()
+
+
 def test_correction_with_authorized_and_out_of_scope_restores_only_out_of_scope(tmp_path: Path) -> None:
     _, backlog, worktree, _ = prepare_correction_case(tmp_path)
 

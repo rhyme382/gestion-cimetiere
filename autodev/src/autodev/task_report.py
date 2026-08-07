@@ -42,10 +42,13 @@ def write_task_report(
     payload: dict[str, Any],
 ) -> None:
     report_dir.mkdir(parents=True, exist_ok=True)
-    (report_dir / "task-report.json").write_text(
+    report_path = report_dir / "task-report.json"
+    temporary_path = report_dir / "task-report.json.tmp"
+    temporary_path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    temporary_path.replace(report_path)
 
 
 def verify_task_report(report_dir: Path, expected_payload: dict[str, Any]) -> None:

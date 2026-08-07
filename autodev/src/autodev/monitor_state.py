@@ -80,8 +80,13 @@ def read_feature_state(
         task_state["approved_criteria"] = counts.get("approved", 0)
     current_task = determine_current_task(last_state=last_state, tasks=tasks)
     current_task_id = current_task["task_id"] if current_task else None
-    current_action = last_state.get("task_action") or (current_task.get("action_current") if current_task else None)
+    current_action = (
+        last_state.get("task_action") or current_task.get("action_current")
+        if current_task
+        else None
+    )
     feature_status = determine_feature_display_status(feature_result=feature_result, last_state=last_state, tasks=tasks)
+    historical_feature_status = feature_result.get("status") or last_state.get("status")
     last_updated = determine_last_updated(feature_run_dir, tasks)
     started_at = last_state.get("started_at") or feature_result.get("started_at")
     finished_at = feature_result.get("finished_at")
@@ -98,11 +103,13 @@ def read_feature_state(
     estimated_percentage = int(sum(task["progress_percentage"] for task in tasks) / total_count) if total_count else 0
     checkpoints_path = feature_result.get("checkpoints_path") or str(repo_root / ".autodev" / "state" / "checkpoints.sqlite")
     reports_path = feature_result.get("reports_path") or str(feature_run_dir)
-    intervention_required = (
-        last_state.get("error")
-        or last_state.get("last_error")
-        or next((task["last_error"] for task in tasks if task["status"] == "HUMAN_REVIEW_REQUIRED"), None)
-    )
+    intervention_required = None
+    if feature_status != "COMPLETED":
+        intervention_required = (
+            last_state.get("error")
+            or last_state.get("last_error")
+            or next((task["last_error"] for task in tasks if task["status"] == "HUMAN_REVIEW_REQUIRED"), None)
+        )
 
     current_task_payload = {
         "task_id": current_task_id or "—",
@@ -128,6 +135,7 @@ def read_feature_state(
         feature_id=feature_id,
         feature_title=backlog["feature_title"],
         feature_status=feature_status,
+        historical_feature_status=historical_feature_status,
         integrated_count=integrated_count,
         total_count=total_count,
         percentage=percentage,
@@ -230,6 +238,8 @@ def determine_feature_display_status(
     last_state: dict[str, Any],
     tasks: list[dict[str, Any]],
 ) -> str:
+    if tasks and all(task["status"] in {"INTEGRATED", "COMPLETED"} for task in tasks):
+        return "COMPLETED"
     raw_status = feature_result.get("status") or last_state.get("status")
     if raw_status == "INTERRUPTED":
         return "FAILED"
@@ -237,8 +247,6 @@ def determine_feature_display_status(
         return raw_status
     if raw_status:
         return raw_status
-    if tasks and all(task["status"] in {"INTEGRATED", "COMPLETED"} for task in tasks):
-        return "COMPLETED"
     if any(task["status"] == "FAILED" for task in tasks):
         return "FAILED"
     if any(task["status"] == "HUMAN_REVIEW_REQUIRED" for task in tasks):
@@ -250,7 +258,9 @@ def determine_current_task(*, last_state: dict[str, Any], tasks: list[dict[str, 
     current_task_id = last_state.get("current_task_id")
     if current_task_id:
         for task in tasks:
-            if task["task_id"] == current_task_id:
+            if task["task_id"] == current_task_id and task["status"] in {
+                "IMPLEMENTING", "REVIEWING", "CORRECTING", "APPROVED", "INTEGRATING"
+            }:
                 return task
     for task in tasks:
         if task["status"] in {"IMPLEMENTING", "REVIEWING", "CORRECTING", "APPROVED", "INTEGRATING"}:
@@ -430,6 +440,7 @@ def build_render_model(
     feature_id: str,
     feature_title: str,
     feature_status: str,
+    historical_feature_status: str | None,
     integrated_count: int,
     total_count: int,
     percentage: int,
@@ -449,6 +460,7 @@ def build_render_model(
         "feature_id": feature_id,
         "feature_title": feature_title,
         "feature_status": feature_status,
+        "historical_feature_status": historical_feature_status or "—",
         "progress": {
             "integrated": integrated_count,
             "total": total_count,

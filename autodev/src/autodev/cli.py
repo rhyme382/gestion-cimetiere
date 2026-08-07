@@ -321,6 +321,9 @@ def status_command(
     table.add_row("Feature", status["feature_id"])
     table.add_row("Titre", status["feature_title"])
     table.add_row("État", status["feature_status"])
+    historical_status = status["historical_feature_status"]
+    if historical_status and historical_status != status["feature_status"]:
+        table.add_row("Ancien résultat d’exécution", historical_status)
     table.add_row("Tâches intégrées", ", ".join(status["tasks_integrated"]) or "—")
     table.add_row("Tâche courante", status["current_task_id"] or "—")
     table.add_row("Dernière action", status["last_action"] or "—")

@@ -27,6 +27,8 @@ def read_feature_status(backlog_json: Path) -> dict[str, Any]:
     summary = _load_json_if_exists(run_dir / "run-feature-result.json")
     last_state = _load_json_if_exists(run_dir / "last-state.json")
     integrated = [task["id"] for task in backlog["tasks"] if is_task_integrated(repo_root, task["id"])]
+    historical_status = summary.get("status") or last_state.get("status")
+    all_tasks_integrated = bool(backlog["tasks"]) and len(integrated) == len(backlog["tasks"])
     current_task = _infer_current_task(repo_root, backlog)
     worktrees = _list_worktrees(repo_root)
 
@@ -40,7 +42,8 @@ def read_feature_status(backlog_json: Path) -> dict[str, Any]:
     return {
         "feature_id": feature_id,
         "feature_title": backlog["feature_title"],
-        "feature_status": summary.get("status") or last_state.get("status") or "NOT_STARTED",
+        "feature_status": "COMPLETED" if all_tasks_integrated else historical_status or "NOT_STARTED",
+        "historical_feature_status": historical_status,
         "tasks_integrated": integrated,
         "current_task_id": current_task,
         "last_action": last_state.get("task_action"),

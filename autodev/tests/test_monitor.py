@@ -227,6 +227,30 @@ def test_feature_completed_is_reported(tmp_path: Path) -> None:
     assert state["progress"]["percentage"] == 100
 
 
+def test_integrated_tasks_override_stale_human_review_result(tmp_path: Path) -> None:
+    repo, backlog = prepare_single_task_repo(tmp_path)
+    create_task_workspace(repo, backlog, "TASK-MON", make_commit=True)
+    write_review_result(repo, "TASK-MON", "APPROVED")
+    write_integration_result(repo, "TASK-MON", "INTEGRATED")
+    write_feature_result(repo, "FEATURE-TEST", {
+        "feature_id": "FEATURE-TEST", "status": "HUMAN_REVIEW_REQUIRED"
+    })
+    write_feature_last_state(repo, "FEATURE-TEST", {
+        "current_task_id": "TASK-MON",
+        "task_action": "IMPLEMENT",
+        "status": "HUMAN_REVIEW_REQUIRED",
+        "last_error": "ancien blocage",
+    })
+
+    state = read_feature_state(backlog)
+
+    assert state["feature_status"] == "COMPLETED"
+    assert state["historical_feature_status"] == "HUMAN_REVIEW_REQUIRED"
+    assert state["current_task_id"] == "—"
+    assert state["current_action"] == "—"
+    assert state["intervention_required"] == "—"
+
+
 def test_feature_failed_is_reported(tmp_path: Path) -> None:
     repo, backlog = prepare_single_task_repo(tmp_path)
     write_feature_result(repo, "FEATURE-TEST", {"feature_id": "FEATURE-TEST", "status": "FAILED"})

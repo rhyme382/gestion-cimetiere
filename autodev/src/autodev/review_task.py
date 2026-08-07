@@ -115,7 +115,10 @@ def review_task(
 
     schema_path = repo_root / "autodev" / "schemas" / "review-result.schema.json"
     output_path = review_dir / "review-result.json"
-    codex_runner = codex_runner or run_codex_review
+    if codex_runner is None:
+        codex_runner = lambda **kwargs: run_codex_review(
+            **kwargs, heartbeat_path=run_dir / "heartbeat.json"
+        )
     codex_result = codex_runner(
         cwd=git_state.worktree if git_state.worktree.exists() else repo_root,
         prompt=prompt,
@@ -508,6 +511,7 @@ def run_codex_review(
     prompt: str,
     schema_path: Path,
     output_path: Path,
+    heartbeat_path: Path | None = None,
 ) -> dict[str, Any]:
     command = [
         "codex",
@@ -525,6 +529,8 @@ def run_codex_review(
         cwd=cwd,
         input_text=prompt,
         timeout_seconds=TIMEOUTS_SECONDS["codex_review"],
+        heartbeat_path=heartbeat_path,
+        heartbeat_phase="REVIEW",
     )
     return result.to_dict()
 

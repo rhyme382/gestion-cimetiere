@@ -27,6 +27,11 @@ DISPLAY_STATUSES = {
     "COMPLETED",
 }
 FEATURE_TERMINAL_STATUSES = {"COMPLETED", "FAILED", "TIMEOUT", "HUMAN_REVIEW_REQUIRED", "INTERRUPTED"}
+TASK_PROGRESS = {
+    "PENDING": 0, "READY": 0, "IMPLEMENTING": 25, "REVIEWING": 50,
+    "CORRECTING": 60, "APPROVED": 75, "INTEGRATING": 90,
+    "INTEGRATED": 100, "COMPLETED": 100,
+}
 ACTION_LOG_CANDIDATES = {
     "IMPLEMENT": ("claude.stdout.log", "claude.stderr.log"),
     "REVIEW": ("review/codex.stdout.log", "review/codex.stderr.log", "review/validation-results.json"),
@@ -63,6 +68,7 @@ def read_feature_state(
             task=task,
             current_task_id=last_state.get("current_task_id"),
             current_action=last_state.get("task_action"),
+            now=now or datetime.now(timezone.utc),
         )
         for task in backlog["tasks"]
     ]
@@ -89,6 +95,7 @@ def read_feature_state(
     integrated_count = sum(1 for task in tasks if task["status"] in {"INTEGRATED", "COMPLETED"})
     total_count = len(tasks)
     percentage = int((integrated_count / total_count) * 100) if total_count else 0
+    estimated_percentage = int(sum(task["progress_percentage"] for task in tasks) / total_count) if total_count else 0
     checkpoints_path = feature_result.get("checkpoints_path") or str(repo_root / ".autodev" / "state" / "checkpoints.sqlite")
     reports_path = feature_result.get("reports_path") or str(feature_run_dir)
     intervention_required = (
@@ -124,6 +131,7 @@ def read_feature_state(
         integrated_count=integrated_count,
         total_count=total_count,
         percentage=percentage,
+        estimated_percentage=estimated_percentage,
         coverage=coverage,
         current_task_id=current_task_id,
         current_action=current_action,
@@ -143,6 +151,7 @@ def read_task_state(
     task: dict[str, Any],
     current_task_id: str | None,
     current_action: str | None,
+    now: datetime,
 ) -> dict[str, Any]:
     task_id = task["id"]
     run_dir = repo_root / ".autodev" / "runs" / task_id
@@ -186,6 +195,12 @@ def read_task_state(
         raise MonitorStateError(f"Statut d'affichage invalide pour {task_id} : {status}")
 
     latest_error = find_last_error(run_result, review_result, integration_result, run_dir)
+    progress_percentage = TASK_PROGRESS.get(status, 0)
+    activity = read_heartbeat(
+        run_dir / "heartbeat.json",
+        now=now,
+        active=status in {"IMPLEMENTING", "REVIEWING", "CORRECTING", "INTEGRATING"},
+    )
     return {
         "task_id": task_id,
         "agent": task["agent"],
@@ -204,6 +219,8 @@ def read_task_state(
         "approved_criteria": 0,
         "git": git_state,
         "run_dir": str(run_dir),
+        "progress_percentage": progress_percentage,
+        "activity": activity,
     }
 
 
@@ -416,6 +433,7 @@ def build_render_model(
     integrated_count: int,
     total_count: int,
     percentage: int,
+    estimated_percentage: int,
     coverage: dict[str, Any],
     current_task_id: str | None,
     current_action: str | None,
@@ -435,6 +453,7 @@ def build_render_model(
             "integrated": integrated_count,
             "total": total_count,
             "percentage": percentage,
+            "estimated_percentage": estimated_percentage,
         },
         "coverage": coverage,
         "current_task_id": current_task_id or "—",
@@ -447,6 +466,16 @@ def build_render_model(
         "tasks": tasks,
         "logs": logs,
     }
+
+
+def read_heartbeat(path: Path, *, now: datetime, active: bool) -> dict[str, Any]:
+    payload = _load_json_if_exists(path)
+    updated = parse_datetime(payload.get("updated_at"))
+    if updated is None:
+        return {"status": "INCONNU" if active else "—", "age_seconds": None, "phase": "—"}
+    age = max(0, int((now - updated).total_seconds()))
+    status = "ACTIF" if age < 120 else "CALME" if age < 600 else "SUSPECT"
+    return {"status": status, "age_seconds": age, "phase": payload.get("phase") or "—"}
 
 
 def read_last_lines(path: Path, line_count: int) -> list[str]:

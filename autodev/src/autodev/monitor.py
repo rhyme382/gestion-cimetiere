@@ -78,6 +78,7 @@ def render_feature_summary(model: dict[str, Any]) -> Panel:
         "Progression",
         f'{model["progress"]["integrated"]}/{model["progress"]["total"]} ({model["progress"]["percentage"]}%)',
     )
+    summary.add_row("Avancement estimé", progress_bar(model["progress"]["estimated_percentage"], width=20))
     summary.add_row(
         "Couverture critères",
         (
@@ -124,6 +125,8 @@ def render_tasks_table(tasks: list[dict[str, Any]]) -> Table:
     table.add_column("Titre")
     table.add_column("Deps")
     table.add_column("État", no_wrap=True)
+    table.add_column("Progression", no_wrap=True)
+    table.add_column("Activité", no_wrap=True)
     table.add_column("Crit.", justify="right", no_wrap=True)
     table.add_column("OK", justify="right", no_wrap=True)
     table.add_column("Action")
@@ -141,6 +144,8 @@ def render_tasks_table(tasks: list[dict[str, Any]]) -> Table:
             task["title"],
             task["depends_on"],
             style_status(task["status"]),
+            progress_bar(task["progress_percentage"]),
+            format_activity(task["activity"]),
             str(task["owned_criteria"]),
             str(task["approved_criteria"]),
             task["action_current"],
@@ -180,3 +185,14 @@ def format_dirty(value: Any) -> str:
     if value is False:
         return "no"
     return "—"
+
+
+def progress_bar(percentage: int, width: int = 10) -> str:
+    filled = min(width, max(0, round(width * percentage / 100)))
+    return f"{'█' * filled}{'░' * (width - filled)} {percentage}%"
+
+
+def format_activity(activity: dict[str, Any]) -> str:
+    status = activity.get("status", "—")
+    age = activity.get("age_seconds")
+    return status if age is None else f"{status} {age}s"

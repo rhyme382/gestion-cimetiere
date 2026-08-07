@@ -103,7 +103,10 @@ def run_task(
         "validations": [],
         "validation_summary": [],
     }
-    claude_runner = claude_runner or run_claude_non_interactive
+    if claude_runner is None:
+        claude_runner = lambda *, worktree, prompt: run_claude_non_interactive(
+            worktree, prompt, heartbeat_path=run_dir / "heartbeat.json"
+        )
     try:
         claude_result = claude_runner(worktree=worktree, prompt=prompt)
         result["claude"] = claude_result
@@ -261,7 +264,7 @@ def prepare_isolated_workspace(repo_root: Path, branch: str, worktree: Path, bas
         raise RunTaskError(str(exc)) from exc
 
 
-def run_claude_non_interactive(worktree: Path, prompt: str) -> dict[str, Any]:
+def run_claude_non_interactive(worktree: Path, prompt: str, *, heartbeat_path: Path | None = None) -> dict[str, Any]:
     command = [
         "claude",
         "-p",
@@ -277,6 +280,8 @@ def run_claude_non_interactive(worktree: Path, prompt: str) -> dict[str, Any]:
         cwd=worktree,
         input_text=prompt,
         timeout_seconds=TIMEOUTS_SECONDS["claude_task"],
+        heartbeat_path=heartbeat_path,
+        heartbeat_phase="IMPLEMENT",
     )
     return result.to_dict()
 

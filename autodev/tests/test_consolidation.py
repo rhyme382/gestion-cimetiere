@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 import time
+import threading
 from pathlib import Path
 
 import pytest
@@ -35,6 +36,34 @@ def test_process_runner_marks_timeout_and_captures_streams(tmp_path: Path) -> No
     assert result.timed_out is True
     assert result.returncode is None
     assert "start" in result.stdout
+
+
+def test_process_runner_writes_and_cleans_heartbeat(tmp_path: Path) -> None:
+    heartbeat = tmp_path / "heartbeat.json"
+    observed: list[dict[str, object]] = []
+
+    def observe() -> None:
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and not observed:
+            if heartbeat.exists():
+                observed.append(json.loads(heartbeat.read_text(encoding="utf-8")))
+            time.sleep(0.01)
+
+    watcher = threading.Thread(target=observe)
+    watcher.start()
+    result = run_process_capturing_timeout(
+        command=[sys.executable, "-c", "import time; time.sleep(0.2)"],
+        cwd=tmp_path,
+        timeout_seconds=2,
+        heartbeat_path=heartbeat,
+        heartbeat_phase="TEST",
+        heartbeat_interval=0.02,
+    )
+    watcher.join()
+
+    assert result.returncode == 0
+    assert observed and observed[0]["phase"] == "TEST"
+    assert not heartbeat.exists()
 
 
 def test_validate_backlog_rejects_manifest_change_without_reason(tmp_path: Path) -> None:

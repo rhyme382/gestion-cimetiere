@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
 import os
 import signal
 import subprocess
+import threading
 import time
+from datetime import datetime, timezone
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -101,6 +104,9 @@ def run_process_capturing_timeout(
     timeout_seconds: int,
     input_text: str | None = None,
     extra_env: dict[str, str] | None = None,
+    heartbeat_path: Path | None = None,
+    heartbeat_phase: str | None = None,
+    heartbeat_interval: float = 5.0,
 ) -> ProcessExecutionResult:
     env = None if extra_env is None else {**os.environ, **extra_env}
     started_at = time.monotonic()
@@ -115,6 +121,15 @@ def run_process_capturing_timeout(
         start_new_session=True,
     )
 
+    stop_heartbeat = threading.Event()
+    heartbeat_thread = None
+    if heartbeat_path is not None:
+        heartbeat_thread = threading.Thread(
+            target=_heartbeat_loop,
+            args=(heartbeat_path, heartbeat_phase or "PROCESS", process.pid, stop_heartbeat, heartbeat_interval),
+            daemon=True,
+        )
+        heartbeat_thread.start()
     try:
         stdout, stderr = process.communicate(input=input_text, timeout=timeout_seconds)
         return ProcessExecutionResult(
@@ -142,6 +157,25 @@ def run_process_capturing_timeout(
         )
     except OSError as exc:
         raise ProcessRunnerError(str(exc)) from exc
+    finally:
+        stop_heartbeat.set()
+        if heartbeat_thread is not None:
+            heartbeat_thread.join(timeout=max(heartbeat_interval, 0.1) + 0.5)
+        if heartbeat_path is not None:
+            heartbeat_path.unlink(missing_ok=True)
+
+
+def _heartbeat_loop(path: Path, phase: str, pid: int, stop: threading.Event, interval: float) -> None:
+    started_at = datetime.now(timezone.utc).isoformat()
+    while True:
+        payload = {"phase": phase, "pid": pid, "started_at": started_at,
+                   "updated_at": datetime.now(timezone.utc).isoformat()}
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(path)
+        if stop.wait(max(interval, 0.05)):
+            return
 
 
 def _terminate_process_group(pid: int) -> None:

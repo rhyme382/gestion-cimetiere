@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 
@@ -105,6 +106,41 @@ def test_task_in_implementation_is_reported(tmp_path: Path) -> None:
 
     assert state["tasks"][0]["status"] == "IMPLEMENTING"
     assert state["current_task"]["task_action"] == "IMPLEMENT"
+
+
+def test_task_progress_and_recent_heartbeat_are_reported(tmp_path: Path) -> None:
+    repo, backlog = prepare_single_task_repo(tmp_path)
+    _, worktree, _ = create_task_workspace(
+        repo, backlog, "TASK-MON", create_branch=True, create_worktree=True,
+        make_commit=False, write_result_artifact=False,
+    )
+    write_task_result(repo, "TASK-MON", {"task_id": "TASK-MON", "status": "running", "worktree": str(worktree)})
+    write_feature_last_state(repo, "FEATURE-TEST", {
+        "current_task_id": "TASK-MON", "task_action": "IMPLEMENT", "status": "RUNNING"
+    })
+    heartbeat = repo / ".autodev" / "runs" / "TASK-MON" / "heartbeat.json"
+    heartbeat.write_text(json.dumps({"phase": "IMPLEMENT", "updated_at": "2026-08-07T10:00:00+00:00"}), encoding="utf-8")
+
+    state = read_feature_state(backlog, now=datetime(2026, 8, 7, 10, 0, 30, tzinfo=timezone.utc))
+
+    assert state["tasks"][0]["progress_percentage"] == 25
+    assert state["progress"]["estimated_percentage"] == 25
+    assert state["tasks"][0]["activity"] == {"status": "ACTIF", "age_seconds": 30, "phase": "IMPLEMENT"}
+
+
+def test_stale_heartbeat_is_suspect(tmp_path: Path) -> None:
+    repo, backlog = prepare_single_task_repo(tmp_path)
+    _, worktree, _ = create_task_workspace(
+        repo, backlog, "TASK-MON", create_branch=True, create_worktree=True,
+        make_commit=False, write_result_artifact=False,
+    )
+    write_task_result(repo, "TASK-MON", {"task_id": "TASK-MON", "status": "running", "worktree": str(worktree)})
+    heartbeat = repo / ".autodev" / "runs" / "TASK-MON" / "heartbeat.json"
+    heartbeat.write_text(json.dumps({"phase": "IMPLEMENT", "updated_at": "2026-08-07T09:49:00+00:00"}), encoding="utf-8")
+
+    state = read_feature_state(backlog, now=datetime(2026, 8, 7, 10, 0, tzinfo=timezone.utc))
+
+    assert state["tasks"][0]["activity"]["status"] == "SUSPECT"
 
 
 def test_task_in_review_is_reported(tmp_path: Path) -> None:

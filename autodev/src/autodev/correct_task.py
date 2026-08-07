@@ -92,7 +92,10 @@ def correct_task(
         "correction_number": correction_index,
     }
 
-    claude_runner = claude_runner or run_claude_non_interactive
+    if claude_runner is None:
+        claude_runner = lambda *, worktree, prompt: run_claude_non_interactive(
+            worktree, prompt, heartbeat_path=run_dir / "heartbeat.json"
+        )
 
     try:
         attempt = run_correction_attempt(

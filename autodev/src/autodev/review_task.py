@@ -312,7 +312,6 @@ def build_review_prompt(
     dependency_context: list[dict[str, Any]],
     diff_text: str,
 ) -> str:
-    specification = spec_path.read_text(encoding="utf-8")
     exact_task_id = task["id"]
     owned_criteria = owned_criteria_by_task(backlog).get(task["id"], [])
     requirement_context: dict[str, dict[str, Any]] = {}
@@ -354,6 +353,8 @@ Contraintes impératives :
 - ne proposer aucun merge ;
 - t'appuyer uniquement sur les informations fournies ;
 - évaluer la tâche courante avec son propre périmètre de preuve ;
+- considérer le contrat propriétaire ci-dessous comme exhaustif : toute exigence ou tout critère absent de ce contrat appartient hors du périmètre de cette revue ;
+- ne créer aucune `issue` à partir d'une exigence absente du contrat propriétaire, même si le diff suggère qu'elle sera traitée par une autre tâche ;
 - appliquer strictement les règles de verdict ci-dessous.
 
 Backlog : `{backlog_json}`
@@ -382,13 +383,11 @@ Ne la préfixe pas, ne la normalise pas et ne la transforme pas.
 - Une tâche dépendante ne doit pas être pénalisée pour ne pas réimplémenter ni reprouver les exigences déjà satisfaites par ses dépendances intégrées.
 - Évalue les critères d'acceptation propres à la tâche courante avec le diff courant ; utilise les preuves héritées uniquement pour les livrables dépendants déjà intégrés.
 
-# Spécification source complète
+# Source du contrat
 
 Chemin : `{spec_path.relative_to(repo_root).as_posix()}`
 
-```md
-{specification}
-```
+La spécification complète n'est volontairement pas incluse : seuls les exigences et critères attribués à la tâche courante sont normatifs pour cette revue.
 
 # Tâche complète
 

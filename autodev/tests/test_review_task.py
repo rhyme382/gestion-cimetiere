@@ -330,6 +330,88 @@ def test_review_prompt_contains_exact_task_id_instruction(tmp_path: Path) -> Non
     assert "Ne la préfixe pas, ne la normalise pas et ne la transforme pas." in prompt
 
 
+def test_review_prompt_excludes_requirements_owned_by_another_task(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "SPEC.md").write_text(
+        "# Feature\n\n"
+        "## R1\nConserver les cimetières existants.\n\n"
+        "## R2\nEXIGENCE_HORS_TACHE : stocker le code INSEE et le courriel.\n",
+        encoding="utf-8",
+    )
+    requirements = [
+        {
+            "id": "R1",
+            "description": "Préserver le socle existant.",
+            "acceptance_criteria": [
+                {
+                    "id": "R1-AC1",
+                    "text": "La migration conserve les cimetières existants.",
+                    "owner_task_id": "T1",
+                }
+            ],
+        },
+        {
+            "id": "R2",
+            "description": "EXIGENCE_HORS_TACHE : gérer la commune administrative.",
+            "acceptance_criteria": [
+                {
+                    "id": "R2-AC1",
+                    "text": "CRITERE_HORS_TACHE : stocker le code INSEE et le courriel.",
+                    "owner_task_id": "T2",
+                }
+            ],
+        },
+    ]
+    backlog = write_backlog(
+        repo,
+        [
+            make_task("T1", requirement_ids=["R1"]),
+            make_task("T2", requirement_ids=["R2"]),
+        ],
+        requirements=requirements,
+    )
+    commit_all(repo, "add owned requirements")
+    run_task(backlog, "T1", dry_run=False, claude_runner=fake_claude_success_factory())
+    prompt_holder: dict[str, str] = {}
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        prompt_holder["prompt"] = str(kwargs["prompt"])
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "T1",
+                "verdict": "APPROVED",
+                "summary": "Le contrat propriétaire est satisfait.",
+                "requirement_checks": [
+                    {
+                        "requirement_id": "R1",
+                        "acceptance_criterion_id": "R1-AC1",
+                        "status": "PASS",
+                        "evidence": ["Le livrable conserve les données existantes."],
+                    }
+                ],
+                "acceptance_checks": [
+                    {"criterion": "Accepter", "status": "PASS", "evidence": []}
+                ],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    result = review_task(backlog, "T1", codex_runner=fake_codex_runner)
+
+    assert result["verdict"] == "APPROVED"
+    prompt = prompt_holder["prompt"]
+    assert "R1-AC1" in prompt
+    assert "La migration conserve les cimetières existants." in prompt
+    assert "R2-AC1" not in prompt
+    assert "EXIGENCE_HORS_TACHE" not in prompt
+    assert "CRITERE_HORS_TACHE" not in prompt
+    assert "code INSEE" not in prompt
+
+
 def test_review_task_forces_correction_required_when_codex_reports_failure(tmp_path: Path) -> None:
     _, backlog = prepare_reviewable_task(tmp_path, "TASK-CORRECT")
 

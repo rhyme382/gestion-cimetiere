@@ -12,6 +12,9 @@ pub enum AppError {
     #[error("Invalid input: {0}")]
     InvalidInput(String),
 
+    #[error("Duplicate: {0}")]
+    Duplicate(String),
+
     #[error("Internal server error: {0}")]
     Internal(String),
 }
@@ -30,6 +33,7 @@ impl serde::Serialize for AppError {
         let error_type = match self {
             AppError::NotFound(_) => "NOT_FOUND",
             AppError::InvalidInput(_) => "INVALID_INPUT",
+            AppError::Duplicate(_) => "DUPLICATE",
             AppError::Database(_) => "DATABASE_ERROR",
             AppError::Internal(_) => "INTERNAL_ERROR",
         };

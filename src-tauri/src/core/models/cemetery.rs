@@ -6,6 +6,9 @@ pub struct Cemetery {
     pub name: String,
     pub commune: Option<String>,
     pub capacity: Option<i32>,
+    pub municipality_id: Option<i64>,
+    pub address: Option<String>,
+    pub is_active: i32,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -18,6 +21,9 @@ impl Cemetery {
             name,
             commune,
             capacity,
+            municipality_id: None,
+            address: None,
+            is_active: 1,
             created_at: now.clone(),
             updated_at: now,
         }

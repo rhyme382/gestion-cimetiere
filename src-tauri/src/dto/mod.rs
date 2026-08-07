@@ -4,6 +4,7 @@ pub mod cemetery;
 pub mod concession;
 pub mod diagnostic;
 pub mod individual;
+pub mod municipality;
 pub mod plot;
 
 pub use alert::{AlertDTO, AlertSummaryDTO, AlertType};
@@ -12,4 +13,5 @@ pub use cemetery::{CemeteryDTO, CreateCemeteryRequest, UpdateCemeteryRequest};
 pub use concession::{ConcessionDTO, CreateConcessionRequest, UpdateConcessionRequest};
 pub use diagnostic::DiagnosticDTO;
 pub use individual::{CreateIndividualRequest, IndividualDTO, UpdateIndividualRequest};
+pub use municipality::{CreateMunicipalityRequest, MunicipalityDTO, UpdateMunicipalityRequest};
 pub use plot::{CreatePlotRequest, PlotDTO, UpdatePlotRequest};

@@ -8,10 +8,20 @@ use rusqlite::Connection;
 pub struct CemeteryRepository;
 
 impl CemeteryRepository {
-    /// List all cemeteries ordered by creation date (newest first), with stable tiebreaker on id
+    /// Normalize cemetery name: trim, lowercase, and compact internal spaces
+    fn normalize_name(name: &str) -> String {
+        name.trim()
+            .to_lowercase()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+    /// List all active cemeteries ordered by creation date (newest first)
     pub fn list(conn: &Connection) -> AppResult<Vec<CemeteryDTO>> {
         let mut stmt = conn.prepare(
-            "SELECT id, name, commune, capacity, created_at, updated_at FROM cemeteries ORDER BY created_at DESC, id DESC"
+            "SELECT id, name, commune, capacity, municipality_id, address, is_active, created_at, updated_at
+             FROM cemeteries WHERE is_active = 1
+             ORDER BY created_at DESC, id DESC"
         )?;
 
         let cemeteries = stmt.query_map([], |row| {
@@ -20,8 +30,38 @@ impl CemeteryRepository {
                 name: row.get(1)?,
                 commune: row.get(2)?,
                 capacity: row.get(3)?,
-                created_at: row.get(4)?,
-                updated_at: row.get(5)?,
+                municipality_id: row.get(4)?,
+                address: row.get(5)?,
+                is_active: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+            })
+        })?;
+
+        cemeteries
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(AppError::from)
+    }
+
+    /// List all cemeteries including inactive ones
+    pub fn list_all(conn: &Connection) -> AppResult<Vec<CemeteryDTO>> {
+        let mut stmt = conn.prepare(
+            "SELECT id, name, commune, capacity, municipality_id, address, is_active, created_at, updated_at
+             FROM cemeteries
+             ORDER BY created_at DESC, id DESC"
+        )?;
+
+        let cemeteries = stmt.query_map([], |row| {
+            Ok(CemeteryDTO {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                commune: row.get(2)?,
+                capacity: row.get(3)?,
+                municipality_id: row.get(4)?,
+                address: row.get(5)?,
+                is_active: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
             })
         })?;
 
@@ -33,7 +73,8 @@ impl CemeteryRepository {
     /// Get a cemetery by id
     pub fn get(conn: &Connection, id: i64) -> AppResult<CemeteryDTO> {
         conn.query_row(
-            "SELECT id, name, commune, capacity, created_at, updated_at FROM cemeteries WHERE id = ?",
+            "SELECT id, name, commune, capacity, municipality_id, address, is_active, created_at, updated_at
+             FROM cemeteries WHERE id = ? AND is_active = 1",
             [id],
             |row| {
                 Ok(CemeteryDTO {
@@ -41,14 +82,46 @@ impl CemeteryRepository {
                     name: row.get(1)?,
                     commune: row.get(2)?,
                     capacity: row.get(3)?,
-                    created_at: row.get(4)?,
-                    updated_at: row.get(5)?,
+                    municipality_id: row.get(4)?,
+                    address: row.get(5)?,
+                    is_active: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
                 })
             }
         ).map_err(|err| {
             match err {
                 rusqlite::Error::QueryReturnedNoRows => {
-                    AppError::NotFound(format!("Cemetery with id {} not found", id))
+                    AppError::NotFound(format!("Le cimetière avec l'id {} n'existe pas", id))
+                }
+                _ => AppError::Database(err),
+            }
+        })
+    }
+
+    /// Get a cemetery by id including inactive ones
+    pub fn get_all(conn: &Connection, id: i64) -> AppResult<CemeteryDTO> {
+        conn.query_row(
+            "SELECT id, name, commune, capacity, municipality_id, address, is_active, created_at, updated_at
+             FROM cemeteries WHERE id = ?",
+            [id],
+            |row| {
+                Ok(CemeteryDTO {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    commune: row.get(2)?,
+                    capacity: row.get(3)?,
+                    municipality_id: row.get(4)?,
+                    address: row.get(5)?,
+                    is_active: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
+            }
+        ).map_err(|err| {
+            match err {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    AppError::NotFound(format!("Le cimetière avec l'id {} n'existe pas", id))
                 }
                 _ => AppError::Database(err),
             }
@@ -57,43 +130,139 @@ impl CemeteryRepository {
 
     /// Create a new cemetery
     pub fn create(conn: &Connection, cemetery: &Cemetery) -> AppResult<CemeteryDTO> {
+        // Validate capacity if provided
+        if let Some(capacity) = cemetery.capacity {
+            if capacity <= 0 {
+                return Err(AppError::InvalidInput(
+                    "La capacité doit être positive".to_string(),
+                ));
+            }
+        }
+
+        // Check for normalized name uniqueness among active cemeteries
+        let normalized_name = Self::normalize_name(&cemetery.name);
+        let mut stmt = conn.prepare("SELECT name FROM cemeteries WHERE is_active = 1")?;
+
+        let existing_names: Vec<String> = stmt
+            .query_map([], |row| row.get(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        for existing_name in existing_names {
+            if Self::normalize_name(&existing_name) == normalized_name {
+                return Err(AppError::Duplicate(format!(
+                    "Un cimetière actif avec le nom '{}' existe déjà",
+                    cemetery.name
+                )));
+            }
+        }
+
+        // Validate municipality_id if provided
+        if let Some(municipality_id) = cemetery.municipality_id {
+            let exists: Result<i64, _> = conn.query_row(
+                "SELECT id FROM municipalities WHERE id = ?",
+                [municipality_id],
+                |row| row.get(0),
+            );
+            if exists.is_err() {
+                return Err(AppError::InvalidInput(
+                    "La commune référencée n'existe pas".to_string(),
+                ));
+            }
+        }
+
         conn.execute(
-            "INSERT INTO cemeteries (name, commune, capacity, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO cemeteries (name, commune, capacity, municipality_id, address, is_active, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             rusqlite::params![
                 &cemetery.name,
                 &cemetery.commune,
                 cemetery.capacity,
+                cemetery.municipality_id,
+                &cemetery.address,
+                cemetery.is_active,
                 &cemetery.created_at,
                 &cemetery.updated_at,
             ]
         )?;
 
         let id = conn.last_insert_rowid();
-        Self::get(conn, id)
+        Self::get_all(conn, id)
     }
 
     /// Update a cemetery
     pub fn update(conn: &Connection, id: i64, cemetery: &Cemetery) -> AppResult<CemeteryDTO> {
         // First check if the cemetery exists
-        let _existing = Self::get(conn, id)?;
+        let _existing = Self::get_all(conn, id)?;
+
+        // Validate capacity if provided
+        if let Some(capacity) = cemetery.capacity {
+            if capacity <= 0 {
+                return Err(AppError::InvalidInput(
+                    "La capacité doit être positive".to_string(),
+                ));
+            }
+        }
+
+        // Check for normalized name uniqueness among active cemeteries (excluding self)
+        let normalized_name = Self::normalize_name(&cemetery.name);
+        let mut stmt = conn.prepare("SELECT id, name FROM cemeteries WHERE is_active = 1")?;
+
+        let existing_names: Vec<(i64, String)> = stmt
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+
+        for (existing_id, existing_name) in existing_names {
+            if existing_id != id && Self::normalize_name(&existing_name) == normalized_name {
+                return Err(AppError::Duplicate(format!(
+                    "Un cimetière actif avec le nom '{}' existe déjà",
+                    cemetery.name
+                )));
+            }
+        }
+
+        // Validate municipality_id if provided
+        if let Some(municipality_id) = cemetery.municipality_id {
+            let exists: Result<i64, _> = conn.query_row(
+                "SELECT id FROM municipalities WHERE id = ?",
+                [municipality_id],
+                |row| row.get(0),
+            );
+            if exists.is_err() {
+                return Err(AppError::InvalidInput(
+                    "La commune référencée n'existe pas".to_string(),
+                ));
+            }
+        }
 
         conn.execute(
-            "UPDATE cemeteries SET name = ?, commune = ?, capacity = ?, updated_at = ? WHERE id = ?",
+            "UPDATE cemeteries SET name = ?, commune = ?, capacity = ?, municipality_id = ?, address = ?, is_active = ?, updated_at = ?
+             WHERE id = ?",
             rusqlite::params![
                 &cemetery.name,
                 &cemetery.commune,
                 cemetery.capacity,
+                cemetery.municipality_id,
+                &cemetery.address,
+                cemetery.is_active,
                 &cemetery.updated_at,
                 id,
             ]
         )?;
 
-        Self::get(conn, id)
+        Self::get_all(conn, id)
     }
 
-    /// Delete a cemetery by id
+    /// Soft delete a cemetery (set is_active = 0)
     pub fn delete(conn: &Connection, id: i64) -> AppResult<bool> {
-        let rows_affected = conn.execute("DELETE FROM cemeteries WHERE id = ?", [id])?;
+        // Check if cemetery exists
+        let _existing = Self::get_all(conn, id)?;
+
+        // Soft delete: set is_active = 0
+        let now = chrono::Utc::now().to_rfc3339();
+        let rows_affected = conn.execute(
+            "UPDATE cemeteries SET is_active = 0, updated_at = ? WHERE id = ?",
+            rusqlite::params![&now, id],
+        )?;
 
         Ok(rows_affected > 0)
     }
@@ -250,10 +419,100 @@ mod tests {
             Err(AppError::Database(_)) => {
                 panic!("Should return NotFound, not Database error");
             }
-            Err(AppError::InvalidInput(_)) | Err(AppError::Internal(_)) => {
+            Err(AppError::InvalidInput(_))
+            | Err(AppError::Internal(_))
+            | Err(AppError::Duplicate(_)) => {
                 panic!("Should return NotFound, not other error variant");
             }
             Ok(_) => panic!("Should return an error"),
         }
+    }
+
+    #[test]
+    fn test_cemetery_name_normalization_spaces() {
+        let conn = setup_db();
+
+        // Create cemetery with multiple spaces
+        let cemetery1 = Cemetery::new(
+            "Cimetière   Central".to_string(), // Multiple spaces
+            Some("Paris".to_string()),
+            Some(1000),
+        );
+
+        let result1 = CemeteryRepository::create(&conn, &cemetery1);
+        assert!(result1.is_ok());
+
+        // Try to create another with single spaces (should be duplicate)
+        let cemetery2 = Cemetery::new(
+            "Cimetière Central".to_string(), // Single space (normalized same as above)
+            Some("Paris".to_string()),
+            Some(1000),
+        );
+
+        let result2 = CemeteryRepository::create(&conn, &cemetery2);
+        assert!(result2.is_err());
+        match result2 {
+            Err(AppError::Duplicate(msg)) => {
+                assert!(msg.contains("Cimetière Central"));
+            }
+            _ => panic!("Expected Duplicate error"),
+        }
+    }
+
+    #[test]
+    fn test_cemetery_name_normalization_case() {
+        let conn = setup_db();
+
+        // Create cemetery with uppercase
+        let cemetery1 = Cemetery::new(
+            "CENTRAL Cemetery".to_string(),
+            Some("City".to_string()),
+            Some(500),
+        );
+
+        let result1 = CemeteryRepository::create(&conn, &cemetery1);
+        assert!(result1.is_ok());
+
+        // Try to create another with lowercase (should be duplicate)
+        let cemetery2 = Cemetery::new(
+            "central cemetery".to_string(), // Lowercase (normalized same)
+            Some("City".to_string()),
+            Some(500),
+        );
+
+        let result2 = CemeteryRepository::create(&conn, &cemetery2);
+        assert!(result2.is_err());
+        match result2 {
+            Err(AppError::Duplicate(_)) => (),
+            _ => panic!("Expected Duplicate error"),
+        }
+    }
+
+    #[test]
+    fn test_cemetery_inactive_not_checked_for_uniqueness() {
+        let conn = setup_db();
+
+        // Create cemetery
+        let cemetery1 = Cemetery::new(
+            "Test Cemetery".to_string(),
+            Some("City".to_string()),
+            Some(500),
+        );
+
+        let created = CemeteryRepository::create(&conn, &cemetery1).unwrap();
+        let id = created.id;
+
+        // Soft delete it
+        CemeteryRepository::delete(&conn, id).unwrap();
+
+        // Should be able to create another with same name since first is inactive
+        let cemetery2 = Cemetery::new(
+            "Test Cemetery".to_string(),
+            Some("City".to_string()),
+            Some(500),
+        );
+
+        let result2 = CemeteryRepository::create(&conn, &cemetery2);
+        assert!(result2.is_ok());
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
-    core::models::Cemetery,
-    db::repositories::CemeteryRepository,
+    core::models::Municipality,
+    db::repositories::MunicipalityRepository,
     db::DbConnection,
     dto::*,
     errors::{ApiErrorResponse, AppError},
@@ -33,26 +33,23 @@ fn map_app_error(e: AppError) -> ApiErrorResponse {
     }
 }
 
-pub fn internal_list_cemeteries(conn: &Connection) -> Result<Vec<CemeteryDTO>, AppError> {
-    CemeteryRepository::list(conn)
+pub fn internal_list_municipalities(conn: &Connection) -> Result<Vec<MunicipalityDTO>, AppError> {
+    MunicipalityRepository::list(conn)
 }
 
-pub fn internal_get_cemetery(conn: &Connection, id: i64) -> Result<CemeteryDTO, AppError> {
-    CemeteryRepository::get(conn, id)
+pub fn internal_get_municipality(conn: &Connection, id: i64) -> Result<MunicipalityDTO, AppError> {
+    MunicipalityRepository::get(conn, id)
 }
 
-pub fn internal_create_cemetery(
+pub fn internal_create_municipality(
     conn: &Connection,
-    req: CreateCemeteryRequest,
-) -> Result<CemeteryDTO, AppError> {
+    req: CreateMunicipalityRequest,
+) -> Result<MunicipalityDTO, AppError> {
     conn.execute("BEGIN TRANSACTION", [])
         .map_err(AppError::Database)?;
 
-    let mut cemetery = Cemetery::new(req.name, req.commune, req.capacity);
-    cemetery.municipality_id = req.municipality_id;
-    cemetery.address = req.address;
-
-    match CemeteryRepository::create(conn, &cemetery) {
+    let municipality = Municipality::new(req.name, req.insee_code, req.postal_code, req.email);
+    match MunicipalityRepository::create(conn, &municipality) {
         Ok(result) => {
             conn.execute("COMMIT", []).map_err(AppError::Database)?;
             Ok(result)
@@ -64,28 +61,29 @@ pub fn internal_create_cemetery(
     }
 }
 
-pub fn internal_update_cemetery(
+pub fn internal_update_municipality(
     conn: &Connection,
     id: i64,
-    req: UpdateCemeteryRequest,
-) -> Result<CemeteryDTO, AppError> {
+    req: UpdateMunicipalityRequest,
+) -> Result<MunicipalityDTO, AppError> {
     conn.execute("BEGIN TRANSACTION", [])
         .map_err(AppError::Database)?;
 
     match (|| {
-        let existing = CemeteryRepository::get(conn, id)?;
-        let mut cemetery = Cemetery::new(
+        let existing = MunicipalityRepository::get(conn, id)?;
+        let mut municipality = Municipality::new(
             req.name.unwrap_or(existing.name),
-            req.commune.or(existing.commune),
-            req.capacity.or(existing.capacity),
+            req.insee_code.unwrap_or(existing.insee_code),
+            req.postal_code.or(existing.postal_code),
+            req.email.or(existing.email),
         );
-        cemetery.id = id;
-        cemetery.created_at = existing.created_at;
-        cemetery.municipality_id = req.municipality_id.or(existing.municipality_id);
-        cemetery.address = req.address.or(existing.address);
-        cemetery.is_active = req.is_active.unwrap_or(existing.is_active);
+        municipality.id = id;
+        municipality.created_at = existing.created_at;
+        municipality.department = req.department.or(existing.department);
+        municipality.region = req.region.or(existing.region);
+        municipality.notes = req.notes.or(existing.notes);
 
-        CemeteryRepository::update(conn, id, &cemetery)
+        MunicipalityRepository::update(conn, id, &municipality)
     })() {
         Ok(result) => {
             conn.execute("COMMIT", []).map_err(AppError::Database)?;
@@ -98,11 +96,11 @@ pub fn internal_update_cemetery(
     }
 }
 
-pub fn internal_delete_cemetery(conn: &Connection, id: i64) -> Result<bool, AppError> {
+pub fn internal_delete_municipality(conn: &Connection, id: i64) -> Result<(), AppError> {
     conn.execute("BEGIN TRANSACTION", [])
         .map_err(AppError::Database)?;
 
-    match CemeteryRepository::delete(conn, id) {
+    match MunicipalityRepository::delete(conn, id) {
         Ok(result) => {
             conn.execute("COMMIT", []).map_err(AppError::Database)?;
             Ok(result)
@@ -115,53 +113,58 @@ pub fn internal_delete_cemetery(conn: &Connection, id: i64) -> Result<bool, AppE
 }
 
 #[tauri::command]
-pub fn list_cemeteries(state: State<DbConnection>) -> Result<Vec<CemeteryDTO>, ApiErrorResponse> {
-    let conn = state.lock().map_err(|e| ApiErrorResponse {
-        error_type: "INTERNAL_ERROR".to_string(),
-        message: format!("Failed to acquire database lock: {}", e),
-    })?;
-    internal_list_cemeteries(&conn).map_err(map_app_error)
-}
-
-#[tauri::command]
-pub fn get_cemetery(state: State<DbConnection>, id: i64) -> Result<CemeteryDTO, ApiErrorResponse> {
-    let conn = state.lock().map_err(|e| ApiErrorResponse {
-        error_type: "INTERNAL_ERROR".to_string(),
-        message: format!("Failed to acquire database lock: {}", e),
-    })?;
-    internal_get_cemetery(&conn, id).map_err(map_app_error)
-}
-
-#[tauri::command]
-pub fn create_cemetery(
+pub fn list_municipalities(
     state: State<DbConnection>,
-    req: CreateCemeteryRequest,
-) -> Result<CemeteryDTO, ApiErrorResponse> {
+) -> Result<Vec<MunicipalityDTO>, ApiErrorResponse> {
     let conn = state.lock().map_err(|e| ApiErrorResponse {
         error_type: "INTERNAL_ERROR".to_string(),
         message: format!("Failed to acquire database lock: {}", e),
     })?;
-    internal_create_cemetery(&conn, req).map_err(map_app_error)
+    internal_list_municipalities(&conn).map_err(map_app_error)
 }
 
 #[tauri::command]
-pub fn update_cemetery(
+pub fn get_municipality(
     state: State<DbConnection>,
     id: i64,
-    req: UpdateCemeteryRequest,
-) -> Result<CemeteryDTO, ApiErrorResponse> {
+) -> Result<MunicipalityDTO, ApiErrorResponse> {
     let conn = state.lock().map_err(|e| ApiErrorResponse {
         error_type: "INTERNAL_ERROR".to_string(),
         message: format!("Failed to acquire database lock: {}", e),
     })?;
-    internal_update_cemetery(&conn, id, req).map_err(map_app_error)
+    internal_get_municipality(&conn, id).map_err(map_app_error)
 }
 
 #[tauri::command]
-pub fn delete_cemetery(state: State<DbConnection>, id: i64) -> Result<bool, ApiErrorResponse> {
+pub fn create_municipality(
+    state: State<DbConnection>,
+    req: CreateMunicipalityRequest,
+) -> Result<MunicipalityDTO, ApiErrorResponse> {
     let conn = state.lock().map_err(|e| ApiErrorResponse {
         error_type: "INTERNAL_ERROR".to_string(),
         message: format!("Failed to acquire database lock: {}", e),
     })?;
-    internal_delete_cemetery(&conn, id).map_err(map_app_error)
+    internal_create_municipality(&conn, req).map_err(map_app_error)
+}
+
+#[tauri::command]
+pub fn update_municipality(
+    state: State<DbConnection>,
+    id: i64,
+    req: UpdateMunicipalityRequest,
+) -> Result<MunicipalityDTO, ApiErrorResponse> {
+    let conn = state.lock().map_err(|e| ApiErrorResponse {
+        error_type: "INTERNAL_ERROR".to_string(),
+        message: format!("Failed to acquire database lock: {}", e),
+    })?;
+    internal_update_municipality(&conn, id, req).map_err(map_app_error)
+}
+
+#[tauri::command]
+pub fn delete_municipality(state: State<DbConnection>, id: i64) -> Result<(), ApiErrorResponse> {
+    let conn = state.lock().map_err(|e| ApiErrorResponse {
+        error_type: "INTERNAL_ERROR".to_string(),
+        message: format!("Failed to acquire database lock: {}", e),
+    })?;
+    internal_delete_municipality(&conn, id).map_err(map_app_error)
 }

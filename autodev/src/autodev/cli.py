@@ -13,6 +13,7 @@ from autodev.acceptance_criteria import (
     migrate_backlog_acceptance_criteria,
     render_coverage_text,
 )
+from autodev.correct_task import CorrectTaskError, correct_task
 from autodev.feature_status import FeatureStatusError, read_feature_status
 from autodev.integrate_task import IntegrateTaskError, integrate_task
 from autodev.monitor import monitor_feature
@@ -202,6 +203,59 @@ def review_task_command(
     table.add_row("Scope", summary["scope"]["status"])
     table.add_row("Issues", str(len(summary["issues"])))
     table.add_row("Résumé", summary["summary"])
+    console.print(table)
+
+
+@app.command("correct-task")
+def correct_task_command(
+    backlog_json: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
+        help="Chemin du backlog JSON.",
+    ),
+    task_id: str = typer.Argument(..., help="Identifiant de tâche à corriger."),
+    guidance_file: Path | None = typer.Option(
+        None,
+        "--guidance",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
+        help="Fichier Markdown facultatif de consignes complémentaires du superviseur.",
+    ),
+) -> None:
+    """Corrige une tâche revue avec Claude, avec supervision humaine facultative."""
+    guidance = guidance_file.read_text(encoding="utf-8") if guidance_file else None
+    try:
+        summary = correct_task(
+            backlog_json=backlog_json,
+            task_id=task_id,
+            guidance=guidance,
+        )
+    except (CorrectTaskError, OSError) as exc:
+        console.print(f"\n[bold red]Échec :[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    table = Table(title="Résumé correct-task")
+    table.add_column("Champ")
+    table.add_column("Valeur")
+    table.add_row("Tâche", summary["task_id"])
+    table.add_row("Statut", summary["status"])
+    table.add_row("Correction", str(summary["correction_number"]))
+    table.add_row("Commit produit", summary.get("produced_commit") or "—")
+    table.add_row(
+        "Chemins conservés",
+        ", ".join(summary.get("remaining_allowed_paths", [])) or "—",
+    )
+    table.add_row(
+        "Validations",
+        ", ".join(summary.get("validation_summary", [])) or "—",
+    )
     console.print(table)
 
 

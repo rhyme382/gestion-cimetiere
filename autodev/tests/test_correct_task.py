@@ -5,8 +5,11 @@ from pathlib import Path
 from typing import Callable
 
 import pytest
+from typer.testing import CliRunner
 
 import autodev.git_tools as git_tools_module
+import autodev.cli as cli_module
+from autodev.cli import app
 from autodev.correct_task import correct_task
 from autodev.run_feature import run_feature
 
@@ -237,6 +240,69 @@ def test_no_allowed_changes_after_restore_triggers_single_retry_with_strict_prom
     assert "Des fichiers hors périmètre ont été restaurés automatiquement" in prompts[1]
     assert "- package.json" in prompts[1]
     assert (worktree / "src" / "task-pilot-002.py").read_text(encoding="utf-8") == "retry success\n"
+
+
+def test_supervised_correction_includes_guidance_and_issue_description(tmp_path: Path) -> None:
+    repo, backlog, _, _ = prepare_correction_case(tmp_path)
+    review_path = repo / ".autodev" / "runs" / "TASK-PILOT-002" / "review" / "review-result.json"
+    review = read_json(review_path)
+    review["issues"] = [
+        {
+            "severity": "major",
+            "description": "Le repository autorise plusieurs communes gestionnaires.",
+            "file": "src/repository.rs",
+            "suggested_fix": "Garantir le singleton.",
+        }
+    ]
+    review_path.write_text(json.dumps(review, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    prompts: list[str] = []
+
+    def change_src(target: Path) -> None:
+        (target / "src" / "task-pilot-002.py").write_text("singleton fixed\n", encoding="utf-8")
+
+    result = correct_task(
+        backlog,
+        "TASK-PILOT-002",
+        guidance="Préserver les bases historiques et refuser une deuxième commune.",
+        claude_runner=make_claude_runner([change_src], prompts),
+    )
+
+    assert result["status"] == "success"
+    assert len(prompts) == 1
+    assert "# Consignes complémentaires du superviseur" in prompts[0]
+    assert "Préserver les bases historiques et refuser une deuxième commune." in prompts[0]
+    assert "major : Le repository autorise plusieurs communes gestionnaires." in prompts[0]
+    assert "la spécification et le contrat de la tâche restent prioritaires" in prompts[0]
+
+
+def test_correct_task_cli_reads_guidance_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    backlog = tmp_path / "backlog.json"
+    backlog.write_text("{}\n", encoding="utf-8")
+    guidance = tmp_path / "guidance.md"
+    guidance.write_text("Consigne supervisée.\n", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    def fake_correct_task(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {
+            "task_id": "TASK-CLI",
+            "status": "success",
+            "correction_number": 2,
+            "produced_commit": "abc123",
+            "remaining_allowed_paths": ["src/fixed.rs"],
+            "validation_summary": ["tests=OK"],
+        }
+
+    monkeypatch.setattr(cli_module, "correct_task", fake_correct_task)
+    result = CliRunner().invoke(
+        app,
+        ["correct-task", str(backlog), "TASK-CLI", "--guidance", str(guidance)],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["task_id"] == "TASK-CLI"
+    assert captured["guidance"] == "Consigne supervisée.\n"
+    assert "Résumé correct-task" in result.output
 
 
 def test_package_json_is_rejected_when_not_allowed(tmp_path: Path) -> None:

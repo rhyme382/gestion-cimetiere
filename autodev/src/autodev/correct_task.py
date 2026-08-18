@@ -46,6 +46,7 @@ def correct_task(
     backlog_json: Path,
     task_id: str,
     *,
+    guidance: str | None = None,
     claude_runner: Any | None = None,
 ) -> dict[str, Any]:
     repo_root = find_repo_root(backlog_json.parent)
@@ -113,6 +114,7 @@ def correct_task(
             current_head=current_head,
             before_status=before_status,
             before_dirty_paths=before_dirty_paths,
+            guidance=guidance,
             claude_runner=claude_runner,
         )
 
@@ -258,6 +260,7 @@ def build_correction_prompt(
     backlog: dict[str, Any],
     task: dict[str, Any],
     review_result: dict[str, Any],
+    guidance: str | None = None,
     restored_paths: list[str] | None = None,
     retry_after_restore: bool = False,
 ) -> str:
@@ -268,9 +271,24 @@ def build_correction_prompt(
 
     issues = review_result.get("issues", [])
     issue_lines = "\n".join(
-        f"- {issue.get('severity', 'unknown')} : {issue.get('message', '')}".rstrip()
+        (
+            f"- {issue.get('severity', 'unknown')} : "
+            f"{issue.get('description') or issue.get('message', '')}"
+        ).rstrip()
         for issue in issues
     ) or "- Aucun détail fourni."
+    normalized_guidance = guidance.strip() if guidance else ""
+    guidance_block = ""
+    if normalized_guidance:
+        guidance_block = f"""
+# Consignes complémentaires du superviseur
+
+Ces consignes précisent la manière de traiter la revue sans remplacer la spécification,
+le backlog, les critères propriétaires ni les chemins autorisés. En cas de contradiction,
+la spécification et le contrat de la tâche restent prioritaires.
+
+{normalized_guidance}
+"""
 
     suggestions = []
     for check in review_result.get("requirement_checks", []):
@@ -349,6 +367,8 @@ Chemin : `{spec_path}`
 {review_blob}
 ```
 
+{guidance_block}
+
 # Problèmes détectés
 
 {issue_lines}
@@ -385,6 +405,7 @@ def run_correction_attempt(
     current_head: str,
     before_status: str,
     before_dirty_paths: list[str],
+    guidance: str | None,
     claude_runner: Any,
 ) -> dict[str, Any]:
     restored_union: set[str] = set()
@@ -400,6 +421,7 @@ def run_correction_attempt(
             backlog=backlog,
             task=task,
             review_result=review_result,
+            guidance=guidance,
             restored_paths=restored_from_previous_attempt,
             retry_after_restore=attempt_number == 2,
         )

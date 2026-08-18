@@ -8,7 +8,12 @@ from pathlib import Path
 import pytest
 
 from autodev.planner import PlanningError, validate_backlog_consistency
-from autodev.review_task import ReviewTaskError, review_task
+from autodev.review_task import (
+    NON_AUTHORITATIVE_REPORT_MARKER,
+    ReviewTaskError,
+    filter_diff_for_review,
+    review_task,
+)
 from autodev.task_runner import RunTaskError, run_task
 
 from test_task_runner import commit_all, init_repo, make_task, write_backlog
@@ -328,6 +333,33 @@ def test_review_prompt_contains_exact_task_id_instruction(tmp_path: Path) -> Non
     assert "L'identifiant exact de la tâche est : `T1`" in prompt
     assert "Retourne exactement cette valeur dans `task_id`." in prompt
     assert "Ne la préfixe pas, ne la normalise pas et ne la transforme pas." in prompt
+
+
+def test_review_diff_omits_stale_correction_narrative_but_keeps_current_tests() -> None:
+    diff_text = """diff --git a/reports/dev/T1-correction-report.md b/reports/dev/T1-correction-report.md
+new file mode 100644
+--- /dev/null
++++ b/reports/dev/T1-correction-report.md
+@@ -0,0 +1,2 @@
++Ancienne tentative : les tests appellent seulement internal_*.
++Le mapping d'erreurs est recopié localement.
+diff --git a/src-tauri/tests/public_commands.rs b/src-tauri/tests/public_commands.rs
+new file mode 100644
+--- /dev/null
++++ b/src-tauri/tests/public_commands.rs
+@@ -0,0 +1,2 @@
++municipality::create_municipality(state, req);
++cemetery::list_cemeteries(state);
+"""
+
+    filtered = filter_diff_for_review(diff_text)
+
+    assert "reports/dev/T1-correction-report.md" in filtered
+    assert NON_AUTHORITATIVE_REPORT_MARKER in filtered
+    assert "appellent seulement internal_*" not in filtered
+    assert "mapping d'erreurs est recopié" not in filtered
+    assert "municipality::create_municipality(state, req)" in filtered
+    assert "cemetery::list_cemeteries(state)" in filtered
 
 
 def test_review_prompt_excludes_requirements_owned_by_another_task(tmp_path: Path) -> None:

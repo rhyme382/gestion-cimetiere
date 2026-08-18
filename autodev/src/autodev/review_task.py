@@ -29,6 +29,11 @@ ISSUE_SEVERITIES = {"blocking", "major", "minor"}
 TEST_STATUSES = {"PASS", "FAIL"}
 SCOPE_STATUSES = {"PASS", "FAIL"}
 
+NON_AUTHORITATIVE_REPORT_MARKER = (
+    "Contenu narratif historique omis du prompt de preuve ; "
+    "le chemin reste contrôlé par Git name-status."
+)
+
 
 class ReviewTaskError(RuntimeError):
     """Erreur pendant la revue automatique d'une tâche."""
@@ -342,6 +347,7 @@ def build_review_prompt(
         f"- {criterion['acceptance_criterion_id']} ({criterion['requirement_id']}) : {criterion['text']}"
         for criterion in owned_criteria
     ) or "- Aucun"
+    review_diff_text = filter_diff_for_review(diff_text)
 
     return f"""# Revue automatique de tâche autodev
 
@@ -355,6 +361,8 @@ Contraintes impératives :
 - évaluer la tâche courante avec son propre périmètre de preuve ;
 - considérer le contrat propriétaire ci-dessous comme exhaustif : toute exigence ou tout critère absent de ce contrat appartient hors du périmètre de cette revue ;
 - ne créer aucune `issue` à partir d'une exigence absente du contrat propriétaire, même si le diff suggère qu'elle sera traitée par une autre tâche ;
+- traiter le code et les tests du commit courant comme preuves techniques autoritatives ;
+- ne jamais utiliser un rapport de correction, de vérification ou de validation narratif pour contredire le code ou les tests courants : ces rapports peuvent décrire une tentative antérieure ;
 - appliquer strictement les règles de verdict ci-dessous.
 
 Backlog : `{backlog_json}`
@@ -435,8 +443,10 @@ La spécification complète n'est volontairement pas incluse : seuls les exigenc
 
 # Diff Git complet
 
+Le contenu des rapports narratifs de correction ou de vérification est volontairement omis : leurs chemins restent visibles ci-dessus pour le contrôle de périmètre, mais leurs affirmations ne constituent pas une preuve technique.
+
 ```diff
-{diff_text}
+{review_diff_text}
 ```
 
 # Attendu pour la réponse
@@ -449,6 +459,54 @@ Le champ `task_id` doit reprendre exactement `{exact_task_id}`.
 - Ne génère jamais le texte du critère propriétaire et ne le reformule jamais.
 - Chaque entrée de `requirement_checks` doit contenir `requirement_id`, `acceptance_criterion_id`, `status`, `evidence`. Le champ legacy `criterion` est toléré mais ignoré.
 """
+
+
+def filter_diff_for_review(diff_text: str) -> str:
+    """Retire du prompt les récits de correction historiques, sans masquer leurs chemins Git."""
+    if not diff_text:
+        return diff_text
+
+    blocks: list[list[str]] = []
+    current: list[str] = []
+    for line in diff_text.splitlines(keepends=True):
+        if line.startswith("diff --git ") and current:
+            blocks.append(current)
+            current = []
+        current.append(line)
+    if current:
+        blocks.append(current)
+
+    filtered: list[str] = []
+    for block in blocks:
+        path = _diff_block_path(block[0]) if block else None
+        if path is not None and _is_historical_narrative_report(path):
+            newline = "\n" if block[0].endswith("\n") else ""
+            filtered.append(block[0])
+            filtered.append(f"# {NON_AUTHORITATIVE_REPORT_MARKER}{newline}")
+            continue
+        filtered.extend(block)
+    return "".join(filtered)
+
+
+def _diff_block_path(header: str) -> str | None:
+    prefix = "diff --git a/"
+    if not header.startswith(prefix):
+        return None
+    remainder = header[len(prefix):].rstrip("\n")
+    _, separator, destination = remainder.partition(" b/")
+    return destination if separator else None
+
+
+def _is_historical_narrative_report(path: str) -> bool:
+    normalized = path.lower()
+    if not normalized.startswith(("reports/dev/", "agents/reports/")):
+        return False
+    filename = Path(normalized).name
+    return (
+        "correction" in filename
+        or "verification" in filename
+        or filename in {"validation_evidence.md", "correction_summary.md"}
+    )
 
 
 def collect_integrated_dependency_context(

@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
+  listMunicipalities,
+  getMunicipality,
+  createMunicipality,
+  updateMunicipality,
+  deleteMunicipality,
   getDiagnostic,
   listConcessions,
   getConcession,
@@ -19,6 +24,9 @@ import {
   getAlertSummary,
 } from "@/lib/tauri";
 import type {
+  MunicipalityDTO,
+  CreateMunicipalityRequest,
+  UpdateMunicipalityRequest,
   DiagnosticDTO,
   ConcessionDTO,
   CreateConcessionRequest,
@@ -113,6 +121,122 @@ describe("Tauri client functions", () => {
     });
   });
 
+  describe("Municipality commands", () => {
+    it("listMunicipalities should invoke list_municipalities", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const mockInvoke = invoke as ReturnType<typeof vi.fn>;
+
+      const mockMunicipalities: MunicipalityDTO[] = [];
+      mockInvoke.mockResolvedValueOnce(mockMunicipalities);
+
+      const result = await listMunicipalities();
+
+      expect(mockInvoke).toHaveBeenCalledWith("list_municipalities");
+      expect(result).toEqual([]);
+    });
+
+    it("getMunicipality should invoke get_municipality with id", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const mockInvoke = invoke as ReturnType<typeof vi.fn>;
+
+      const mockMunicipality: MunicipalityDTO = {
+        id: 1,
+        name: "Paris",
+        insee_code: "75056",
+        postal_code: "75001",
+        email: "mairie@paris.fr",
+        department: "75",
+        region: "Île-de-France",
+        notes: "Capitale de la France",
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+      };
+
+      mockInvoke.mockResolvedValueOnce(mockMunicipality);
+
+      const result = await getMunicipality(1);
+
+      expect(mockInvoke).toHaveBeenCalledWith("get_municipality", { id: 1 });
+      expect(result.id).toBe(1);
+      expect(result.name).toBe("Paris");
+      expect(result.insee_code).toBe("75056");
+    });
+
+    it("createMunicipality should invoke create_municipality with req parameter", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const mockInvoke = invoke as ReturnType<typeof vi.fn>;
+
+      const req: CreateMunicipalityRequest = {
+        name: "Lyon",
+        insee_code: "69123",
+        postal_code: "69001",
+        email: "mairie@lyon.fr",
+        department: "69",
+        region: "Auvergne-Rhône-Alpes",
+        notes: "Deuxième ville de France",
+      };
+
+      const mockMunicipality: MunicipalityDTO = {
+        id: 2,
+        ...req,
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-01T00:00:00Z",
+      };
+
+      mockInvoke.mockResolvedValueOnce(mockMunicipality);
+
+      const result = await createMunicipality(req);
+
+      expect(mockInvoke).toHaveBeenCalledWith("create_municipality", { req });
+      expect(result.id).toBe(2);
+      expect(result.name).toBe("Lyon");
+      expect(result.insee_code).toBe("69123");
+    });
+
+    it("updateMunicipality should invoke update_municipality with id and req parameters", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const mockInvoke = invoke as ReturnType<typeof vi.fn>;
+
+      const updateReq: UpdateMunicipalityRequest = {
+        email: "contact@paris.fr",
+        notes: "Email mis à jour",
+      };
+
+      const mockMunicipality: MunicipalityDTO = {
+        id: 1,
+        name: "Paris",
+        insee_code: "75056",
+        postal_code: "75001",
+        email: "contact@paris.fr",
+        department: "75",
+        region: "Île-de-France",
+        notes: "Email mis à jour",
+        created_at: "2024-01-01T00:00:00Z",
+        updated_at: "2024-01-02T00:00:00Z",
+      };
+
+      mockInvoke.mockResolvedValueOnce(mockMunicipality);
+
+      const result = await updateMunicipality(1, updateReq);
+
+      expect(mockInvoke).toHaveBeenCalledWith("update_municipality", { id: 1, req: updateReq });
+      expect(result.email).toBe("contact@paris.fr");
+      expect(result.notes).toBe("Email mis à jour");
+    });
+
+    it("deleteMunicipality should invoke delete_municipality with id", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const mockInvoke = invoke as ReturnType<typeof vi.fn>;
+
+      mockInvoke.mockResolvedValueOnce(undefined);
+
+      const result = await deleteMunicipality(1);
+
+      expect(mockInvoke).toHaveBeenCalledWith("delete_municipality", { id: 1 });
+      expect(result).toBeUndefined();
+    });
+  });
+
   describe("Cemetery commands", () => {
     it("createCemetery should invoke create_cemetery with req parameter (not request)", async () => {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -122,11 +246,14 @@ describe("Tauri client functions", () => {
         name: "Cimetière Municipal",
         commune: "Paris",
         capacity: 500,
+        municipality_id: 1,
+        address: "123 rue de l'Église",
       };
 
       const mockCemetery: CemeteryDTO = {
         id: 1,
         ...req,
+        is_active: 1,
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-01T00:00:00Z",
       };
@@ -138,6 +265,9 @@ describe("Tauri client functions", () => {
       expect(mockInvoke).toHaveBeenCalledWith("create_cemetery", { req });
       expect(result.id).toBe(1);
       expect(result.name).toBe("Cimetière Municipal");
+      expect(result.municipality_id).toBe(1);
+      expect(result.address).toBe("123 rue de l'Église");
+      expect(result.is_active).toBe(1);
     });
 
     it("updateCemetery should invoke update_cemetery with id and req parameters", async () => {
@@ -146,6 +276,8 @@ describe("Tauri client functions", () => {
 
       const updateReq: UpdateCemeteryRequest = {
         name: "Cimetière Rénové",
+        address: "456 avenue",
+        is_active: 1,
       };
 
       const mockCemetery: CemeteryDTO = {
@@ -153,6 +285,9 @@ describe("Tauri client functions", () => {
         name: "Cimetière Rénové",
         commune: "Paris",
         capacity: 500,
+        municipality_id: 1,
+        address: "456 avenue",
+        is_active: 1,
         created_at: "2024-01-01T00:00:00Z",
         updated_at: "2024-01-02T00:00:00Z",
       };
@@ -163,6 +298,8 @@ describe("Tauri client functions", () => {
 
       expect(mockInvoke).toHaveBeenCalledWith("update_cemetery", { id: 1, req: updateReq });
       expect(result.name).toBe("Cimetière Rénové");
+      expect(result.address).toBe("456 avenue");
+      expect(result.is_active).toBe(1);
     });
   });
 

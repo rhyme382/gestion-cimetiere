@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
 import type {
+  MunicipalityDTO,
+  CreateMunicipalityRequest,
+  UpdateMunicipalityRequest,
   CemeteryDTO,
   PlotDTO,
   ConcessionDTO,
@@ -14,17 +17,109 @@ import type {
 } from "@/types/bindings";
 
 describe("Types bindings — cohérence de forme", () => {
+  it("MunicipalityDTO a les champs attendus", () => {
+    const example: MunicipalityDTO = {
+      id: 1,
+      name: "Paris",
+      insee_code: "75056",
+      postal_code: "75001",
+      email: "mairie@paris.fr",
+      department: "75",
+      region: "Île-de-France",
+      notes: "Capitale de la France",
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+    };
+    expect(example.id).toBe(1);
+    expect(example.name).toBe("Paris");
+    expect(example.insee_code).toBe("75056");
+    expect(example.postal_code).toBe("75001");
+  });
+
+  it("MunicipalityDTO peut avoir des champs optionnels null", () => {
+    const example: MunicipalityDTO = {
+      id: 2,
+      name: "Petite Commune",
+      insee_code: "12345",
+      postal_code: null,
+      email: null,
+      department: null,
+      region: null,
+      notes: null,
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+    };
+    expect(example.postal_code).toBeNull();
+    expect(example.email).toBeNull();
+    expect(example.department).toBeNull();
+    expect(example.region).toBeNull();
+    expect(example.notes).toBeNull();
+  });
+
+  it("CreateMunicipalityRequest valide le contrat de création", () => {
+    const createReq: CreateMunicipalityRequest = {
+      name: "Lyon",
+      insee_code: "69123",
+      postal_code: "69001",
+      email: "mairie@lyon.fr",
+      department: "69",
+      region: "Auvergne-Rhône-Alpes",
+      notes: "Deuxième ville de France",
+    };
+    expect(createReq.name).toBe("Lyon");
+    expect(createReq.insee_code).toBe("69123");
+    expect(createReq.postal_code).toBe("69001");
+  });
+
+  it("UpdateMunicipalityRequest valide le contrat de mise à jour partielle", () => {
+    const updateReq1: UpdateMunicipalityRequest = {
+      email: "contact@paris.fr",
+    };
+    expect(updateReq1.email).toBe("contact@paris.fr");
+    expect(updateReq1.name).toBeUndefined();
+
+    const updateReq2: UpdateMunicipalityRequest = {
+      postal_code: null,
+      notes: "Mise à jour informations",
+    };
+    expect(updateReq2.postal_code).toBeNull();
+    expect(updateReq2.notes).toBe("Mise à jour informations");
+  });
+
   it("CemeteryDTO a les champs attendus", () => {
     const example: CemeteryDTO = {
       id: 1,
       name: "Cimetière municipal",
       commune: null,
       capacity: null,
+      municipality_id: 1,
+      address: "123 rue de l'Église",
+      is_active: 1,
       created_at: "2024-01-01T00:00:00Z",
       updated_at: "2024-01-01T00:00:00Z",
     };
     expect(example.id).toBe(1);
     expect(example.name).toBe("Cimetière municipal");
+    expect(example.municipality_id).toBe(1);
+    expect(example.address).toBe("123 rue de l'Église");
+    expect(example.is_active).toBe(1);
+  });
+
+  it("CemeteryDTO peut avoir municipality_id et address null", () => {
+    const example: CemeteryDTO = {
+      id: 2,
+      name: "Cimetière distant",
+      commune: "Marseille",
+      capacity: 1000,
+      municipality_id: null,
+      address: null,
+      is_active: 0,
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+    };
+    expect(example.municipality_id).toBeNull();
+    expect(example.address).toBeNull();
+    expect(example.is_active).toBe(0);
   });
 
   it("PlotDTO a les champs attendus", () => {

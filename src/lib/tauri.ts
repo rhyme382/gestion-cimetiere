@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  MunicipalityDTO, CreateMunicipalityRequest, UpdateMunicipalityRequest,
   CemeteryDTO, CreateCemeteryRequest, UpdateCemeteryRequest,
   PlotDTO, CreatePlotRequest, UpdatePlotRequest,
   ConcessionDTO, CreateConcessionRequest, UpdateConcessionRequest,
@@ -8,6 +9,13 @@ import type {
   AlertDTO, AlertSummaryDTO,
   DiagnosticDTO,
 } from "@/types/bindings";
+
+// Municipality
+export const listMunicipalities = () => invoke<MunicipalityDTO[]>("list_municipalities");
+export const getMunicipality = (id: number) => invoke<MunicipalityDTO>("get_municipality", { id });
+export const createMunicipality = (req: CreateMunicipalityRequest) => invoke<MunicipalityDTO>("create_municipality", { req });
+export const updateMunicipality = (id: number, req: UpdateMunicipalityRequest) => invoke<MunicipalityDTO>("update_municipality", { id, req });
+export const deleteMunicipality = (id: number) => invoke<void>("delete_municipality", { id });
 
 // Cemetery
 export const listCemeteries = () => invoke<CemeteryDTO[]>("list_cemeteries");

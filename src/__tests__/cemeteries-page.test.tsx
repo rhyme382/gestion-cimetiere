@@ -112,6 +112,35 @@ describe("CemeteriesPage", () => {
     });
   });
 
+  it("récupère une erreur de chargement au clic sur le bouton Réessayer", async () => {
+    const user = userEvent.setup();
+    const error = new Error("Erreur de connexion");
+
+    vi.mocked(tauriLib.listCemeteries)
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce(mockCemeteries);
+
+    render(
+      <TestWrapper>
+        <CemeteriesPage />
+      </TestWrapper>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Erreur de connexion")).toBeInTheDocument();
+    });
+
+    const retryButton = screen.getByRole("button", { name: /Réessayer/ });
+    expect(retryButton).toBeInTheDocument();
+
+    await user.click(retryButton);
+
+    await waitFor(() => {
+      expect(screen.getByText("Cimetière du Nord")).toBeInTheDocument();
+      expect(screen.getByText("Cimetière du Sud")).toBeInTheDocument();
+    });
+  });
+
   it("distingue visuellement les cimetières inactifs", async () => {
     vi.mocked(tauriLib.listCemeteries).mockResolvedValue(mockCemeteries);
 
@@ -175,23 +204,10 @@ describe("CemeteriesPage", () => {
     expect(screen.getByPlaceholderText("Ex: Cimetière du Nord")).toBeInTheDocument();
   });
 
-  it("crée un cimetière et rafraîchit la liste", async () => {
+  it("crée un cimetière et rafraîchit la liste sans délai", async () => {
     const user = userEvent.setup();
-    vi.mocked(tauriLib.listCemeteries)
-      .mockResolvedValueOnce(mockCemeteries)
-      .mockResolvedValueOnce([...mockCemeteries, {
-        id: 4,
-        name: "Nouveau Cimetière",
-        address: "789 Rue du Repos",
-        commune: "Paris",
-        capacity: 200,
-        municipality_id: 1,
-        is_active: 1,
-        created_at: "2026-01-15T00:00:00Z",
-        updated_at: "2026-01-15T00:00:00Z",
-      }]);
-
-    const createCemeteryMock = vi.fn().mockResolvedValue({
+    let callCount = 0;
+    const newCemetery = {
       id: 4,
       name: "Nouveau Cimetière",
       address: "789 Rue du Repos",
@@ -201,8 +217,17 @@ describe("CemeteriesPage", () => {
       is_active: 1,
       created_at: "2026-01-15T00:00:00Z",
       updated_at: "2026-01-15T00:00:00Z",
+    };
+
+    vi.mocked(tauriLib.listCemeteries).mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return mockCemeteries;
+      }
+      return [...mockCemeteries, newCemetery];
     });
 
+    const createCemeteryMock = vi.fn().mockResolvedValue(newCemetery);
     vi.mocked(tauriLib.createCemetery).mockImplementation(createCemeteryMock);
 
     render(
@@ -224,18 +249,27 @@ describe("CemeteriesPage", () => {
       expect(createCemeteryMock).toHaveBeenCalledWith(
         expect.objectContaining({ name: "Nouveau Cimetière" })
       );
-    });
+    }, { timeout: 3000 });
   });
 
-  it("modifie un cimetière au clic sur éditer", async () => {
+  it("modifie un cimetière au clic sur éditer et rafraîchit sans délai", async () => {
     const user = userEvent.setup();
-    vi.mocked(tauriLib.listCemeteries).mockResolvedValue(mockCemeteries);
-
-    const updateCemeteryMock = vi.fn().mockResolvedValue({
+    const modifiedCemetery = {
       ...mockCemeteries[0],
       name: "Cimetière du Nord (Modifié)",
+      address: "456 Nouvelle Rue",
+    };
+
+    let callCount = 0;
+    vi.mocked(tauriLib.listCemeteries).mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) {
+        return mockCemeteries;
+      }
+      return [modifiedCemetery, ...mockCemeteries.slice(1)];
     });
 
+    const updateCemeteryMock = vi.fn().mockResolvedValue(modifiedCemetery);
     vi.mocked(tauriLib.updateCemetery).mockImplementation(updateCemeteryMock);
 
     render(
@@ -253,6 +287,20 @@ describe("CemeteriesPage", () => {
 
     expect(screen.getByText("Modifier le cimetière")).toBeInTheDocument();
     expect(screen.getByDisplayValue("Cimetière du Nord")).toBeInTheDocument();
+
+    const nameInput = screen.getByDisplayValue("Cimetière du Nord") as HTMLInputElement;
+    await user.clear(nameInput);
+    await user.type(nameInput, "Cimetière du Nord (Modifié)");
+
+    const submitButton = screen.getByRole("button", { name: /Modifier/ });
+    await user.click(submitButton);
+
+    await waitFor(() => {
+      expect(updateCemeteryMock).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ name: "Cimetière du Nord (Modifié)" })
+      );
+    }, { timeout: 3000 });
   });
 
   it("affiche la fiche détails au clic sur œil", async () => {

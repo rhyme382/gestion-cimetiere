@@ -71,9 +71,10 @@ export default function CemeteriesPage() {
       setFormMode(null);
       setSelectedCemetery(null);
 
+      refetch();
+
       setTimeout(() => {
         setShowSuccess(false);
-        refetch();
       }, 1500);
     } catch (err) {
       throw err;
@@ -213,6 +214,7 @@ export default function CemeteriesPage() {
           loading={loading}
           error={error}
           data={displayData}
+          onRetry={refetch}
           emptyState={{
             icon: <Building2 className="h-12 w-12" />,
             title: "Aucun cimetière",

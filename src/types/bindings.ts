@@ -4,6 +4,41 @@
 // export when tauri-specta is fully wired (post MVP-06).
 // ============================================================
 
+// --- Municipality ---
+
+export interface MunicipalityDTO {
+  id: number;
+  name: string;
+  insee_code: string;
+  postal_code: string | null;
+  email: string | null;
+  department: string | null;
+  region: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateMunicipalityRequest {
+  name: string;
+  insee_code: string;
+  postal_code?: string;
+  email?: string;
+  department?: string;
+  region?: string;
+  notes?: string;
+}
+
+export interface UpdateMunicipalityRequest {
+  name?: string;
+  insee_code?: string;
+  postal_code?: string | null;
+  email?: string | null;
+  department?: string | null;
+  region?: string | null;
+  notes?: string | null;
+}
+
 // --- Cemetery ---
 
 export interface CemeteryDTO {
@@ -11,6 +46,9 @@ export interface CemeteryDTO {
   name: string;
   commune: string | null;
   capacity: number | null;
+  municipality_id: number | null;
+  address: string | null;
+  is_active: number;
   created_at: string;
   updated_at: string;
 }
@@ -19,12 +57,17 @@ export interface CreateCemeteryRequest {
   name: string;
   commune?: string;
   capacity?: number;
+  municipality_id?: number;
+  address?: string;
 }
 
 export interface UpdateCemeteryRequest {
   name?: string;
   commune?: string;
   capacity?: number;
+  municipality_id?: number | null;
+  address?: string | null;
+  is_active?: number;
 }
 
 // --- Plot (Emplacement) ---

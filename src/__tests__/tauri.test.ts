@@ -37,6 +37,7 @@ import type {
   IndividualDTO,
   CreateIndividualRequest,
   UpdateIndividualRequest,
+  PlotDTO,
 } from "@/types/bindings";
 
 vi.mock("@tauri-apps/api/core", () => ({

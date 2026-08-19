@@ -5,13 +5,25 @@ const INITIAL_SCHEMA: &str = include_str!("../../migrations/001_initial_schema.s
 const ALERTS_TABLE: &str = include_str!("../../migrations/0006_create_alerts_table.sql");
 const CONCESSIONS_LIFECYCLE: &str =
     include_str!("../../migrations/0007_extend_concessions_for_lifecycle.sql");
-const MUNICIPALITIES_TABLE: &str = include_str!("../../migrations/0008_create_municipalities_table.sql");
+const MUNICIPALITIES_TABLE: &str =
+    include_str!("../../migrations/0008_create_municipalities_table.sql");
 const CEMETERIES_MUNICIPALITIES_EXT: &str =
     include_str!("../../migrations/0009_extend_cemeteries_for_municipalities.sql");
 
 const MIGRATION_0007_ID: &str = "0007_extend_concessions_for_lifecycle";
 const MIGRATION_0008_ID: &str = "0008_create_municipalities_table";
 const MIGRATION_0009_ID: &str = "0009_extend_cemeteries_for_municipalities";
+const MIGRATION_0010_ID: &str = "0010_add_insee_code_and_email_to_municipalities";
+
+// Migration 0010: Add insee_code and email to municipalities table for FP-001 R2
+// Adds mandatory INSEE code (5 alphanumeric chars, uppercase) and optional email
+// Backfills existing municipalities with placeholder INSEE code to ensure readability
+const MUNICIPALITIES_INSEE_EMAIL: &str = "
+ALTER TABLE municipalities ADD COLUMN insee_code TEXT DEFAULT '00000';
+ALTER TABLE municipalities ADD COLUMN email TEXT;
+CREATE INDEX IF NOT EXISTS idx_municipalities_insee_code ON municipalities(insee_code);
+UPDATE municipalities SET insee_code = COALESCE(insee_code, '00000');
+";
 
 pub fn run_migrations(conn: &Connection) -> AppResult<()> {
     conn.execute_batch(INITIAL_SCHEMA)?;
@@ -28,6 +40,7 @@ pub fn run_migrations(conn: &Connection) -> AppResult<()> {
     apply_migration_0007(conn)?;
     apply_migration_0008(conn)?;
     apply_migration_0009(conn)?;
+    apply_migration_0010(conn)?;
     Ok(())
 }
 
@@ -87,6 +100,27 @@ fn apply_migration_0009(conn: &Connection) -> AppResult<()> {
     }
 
     if let Err(e) = record_migration(conn, MIGRATION_0009_ID) {
+        let _ = conn.execute("ROLLBACK", []);
+        return Err(e);
+    }
+
+    conn.execute("COMMIT", [])?;
+    Ok(())
+}
+
+fn apply_migration_0010(conn: &Connection) -> AppResult<()> {
+    if has_migration_been_applied(conn, MIGRATION_0010_ID)? {
+        return Ok(());
+    }
+
+    conn.execute("BEGIN", [])?;
+
+    if let Err(e) = conn.execute_batch(MUNICIPALITIES_INSEE_EMAIL) {
+        let _ = conn.execute("ROLLBACK", []);
+        return Err(e.into());
+    }
+
+    if let Err(e) = record_migration(conn, MIGRATION_0010_ID) {
         let _ = conn.execute("ROLLBACK", []);
         return Err(e);
     }
@@ -633,7 +667,10 @@ mod tests {
                 },
             )
             .unwrap();
-        assert!(table_exists, "municipalities table should exist after migration");
+        assert!(
+            table_exists,
+            "municipalities table should exist after migration"
+        );
 
         // Verify required columns exist
         let columns: Vec<String> = conn
@@ -661,7 +698,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(recorded, 1, "Migration 0008 should be recorded exactly once");
+        assert_eq!(
+            recorded, 1,
+            "Migration 0008 should be recorded exactly once"
+        );
     }
 
     #[test]
@@ -701,7 +741,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(recorded, 1, "Migration 0009 should be recorded exactly once");
+        assert_eq!(
+            recorded, 1,
+            "Migration 0009 should be recorded exactly once"
+        );
     }
 
     #[test]
@@ -715,7 +758,10 @@ mod tests {
 
         // Second run should also succeed
         let result2 = run_migrations(&conn);
-        assert!(result2.is_ok(), "Second migration run should succeed (idempotent)");
+        assert!(
+            result2.is_ok(),
+            "Second migration run should succeed (idempotent)"
+        );
 
         // Verify both migrations recorded exactly once
         let count_0008: i64 = conn
@@ -725,7 +771,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(count_0008, 1, "Migration 0008 should be recorded exactly once");
+        assert_eq!(
+            count_0008, 1,
+            "Migration 0008 should be recorded exactly once"
+        );
 
         let count_0009: i64 = conn
             .query_row(
@@ -734,7 +783,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(count_0009, 1, "Migration 0009 should be recorded exactly once");
+        assert_eq!(
+            count_0009, 1,
+            "Migration 0009 should be recorded exactly once"
+        );
     }
 
     #[test]
@@ -840,7 +892,10 @@ mod tests {
             new_cemetery_count, old_cemetery_count,
             "Cemetery count should be preserved"
         );
-        assert_eq!(new_plot_count, old_plot_count, "Plot count should be preserved");
+        assert_eq!(
+            new_plot_count, old_plot_count,
+            "Plot count should be preserved"
+        );
         assert_eq!(
             new_concession_count, old_concession_count,
             "Concession count should be preserved"
@@ -883,7 +938,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(municipality_name, "Paris", "Municipality name should match commune");
+        assert_eq!(
+            municipality_name, "Paris",
+            "Municipality name should match commune"
+        );
     }
 
     #[test]
@@ -896,22 +954,14 @@ mod tests {
         // Insert first municipality
         conn.execute(
             "INSERT INTO municipalities (name, created_at, updated_at) VALUES (?, ?, ?)",
-            rusqlite::params![
-                "Paris",
-                "2026-01-01T00:00:00Z",
-                "2026-01-01T00:00:00Z"
-            ],
+            rusqlite::params!["Paris", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],
         )
         .unwrap();
 
         // Attempt to insert duplicate should fail
         let result = conn.execute(
             "INSERT INTO municipalities (name, created_at, updated_at) VALUES (?, ?, ?)",
-            rusqlite::params![
-                "Paris",
-                "2026-01-01T00:00:00Z",
-                "2026-01-01T00:00:00Z"
-            ],
+            rusqlite::params!["Paris", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],
         );
 
         assert!(
@@ -986,7 +1036,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(linked, 1, "Cemetery should be linked to municipality via backfill");
+        assert_eq!(
+            linked, 1,
+            "Cemetery should be linked to municipality via backfill"
+        );
     }
 
     #[test]
@@ -1064,15 +1117,14 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(active_count, 3, "All cemeteries should be active by default");
+        assert_eq!(
+            active_count, 3,
+            "All cemeteries should be active by default"
+        );
 
         // Verify municipalities were created: 2 distinct (Paris, Lyon)
         let municipality_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM municipalities",
-                [],
-                |row| row.get(0),
-            )
+            .query_row("SELECT COUNT(*) FROM municipalities", [], |row| row.get(0))
             .unwrap();
         assert_eq!(
             municipality_count, 2,
@@ -1159,7 +1211,7 @@ mod tests {
         .unwrap();
 
         // Record state BEFORE migration (municipalities table doesn't exist yet)
-        let pre_cemetery_count: i64 = conn
+        let _pre_cemetery_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM cemeteries", [], |row| row.get(0))
             .unwrap();
 
@@ -1280,6 +1332,131 @@ mod tests {
         assert_eq!(
             final_cemetery_1_municipality_id, cemetery_1_municipality_id,
             "Municipality ID should not change after re-running migration (idempotent)"
+        );
+    }
+
+    #[test]
+    fn test_migration_0010_backfill_municipalities_for_fp001_r2_ac5() {
+        // FP001-R2-AC5: After upgrade to migration 0010, old municipalities without insee_code
+        // must remain readable. This test proves municipalities from FP001-T01 (which created
+        // empty municipalities via migration 0008) can be read after adding insee_code via 0010.
+        let conn = Connection::open(":memory:").unwrap();
+        conn.execute("PRAGMA foreign_keys = ON", []).unwrap();
+
+        // Simulate pre-0010 state: apply only migrations up to 0009
+        conn.execute_batch(INITIAL_SCHEMA).unwrap();
+        conn.execute_batch(ALERTS_TABLE).unwrap();
+        conn.execute_batch(CONCESSIONS_LIFECYCLE).unwrap();
+        conn.execute_batch(MUNICIPALITIES_TABLE).unwrap();
+        conn.execute_batch(CEMETERIES_MUNICIPALITIES_EXT).unwrap();
+
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (
+                version TEXT PRIMARY KEY NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )",
+            [],
+        )
+        .unwrap();
+
+        // Record that migrations 0007-0009 have been applied
+        conn.execute(
+            "INSERT INTO schema_migrations (version) VALUES (?)",
+            rusqlite::params![MIGRATION_0007_ID],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO schema_migrations (version) VALUES (?)",
+            rusqlite::params![MIGRATION_0008_ID],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO schema_migrations (version) VALUES (?)",
+            rusqlite::params![MIGRATION_0009_ID],
+        )
+        .unwrap();
+
+        // Insert legacy municipalities WITHOUT insee_code (simulating FP001-T01 state)
+        conn.execute(
+            "INSERT INTO municipalities (id, name, postal_code, department, region, notes, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            rusqlite::params![
+                1,
+                "Legacy Municipality",
+                Some("13000".to_string()),
+                None::<String>,
+                None::<String>,
+                None::<String>,
+                "2026-01-01T00:00:00Z",
+                "2026-01-01T00:00:00Z"
+            ],
+        )
+        .unwrap();
+
+        // Verify pre-migration state: municipality exists but has no insee_code
+        let pre_migration_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM municipalities", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(pre_migration_count, 1, "Setup: should have 1 municipality");
+
+        // NOW apply migration 0010
+        apply_migration_0010(&conn).unwrap();
+
+        // POST-MIGRATION VERIFICATION: Old municipality is still readable
+
+        // 1. Municipality still exists
+        let post_migration_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM municipalities", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(
+            post_migration_count, 1,
+            "Municipality should still exist after migration"
+        );
+
+        // 2. We can read all columns including the newly added insee_code
+        let (name, postal_code, insee_code, email): (
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+        ) = conn
+            .query_row(
+                "SELECT name, postal_code, insee_code, email FROM municipalities WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .unwrap();
+
+        assert_eq!(name, "Legacy Municipality", "Name should be preserved");
+        assert_eq!(
+            postal_code,
+            Some("13000".to_string()),
+            "Postal code should be preserved"
+        );
+        assert_eq!(
+            insee_code, "00000",
+            "insee_code should be backfilled with placeholder"
+        );
+        assert_eq!(email, None, "email should be NULL for legacy data");
+
+        // 3. Test idempotency: running migration 0010 again should not break anything
+        apply_migration_0010(&conn).unwrap();
+
+        let (name2, insee_code2): (String, String) = conn
+            .query_row(
+                "SELECT name, insee_code FROM municipalities WHERE id = 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+
+        assert_eq!(
+            name2, "Legacy Municipality",
+            "Name should remain the same after re-migration"
+        );
+        assert_eq!(
+            insee_code2, "00000",
+            "insee_code should remain backfilled value after re-migration"
         );
     }
 }

@@ -5,6 +5,7 @@ pub mod cemetery;
 pub mod concession;
 pub mod diagnostic;
 pub mod individual;
+pub mod municipality;
 pub mod pdf;
 pub mod plot;
 
@@ -15,5 +16,6 @@ pub use cemetery::*;
 pub use concession::*;
 pub use diagnostic::*;
 pub use individual::*;
+pub use municipality::*;
 pub use pdf::*;
 pub use plot::*;

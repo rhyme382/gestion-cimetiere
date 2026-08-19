@@ -142,27 +142,39 @@ fn integration_cemetery_migration_with_backfill() {
     run_migrations(&conn).expect("Failed to run migrations");
 
     // Verify municipalities table exists after all migrations
-    let municipalities_exist: bool = conn.query_row(
-        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='municipalities'",
-        [],
-        |row| row.get(0)
-    ).expect("Failed to query sqlite_master");
-    assert!(municipalities_exist, "municipalities table should exist after migrations");
+    let municipalities_exist: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='municipalities'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("Failed to query sqlite_master");
+    assert!(
+        municipalities_exist,
+        "municipalities table should exist after migrations"
+    );
 
     // Verify cemetery has new columns from migration 0009
-    let cemetery_columns: Vec<String> = conn.prepare("PRAGMA table_info(cemeteries)")
+    let cemetery_columns: Vec<String> = conn
+        .prepare("PRAGMA table_info(cemeteries)")
         .expect("Failed to prepare PRAGMA query")
         .query_map([], |row| row.get::<_, String>(1))
         .expect("Failed to query table_info")
         .filter_map(|r| r.ok())
         .collect();
 
-    assert!(cemetery_columns.contains(&"municipality_id".to_string()),
-            "cemeteries should have municipality_id column after migration 0009");
-    assert!(cemetery_columns.contains(&"address".to_string()),
-            "cemeteries should have address column after migration 0009");
-    assert!(cemetery_columns.contains(&"is_active".to_string()),
-            "cemeteries should have is_active column after migration 0009");
+    assert!(
+        cemetery_columns.contains(&"municipality_id".to_string()),
+        "cemeteries should have municipality_id column after migration 0009"
+    );
+    assert!(
+        cemetery_columns.contains(&"address".to_string()),
+        "cemeteries should have address column after migration 0009"
+    );
+    assert!(
+        cemetery_columns.contains(&"is_active".to_string()),
+        "cemeteries should have is_active column after migration 0009"
+    );
 
     // Verify index exists for municipality lookups
     let has_municipality_id_index: bool = conn.query_row(
@@ -170,7 +182,10 @@ fn integration_cemetery_migration_with_backfill() {
         [],
         |row| row.get(0)
     ).expect("Failed to query indexes");
-    assert!(has_municipality_id_index, "Should have index on cemeteries.municipality_id");
+    assert!(
+        has_municipality_id_index,
+        "Should have index on cemeteries.municipality_id"
+    );
 
     // Verify is_active index exists for filtering
     let has_is_active_index: bool = conn.query_row(
@@ -178,7 +193,10 @@ fn integration_cemetery_migration_with_backfill() {
         [],
         |row| row.get(0)
     ).expect("Failed to query indexes");
-    assert!(has_is_active_index, "Should have index on cemeteries.is_active");
+    assert!(
+        has_is_active_index,
+        "Should have index on cemeteries.is_active"
+    );
 }
 
 #[test]
@@ -210,18 +228,21 @@ fn integration_cemetery_preserves_legacy_data() {
         "CREATE TABLE schema_migrations (
             version TEXT PRIMARY KEY NOT NULL,
             applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )"
-    ).expect("Failed to create schema_migrations");
+        )",
+    )
+    .expect("Failed to create schema_migrations");
 
     // Record applied migrations
     conn.execute(
         "INSERT INTO schema_migrations (version) VALUES (?)",
         rusqlite::params!["001_initial_schema"],
-    ).expect("Failed to record migration");
+    )
+    .expect("Failed to record migration");
     conn.execute(
         "INSERT INTO schema_migrations (version) VALUES (?)",
         rusqlite::params!["0006_create_alerts_table"],
-    ).expect("Failed to record migration");
+    )
+    .expect("Failed to record migration");
 
     // Now insert legacy cemetery data (pre-0008/0009 schema, with commune field but no municipality_id)
     let cemetery_id = conn.execute_batch(
@@ -234,12 +255,17 @@ fn integration_cemetery_preserves_legacy_data() {
     run_migrations(&conn).expect("Failed to run migrations");
 
     // Verify municipalities table was created
-    let municipality_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM municipalities WHERE name = 'Paris'",
-        [],
-        |row| row.get(0)
-    ).expect("Failed to query municipalities");
-    assert_eq!(municipality_count, 1, "Should have created municipality 'Paris' from backfill");
+    let municipality_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM municipalities WHERE name = 'Paris'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("Failed to query municipalities");
+    assert_eq!(
+        municipality_count, 1,
+        "Should have created municipality 'Paris' from backfill"
+    );
 
     // Verify cemetery was linked to municipality via backfill
     let linked: (Option<i64>, String, Option<i32>) = conn.query_row(
@@ -248,7 +274,17 @@ fn integration_cemetery_preserves_legacy_data() {
         |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
     ).expect("Failed to query cemetery after migration");
 
-    assert!(linked.0.is_some(), "cemetery municipality_id should be backfilled from commune");
-    assert_eq!(linked.1, "Legacy Paris Cemetery", "cemetery name should be preserved");
-    assert_eq!(linked.2, Some(1000), "cemetery capacity should be preserved");
+    assert!(
+        linked.0.is_some(),
+        "cemetery municipality_id should be backfilled from commune"
+    );
+    assert_eq!(
+        linked.1, "Legacy Paris Cemetery",
+        "cemetery name should be preserved"
+    );
+    assert_eq!(
+        linked.2,
+        Some(1000),
+        "cemetery capacity should be preserved"
+    );
 }

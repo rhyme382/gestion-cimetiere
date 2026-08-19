@@ -206,7 +206,9 @@ mod tests {
             Err(AppError::Database(_)) => {
                 panic!("Should return NotFound, not Database error");
             }
-            Err(AppError::InvalidInput(_)) | Err(AppError::Internal(_)) => {
+            Err(AppError::InvalidInput(_))
+            | Err(AppError::Internal(_))
+            | Err(AppError::Duplicate(_)) => {
                 panic!("Should return NotFound, not other error variant");
             }
             Ok(_) => panic!("Should return an error"),

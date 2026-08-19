@@ -132,6 +132,10 @@ fn map_app_error(e: AppError) -> crate::errors::ApiErrorResponse {
             error_type: "INVALID_INPUT".to_string(),
             message: msg,
         },
+        AppError::Duplicate(msg) => crate::errors::ApiErrorResponse {
+            error_type: "DUPLICATE".to_string(),
+            message: msg,
+        },
         AppError::Database(ref db_err) => {
             let err_str = db_err.to_string().to_lowercase();
 

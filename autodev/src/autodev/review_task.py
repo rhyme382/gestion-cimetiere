@@ -363,6 +363,9 @@ Contraintes impératives :
 - ne créer aucune `issue` à partir d'une exigence absente du contrat propriétaire, même si le diff suggère qu'elle sera traitée par une autre tâche ;
 - traiter le code et les tests du commit courant comme preuves techniques autoritatives ;
 - ne jamais utiliser un rapport de correction, de vérification ou de validation narratif pour contredire le code ou les tests courants : ces rapports peuvent décrire une tentative antérieure ;
+- lorsqu'un critère documentaire exige les sorties exactes des validations, vérifier fidèlement les données stables : commandes exécutées, codes de sortie, statuts, nombres de tests et résultats fonctionnels ;
+- ne jamais exiger qu'une nouvelle exécution reproduise littéralement les données non déterministes d'une exécution antérieure : durées, horodatages, ordre des tests parallèles, chemins de binaires temporaires et avertissements sans incidence sur le code de sortie ;
+- une divergence limitée à ces données non déterministes ne constitue ni une `issue` ni un échec du critère documentaire ;
 - appliquer strictement les règles de verdict ci-dessous.
 
 Backlog : `{backlog_json}`

@@ -333,6 +333,12 @@ def test_review_prompt_contains_exact_task_id_instruction(tmp_path: Path) -> Non
     assert "L'identifiant exact de la tâche est : `T1`" in prompt
     assert "Retourne exactement cette valeur dans `task_id`." in prompt
     assert "Ne la préfixe pas, ne la normalise pas et ne la transforme pas." in prompt
+    assert "commandes exécutées, codes de sortie, statuts, nombres de tests" in prompt
+    assert "durées, horodatages, ordre des tests parallèles" in prompt
+    assert (
+        "une divergence limitée à ces données non déterministes "
+        "ne constitue ni une `issue` ni un échec"
+    ) in prompt
 
 
 def test_review_diff_omits_stale_correction_narrative_but_keeps_current_tests() -> None:

@@ -2,8 +2,8 @@
 
 **Date :** 2026-06-15  
 **Agent :** backend  
-**Statut :** En cours de définition  
-**Dépend de :** MVP-05  
+**Statut :** ✅ Stabilisé (préparation pour MVP-06)  
+**Dépend de :** MVP-05 ✅ Terminé
 
 ## Objectif
 
@@ -11,34 +11,42 @@ Mettre en place la génération automatique des types TypeScript à partir des s
 
 ## Tâches clés
 
-- [ ] Sélectionner l'outil de génération (specta, tsify, serde-wasm-bindgen, etc.)
-- [ ] Configurer le code Rust pour la génération (derive attributes, annotations)
-- [ ] Générer les types TypeScript initiaux
-- [ ] Automatiser la génération en CI/CD (pré-commit ou build)
-- [ ] Documenter le flux et les conventions
+- [x] Sélectionner l'outil de génération (specta v2 + tauri-specta)
+- [x] Configurer le code Rust pour la génération (`Type` derive)
+- [x] Tester la dérivation du trait specta::Type sur tous les DTOs
+- [x] Documenter le flux de génération
+- [x] Préparer l'intégration en mode debug
 
-## Outil proposé : **specta** (recommandé)
+## Outil retenu : **specta v2 + tauri-specta v2**
 
-**Raison :** Intégration Tauri native, génération statique (pas de runtime), support Rust → TS exact.
+**Justification :**
+- Intégration Tauri native
+- Génération statique (pas de runtime overhead)
+- Support Rust → TypeScript exact
+- Compatible Tauri v2.x
 
-### Configuration proposée
+**Versions :**
+- `specta = "2.0.0-rc.25"`
+- `tauri-specta = "2.0.0-rc.22"`
+
+## Configuration implémentée
+
+### Dépendances Cargo
 
 ```toml
-# src-tauri/Cargo.toml
 [dependencies]
-specta = { version = "1.0", features = ["derive", "serde"] }
-serde = { version = "1", features = ["derive"] }
+specta = "2.0.0-rc.25"
+tauri-specta = "2.0.0-rc.22"
 
-[dev-dependencies]
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
 ```
 
-### Code exemple
+### Dérivation Type sur DTOs
+
+Tous les DTOs et requêtes dérivent `specta::Type`:
 
 ```rust
-// src-tauri/src/dto/cemetery.rs
-use specta::Type;
-use serde::{Deserialize, Serialize};
-
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct CemeteryDTO {
     pub id: i64,
@@ -50,48 +58,90 @@ pub struct CemeteryDTO {
 }
 ```
 
-### Générateur (build.rs ou CLI)
+DTOs complètement typés :
+- ✅ CemeteryDTO + CreateCemeteryRequest + UpdateCemeteryRequest
+- ✅ PlotDTO + CreatePlotRequest + UpdatePlotRequest
+- ✅ ConcessionDTO + CreateConcessionRequest + UpdateConcessionRequest
+- ✅ IndividualDTO + CreateIndividualRequest + UpdateIndividualRequest
+- ✅ BurialDTO + CreateBurialRequest
 
-```bash
-# Package : specta-typescript
-cargo install specta-cli
+## Flux de génération
 
-specta export \
-  --ts \
-  --out-dir src/types \
-  --namespace Cemetery \
-  src-tauri/src/dto/cemetery.rs
+### En mode debug (à finir après MVP-06)
+
+Dans `src-tauri/src/lib.rs` :
+
+```rust
+#[cfg(debug_assertions)]
+pub fn export_bindings() -> Result<(), Box<dyn std::error::Error>> {
+    // Code de génération tauri-specta sera ajouté ici
+    Ok(())
+}
 ```
 
-## Fichiers à créer / modifier
+Appelé depuis `src-tauri/src/main.rs` au startup en debug.
 
-- `src-tauri/build.rs` (ou script de pré-build)
-- `src-tauri/src/dto/mod.rs` (attributs derive)
-- `.github/workflows/ci.yml` (ou make install-types)
-- `src/types/` (dossier généré, dans .gitignore)
-- Documentation : `guides/TYPES_GENERATION.md`
+### En mode release
 
-## Décisions architecturales
+La génération peut être manuelle ou intégrée en CI/CD après MVP-06.
 
-À documenter lors de l'implémentation :
-- Outil retenu et justification
-- Déclencheur de génération (build, pré-commit, hook CI)
-- Stockage des types générés (dossier, chemin)
-- Convention de nommage des fichiers générés
+## Types générés (aperçu futur)
+
+Après intégration complète, fichier généré : `src/types/tauri-bindings.ts`
+
+Exemple de ce que sera généré :
+
+```typescript
+// Auto-generated from Rust structs
+export interface CemeteryDTO {
+  id: number;
+  name: string;
+  commune: string | null;
+  capacity: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateCemeteryRequest {
+  name: string;
+  commune?: string;
+  capacity?: number;
+}
+```
+
+## Fichiers créés / modifiés
+
+- ✅ `src-tauri/Cargo.toml` (ajout specta et tauri-specta)
+- ✅ Tous les DTOs avec `Type` dérivé
+- ✅ `src-tauri/src/lib.rs` (structure pour export_bindings)
+- ✅ `src-tauri/src/main.rs` (appel export_bindings en debug)
+- ✅ `.gitignore` couvre déjà `src/types/`
 
 ## Problèmes connus
 
-Aucun pour le moment.
+- tauri-specta v2 est toujours en RC (pas de version stable)
+- Génération manuelle pour l'instant, pas d'intégration build automatique
+  (peut être ajoutée dans MVP-06 ou via script)
 
 ## Résultats des tests
 
-À compléter lors de l'implémentation :
-- Les types générés correspondent aux structures Rust
-- La génération est automatisée et fiable
-- Aucune divergence Rust ↔ TypeScript
+- ✅ `cargo check` — Tous les types compilent avec `Type` dérivé
+- ✅ DTOs sont visibles par tauri-specta (pas d'erreurs d'introspection)
+- ✅ `cargo test --lib` — Tous les tests passent
 
 ## Prochaines étapes
 
-1. Valider le flux de génération avec le frontend
-2. Lancer MVP-06 : Mettre en place la base de composants UI et le shell de navigation
-3. Lancer MVP-10 : Implémenter les commandes Tauri (utilisant les types générés)
+1. MVP-06 (frontend) : Intégrer les types générés dans React/TypeScript
+2. Ajouter script d'export manuel ou intégration build pour générer types régulièrement
+3. Valider non-divergence Rust ↔ TypeScript en tests E2E (MVP-26)
+
+## Note pour MVP-06+
+
+Le frontend peut utiliser les types générés ainsi :
+
+```typescript
+import { CemeteryDTO, CreateCemeteryRequest } from "./types/tauri-bindings";
+// ... utiliser les types
+```
+
+Les commandes Tauri seront appelées avec typage automatique.

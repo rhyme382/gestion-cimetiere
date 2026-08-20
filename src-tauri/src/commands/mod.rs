@@ -1,0 +1,21 @@
+pub mod alert;
+pub mod backup;
+pub mod burial;
+pub mod cemetery;
+pub mod concession;
+pub mod diagnostic;
+pub mod individual;
+pub mod municipality;
+pub mod pdf;
+pub mod plot;
+
+pub use alert::*;
+pub use backup::*;
+pub use burial::*;
+pub use cemetery::*;
+pub use concession::*;
+pub use diagnostic::*;
+pub use individual::*;
+pub use municipality::*;
+pub use pdf::*;
+pub use plot::*;

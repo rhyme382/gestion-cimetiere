@@ -1,0 +1,51 @@
+import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { lazy, Suspense } from "react";
+import { AppLayout } from "@/components/layout/AppLayout";
+
+const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
+const CemeteriesPage = lazy(() => import("@/pages/CemeteriesPage"));
+const ConcessionsPage = lazy(() => import("@/pages/ConcessionsPage"));
+const ConcessionCreatePage = lazy(() => import("@/pages/ConcessionCreatePage"));
+const ConcessionDetailPage = lazy(() => import("@/pages/ConcessionDetailPage"));
+const ConcessionEditPage = lazy(() => import("@/pages/ConcessionEditPage"));
+const DefuntsPage = lazy(() => import("@/pages/DefuntsPage"));
+const DefuntDetailPage = lazy(() => import("@/pages/DefuntDetailPage"));
+const EmplacementsPage = lazy(() => import("@/pages/EmplacementsPage"));
+const RecherchePage = lazy(() => import("@/pages/RecherchePage"));
+const AlertesPage = lazy(() => import("@/pages/AlertesPage"));
+const SauvegardesPage = lazy(() => import("@/pages/SauvegardesPage"));
+const ParametresPage = lazy(() => import("@/pages/ParametresPage"));
+
+function PageLoader() {
+  return (
+    <div className="flex h-full items-center justify-center">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+    </div>
+  );
+}
+
+const router = createBrowserRouter([
+  {
+    path: "/",
+    element: <AppLayout />,
+    children: [
+      { index: true, element: <Suspense fallback={<PageLoader />}><DashboardPage /></Suspense> },
+      { path: "cimetieres", element: <Suspense fallback={<PageLoader />}><CemeteriesPage /></Suspense> },
+      { path: "emplacements", element: <Suspense fallback={<PageLoader />}><EmplacementsPage /></Suspense> },
+      { path: "concessions", element: <Suspense fallback={<PageLoader />}><ConcessionsPage /></Suspense> },
+      { path: "concessions/new", element: <Suspense fallback={<PageLoader />}><ConcessionCreatePage /></Suspense> },
+      { path: "concessions/:id", element: <Suspense fallback={<PageLoader />}><ConcessionDetailPage /></Suspense> },
+      { path: "concessions/:id/edit", element: <Suspense fallback={<PageLoader />}><ConcessionEditPage /></Suspense> },
+      { path: "defunts", element: <Suspense fallback={<PageLoader />}><DefuntsPage /></Suspense> },
+      { path: "defunts/:id", element: <Suspense fallback={<PageLoader />}><DefuntDetailPage /></Suspense> },
+      { path: "alertes", element: <Suspense fallback={<PageLoader />}><AlertesPage /></Suspense> },
+      { path: "recherche", element: <Suspense fallback={<PageLoader />}><RecherchePage /></Suspense> },
+      { path: "sauvegardes", element: <Suspense fallback={<PageLoader />}><SauvegardesPage /></Suspense> },
+      { path: "parametres", element: <Suspense fallback={<PageLoader />}><ParametresPage /></Suspense> },
+    ],
+  },
+]);
+
+export function AppRouter() {
+  return <RouterProvider router={router} />;
+}

@@ -1,0 +1,11 @@
+task:
+  required: true
+
+smoke:
+  commands:
+    - npm run build
+
+full:
+  commands:
+    - npm run test
+    - cargo test -p gestion-cimetiere

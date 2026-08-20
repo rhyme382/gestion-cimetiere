@@ -1,0 +1,10 @@
+langgraph
+langgraph-checkpoint-sqlite
+pydantic
+PyYAML
+typer
+rich
+
+[dev]
+pytest
+pytest-asyncio

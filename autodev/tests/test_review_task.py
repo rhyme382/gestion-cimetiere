@@ -1,0 +1,1092 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from autodev.planner import PlanningError, validate_backlog_consistency
+from autodev.review_task import (
+    NON_AUTHORITATIVE_REPORT_MARKER,
+    ReviewTaskError,
+    filter_diff_for_review,
+    review_task,
+)
+from autodev.task_runner import RunTaskError, run_task
+
+from test_task_runner import commit_all, init_repo, make_task, write_backlog
+
+
+def fake_claude_success_factory(filename: str = "src/reviewed.txt"):
+    def fake_claude_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        worktree = Path(kwargs["worktree"])
+        target = worktree / filename
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("implemented\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=worktree, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "implement"],
+            cwd=worktree,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return {
+            "command": ["claude", "-p"],
+            "returncode": 0,
+            "stdout": "done",
+            "stderr": "",
+        }
+
+    return fake_claude_runner
+
+
+def prepare_reviewable_task(tmp_path: Path, task_id: str = "TASK-REVIEW") -> tuple[Path, Path]:
+    repo = init_repo(tmp_path)
+    backlog = write_backlog(repo, [make_task(task_id)])
+    commit_all(repo, "add backlog")
+    run_task(backlog, task_id, dry_run=False, claude_runner=fake_claude_success_factory())
+    return repo, backlog
+
+
+def write_codex_result(output_path: Path, payload: dict[str, object]) -> None:
+    output_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def write_dependency_review_artifacts(
+    repo: Path,
+    *,
+    task_id: str,
+    produced_commit: str,
+    modified_paths: list[str],
+    requirement_checks: list[dict[str, object]],
+    acceptance_checks: list[dict[str, object]],
+) -> None:
+    run_dir = repo / ".autodev" / "runs" / task_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "result.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "status": "success",
+                "branch": f"autodev/{task_id}",
+                "worktree": str(repo / ".autodev" / "worktrees" / task_id),
+                "base_commit": "base",
+                "produced_commit": produced_commit,
+                "modified_paths": modified_paths,
+                "validations": [],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    review_dir = run_dir / "review"
+    review_dir.mkdir(parents=True, exist_ok=True)
+    (review_dir / "review-result.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "verdict": "APPROVED",
+                "summary": "preuve intégrée disponible",
+                "requirement_checks": requirement_checks,
+                "acceptance_checks": acceptance_checks,
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    integration_dir = run_dir / "integration"
+    integration_dir.mkdir(parents=True, exist_ok=True)
+    (integration_dir / "integration-result.json").write_text(
+        json.dumps(
+            {
+                "task_id": task_id,
+                "status": "INTEGRATED",
+                "integration_commit": "integration-commit",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def test_review_unknown_task_raises(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    backlog = write_backlog(repo, [make_task("TASK-KNOWN")])
+    commit_all(repo, "add backlog")
+
+    with pytest.raises(ReviewTaskError, match="Tâche inconnue"):
+        review_task(backlog, "TASK-MISSING", codex_runner=lambda **_: {})
+
+
+def test_review_missing_branch_raises(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    backlog = write_backlog(repo, [make_task("TASK-BRANCH")])
+    commit_all(repo, "add backlog")
+
+    with pytest.raises(ReviewTaskError, match="Branche de tâche absente"):
+        review_task(backlog, "TASK-BRANCH", codex_runner=lambda **_: {})
+
+
+def test_review_task_records_approved_result(tmp_path: Path) -> None:
+    repo, backlog = prepare_reviewable_task(tmp_path, "TASK-APPROVED")
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "TASK-APPROVED",
+                "verdict": "APPROVED",
+                "summary": "Tout est conforme.",
+                "requirement_checks": [
+                    {
+                        "requirement_id": "REQ-001",
+                        "status": "PASS",
+                        "evidence": ["src/reviewed.txt couvre la demande."],
+                    }
+                ],
+                "acceptance_checks": [
+                    {
+                        "criterion": "Accepter",
+                        "status": "PASS",
+                        "evidence": ["Le fichier attendu est présent."],
+                    }
+                ],
+                "issues": [],
+                "tests": {"status": "FAIL", "details": ["sera recalculé"]},
+                "scope": {"status": "FAIL", "unexpected_paths": ["sera recalculé"]},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    result = review_task(backlog, "TASK-APPROVED", codex_runner=fake_codex_runner)
+
+    assert result["verdict"] == "APPROVED"
+    assert result["tests"]["status"] == "PASS"
+    assert result["scope"] == {"status": "PASS", "unexpected_paths": []}
+    review_dir = repo / ".autodev" / "runs" / "TASK-APPROVED" / "review"
+    assert (review_dir / "review-prompt.md").is_file()
+    assert (review_dir / "review-result.json").is_file()
+    assert (review_dir / "codex.stdout.log").read_text(encoding="utf-8") == "ok"
+    validation_results = json.loads((review_dir / "validation-results.json").read_text(encoding="utf-8"))
+    assert validation_results["source"] == "review-task"
+    current_state = json.loads((review_dir / "current-task-state.json").read_text(encoding="utf-8"))
+    assert current_state["task_id"] == "TASK-APPROVED"
+    assert current_state["current_paths"] == ["src/reviewed.txt"]
+    assert current_state["validation_commands"] == [f'{sys.executable} -c "print(\'ok\')"']
+    assert current_state["validation_summary"] == [f'{sys.executable} -c "print(\'ok\')"=OK']
+
+
+def test_review_task_accepts_simple_task_id_exact_match(tmp_path: Path) -> None:
+    _, backlog = prepare_reviewable_task(tmp_path, "T1")
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "T1",
+                "verdict": "APPROVED",
+                "summary": "Identifiant exact conservé.",
+                "requirement_checks": [
+                    {
+                        "requirement_id": "REQ-001",
+                        "status": "PASS",
+                        "evidence": ["La tâche T1 est correctement revue."],
+                    }
+                ],
+                "acceptance_checks": [
+                    {
+                        "criterion": "Accepter",
+                        "status": "PASS",
+                        "evidence": ["Le reviewer retourne exactement T1."],
+                    }
+                ],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    result = review_task(backlog, "T1", codex_runner=fake_codex_runner)
+
+    assert result["task_id"] == "T1"
+    assert result["verdict"] == "APPROVED"
+
+
+def test_review_task_rejects_reformatted_simple_task_id(tmp_path: Path) -> None:
+    _, backlog = prepare_reviewable_task(tmp_path, "T1")
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "TASK-T1",
+                "verdict": "APPROVED",
+                "summary": "Identifiant reformatté à tort.",
+                "requirement_checks": [
+                    {
+                        "requirement_id": "REQ-001",
+                        "status": "PASS",
+                        "evidence": [],
+                    }
+                ],
+                "acceptance_checks": [
+                    {
+                        "criterion": "Accepter",
+                        "status": "PASS",
+                        "evidence": [],
+                    }
+                ],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    with pytest.raises(ReviewTaskError, match=r"attendu: T1, reçu: TASK-T1"):
+        review_task(backlog, "T1", codex_runner=fake_codex_runner)
+
+
+def test_review_task_accepts_prefixed_task_id_exact_match(tmp_path: Path) -> None:
+    _, backlog = prepare_reviewable_task(tmp_path, "TASK-PILOT-001")
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "TASK-PILOT-001",
+                "verdict": "APPROVED",
+                "summary": "Le format historique reste accepté.",
+                "requirement_checks": [
+                    {
+                        "requirement_id": "REQ-001",
+                        "status": "PASS",
+                        "evidence": ["L'identifiant historique est inchangé."],
+                    }
+                ],
+                "acceptance_checks": [
+                    {
+                        "criterion": "Accepter",
+                        "status": "PASS",
+                        "evidence": ["TASK-PILOT-001 est restitué tel quel."],
+                    }
+                ],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    result = review_task(backlog, "TASK-PILOT-001", codex_runner=fake_codex_runner)
+
+    assert result["task_id"] == "TASK-PILOT-001"
+    assert result["verdict"] == "APPROVED"
+
+
+def test_review_prompt_contains_exact_task_id_instruction(tmp_path: Path) -> None:
+    _, backlog = prepare_reviewable_task(tmp_path, "T1")
+    prompt_holder: dict[str, str] = {}
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        prompt_holder["prompt"] = str(kwargs["prompt"])
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "T1",
+                "verdict": "APPROVED",
+                "summary": "Prompt inspecté.",
+                "requirement_checks": [
+                    {
+                        "requirement_id": "REQ-001",
+                        "status": "PASS",
+                        "evidence": [],
+                    }
+                ],
+                "acceptance_checks": [
+                    {
+                        "criterion": "Accepter",
+                        "status": "PASS",
+                        "evidence": [],
+                    }
+                ],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    review_task(backlog, "T1", codex_runner=fake_codex_runner)
+
+    prompt = prompt_holder["prompt"]
+    assert "L'identifiant exact de la tâche est : `T1`" in prompt
+    assert "Retourne exactement cette valeur dans `task_id`." in prompt
+    assert "Ne la préfixe pas, ne la normalise pas et ne la transforme pas." in prompt
+    assert "commandes exécutées, codes de sortie, statuts, nombres de tests" in prompt
+    assert "durées, horodatages, ordre des tests parallèles" in prompt
+    assert (
+        "une divergence limitée à ces données non déterministes "
+        "ne constitue ni une `issue` ni un échec"
+    ) in prompt
+
+
+def test_review_diff_omits_stale_correction_narrative_but_keeps_current_tests() -> None:
+    diff_text = """diff --git a/reports/dev/T1-correction-report.md b/reports/dev/T1-correction-report.md
+new file mode 100644
+--- /dev/null
++++ b/reports/dev/T1-correction-report.md
+@@ -0,0 +1,2 @@
++Ancienne tentative : les tests appellent seulement internal_*.
++Le mapping d'erreurs est recopié localement.
+diff --git a/src-tauri/tests/public_commands.rs b/src-tauri/tests/public_commands.rs
+new file mode 100644
+--- /dev/null
++++ b/src-tauri/tests/public_commands.rs
+@@ -0,0 +1,2 @@
++municipality::create_municipality(state, req);
++cemetery::list_cemeteries(state);
+"""
+
+    filtered = filter_diff_for_review(diff_text)
+
+    assert "reports/dev/T1-correction-report.md" in filtered
+    assert NON_AUTHORITATIVE_REPORT_MARKER in filtered
+    assert "appellent seulement internal_*" not in filtered
+    assert "mapping d'erreurs est recopié" not in filtered
+    assert "municipality::create_municipality(state, req)" in filtered
+    assert "cemetery::list_cemeteries(state)" in filtered
+
+
+def test_review_prompt_excludes_requirements_owned_by_another_task(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "SPEC.md").write_text(
+        "# Feature\n\n"
+        "## R1\nConserver les cimetières existants.\n\n"
+        "## R2\nEXIGENCE_HORS_TACHE : stocker le code INSEE et le courriel.\n",
+        encoding="utf-8",
+    )
+    requirements = [
+        {
+            "id": "R1",
+            "description": "Préserver le socle existant.",
+            "acceptance_criteria": [
+                {
+                    "id": "R1-AC1",
+                    "text": "La migration conserve les cimetières existants.",
+                    "owner_task_id": "T1",
+                }
+            ],
+        },
+        {
+            "id": "R2",
+            "description": "EXIGENCE_HORS_TACHE : gérer la commune administrative.",
+            "acceptance_criteria": [
+                {
+                    "id": "R2-AC1",
+                    "text": "CRITERE_HORS_TACHE : stocker le code INSEE et le courriel.",
+                    "owner_task_id": "T2",
+                }
+            ],
+        },
+    ]
+    backlog = write_backlog(
+        repo,
+        [
+            make_task("T1", requirement_ids=["R1"]),
+            make_task("T2", requirement_ids=["R2"]),
+        ],
+        requirements=requirements,
+    )
+    commit_all(repo, "add owned requirements")
+    run_task(backlog, "T1", dry_run=False, claude_runner=fake_claude_success_factory())
+    prompt_holder: dict[str, str] = {}
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        prompt_holder["prompt"] = str(kwargs["prompt"])
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "T1",
+                "verdict": "APPROVED",
+                "summary": "Le contrat propriétaire est satisfait.",
+                "requirement_checks": [
+                    {
+                        "requirement_id": "R1",
+                        "acceptance_criterion_id": "R1-AC1",
+                        "status": "PASS",
+                        "evidence": ["Le livrable conserve les données existantes."],
+                    }
+                ],
+                "acceptance_checks": [
+                    {"criterion": "Accepter", "status": "PASS", "evidence": []}
+                ],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    result = review_task(backlog, "T1", codex_runner=fake_codex_runner)
+
+    assert result["verdict"] == "APPROVED"
+    prompt = prompt_holder["prompt"]
+    assert "R1-AC1" in prompt
+    assert "La migration conserve les cimetières existants." in prompt
+    assert "R2-AC1" not in prompt
+    assert "EXIGENCE_HORS_TACHE" not in prompt
+    assert "CRITERE_HORS_TACHE" not in prompt
+    assert "code INSEE" not in prompt
+
+
+def test_review_task_forces_correction_required_when_codex_reports_failure(tmp_path: Path) -> None:
+    _, backlog = prepare_reviewable_task(tmp_path, "TASK-CORRECT")
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "TASK-CORRECT",
+                "verdict": "APPROVED",
+                "summary": "Une correction est requise.",
+                "requirement_checks": [
+                    {
+                        "requirement_id": "REQ-001",
+                        "status": "FAIL",
+                        "evidence": ["Un écart subsiste."],
+                    }
+                ],
+                "acceptance_checks": [
+                    {
+                        "criterion": "Accepter",
+                        "status": "PASS",
+                        "evidence": ["Partiellement respecté."],
+                    }
+                ],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "", "stderr": ""}
+
+    result = review_task(backlog, "TASK-CORRECT", codex_runner=fake_codex_runner)
+
+    assert result["verdict"] == "CORRECTION_REQUIRED"
+    assert result["requirement_checks"][0]["status"] == "FAIL"
+
+
+def test_review_task_reports_codex_error(tmp_path: Path) -> None:
+    repo, backlog = prepare_reviewable_task(tmp_path, "TASK-CODEX-ERR")
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        Path(kwargs["output_path"]).write_text("", encoding="utf-8")
+        return {
+            "command": ["codex", "exec"],
+            "returncode": 5,
+            "stdout": "",
+            "stderr": "codex failed",
+        }
+
+    with pytest.raises(ReviewTaskError, match="Codex a échoué"):
+        review_task(backlog, "TASK-CODEX-ERR", codex_runner=fake_codex_runner)
+
+    review_dir = repo / ".autodev" / "runs" / "TASK-CODEX-ERR" / "review"
+    assert (review_dir / "codex.stderr.log").read_text(encoding="utf-8") == "codex failed"
+
+
+def test_review_task_rejects_invalid_schema(tmp_path: Path) -> None:
+    _, backlog = prepare_reviewable_task(tmp_path, "TASK-BAD-SCHEMA")
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "TASK-BAD-SCHEMA",
+                "verdict": "APPROVED",
+                "summary": "invalide",
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "", "stderr": ""}
+
+    with pytest.raises(ReviewTaskError, match="structure JSON inattendue"):
+        review_task(backlog, "TASK-BAD-SCHEMA", codex_runner=fake_codex_runner)
+
+
+def test_review_task_reruns_validations_without_real_codex(tmp_path: Path) -> None:
+    repo, backlog = prepare_reviewable_task(tmp_path, "TASK-RERUN")
+    result_path = repo / ".autodev" / "runs" / "TASK-RERUN" / "result.json"
+    result_payload = json.loads(result_path.read_text(encoding="utf-8"))
+    result_payload["validations"] = []
+    result_path.write_text(json.dumps(result_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    data = json.loads(backlog.read_text(encoding="utf-8"))
+    data["tasks"][0]["validation_commands"] = [f'{sys.executable} -c "print(\'rerun-ok\')"']
+    backlog.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "TASK-RERUN",
+                "verdict": "APPROVED",
+                "summary": "ok",
+                "requirement_checks": [
+                    {
+                        "requirement_id": "REQ-001",
+                        "status": "PASS",
+                        "evidence": [],
+                    }
+                ],
+                "acceptance_checks": [
+                    {
+                        "criterion": "Accepter",
+                        "status": "PASS",
+                        "evidence": [],
+                    }
+                ],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "", "stderr": ""}
+
+    result = review_task(backlog, "TASK-RERUN", codex_runner=fake_codex_runner)
+
+    assert result["tests"]["status"] == "PASS"
+    validation_results = json.loads(
+        (repo / ".autodev" / "runs" / "TASK-RERUN" / "review" / "validation-results.json").read_text(encoding="utf-8")
+    )
+    assert validation_results["source"] == "review-task"
+    assert validation_results["results"][0]["stdout"].strip() == "rerun-ok"
+    assert validation_results["summary"] == [f'{sys.executable} -c "print(\'rerun-ok\')"=OK']
+
+
+def test_review_task_rebuilds_review_scope_from_current_branch_head(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    backlog = write_backlog(repo, [make_task("TASK-AMEND-REVIEW")])
+    commit_all(repo, "add backlog")
+    base_commit = (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        .stdout.strip()
+    )
+
+    branch = "autodev/TASK-AMEND-REVIEW"
+    subprocess.run(["git", "checkout", "-b", branch], cwd=repo, check=True, capture_output=True, text=True)
+
+    allowed = repo / "src" / "reviewed.txt"
+    allowed.parent.mkdir(parents=True, exist_ok=True)
+    allowed.write_text("current\n", encoding="utf-8")
+    obsolete = repo / "tests" / "e2e" / "10-diagnostic.spec.ts"
+    obsolete.parent.mkdir(parents=True, exist_ok=True)
+    obsolete.write_text("obsolete\n", encoding="utf-8")
+    commit_all(repo, "introduce stale review scope")
+    stale_commit = (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        .stdout.strip()
+    )
+
+    subprocess.run(["git", "rm", "--", str(obsolete.relative_to(repo))], cwd=repo, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "--amend", "--no-edit"], cwd=repo, check=True, capture_output=True, text=True)
+    current_commit = (
+        subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        .stdout.strip()
+    )
+
+    run_dir = repo / ".autodev" / "runs" / "TASK-AMEND-REVIEW"
+    review_dir = run_dir / "review"
+    review_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "task.json").write_text(
+        json.dumps(
+            {
+                "backlog": str(backlog),
+                "task": make_task("TASK-AMEND-REVIEW"),
+                "branch": branch,
+                "worktree": str(repo),
+                "base_commit": base_commit,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps(
+            {
+                "task_id": "TASK-AMEND-REVIEW",
+                "status": "success",
+                "branch": branch,
+                "worktree": str(repo),
+                "base_commit": base_commit,
+                "produced_commit": stale_commit,
+                "modified_paths": ["src/reviewed.txt", "tests/e2e/10-diagnostic.spec.ts"],
+                "validations": [
+                    {
+                        "command": "pytest -q",
+                        "returncode": 0,
+                        "stdout": "ok\n",
+                        "stderr": "",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "diff.patch").write_text(
+        "diff --git a/tests/e2e/10-diagnostic.spec.ts b/tests/e2e/10-diagnostic.spec.ts\n",
+        encoding="utf-8",
+    )
+    (review_dir / "current-diff.patch").write_text(
+        "stale review artifact referencing tests/e2e/10-diagnostic.spec.ts\n",
+        encoding="utf-8",
+    )
+
+    prompt_holder: dict[str, str] = {}
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        prompt_holder["prompt"] = str(kwargs["prompt"])
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "TASK-AMEND-REVIEW",
+                "verdict": "APPROVED",
+                "summary": "ok",
+                "requirement_checks": [
+                    {
+                        "requirement_id": "REQ-001",
+                        "status": "PASS",
+                        "evidence": [],
+                    }
+                ],
+                "acceptance_checks": [
+                    {
+                        "criterion": "Accepter",
+                        "status": "PASS",
+                        "evidence": [],
+                    }
+                ],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    result = review_task(backlog, "TASK-AMEND-REVIEW", codex_runner=fake_codex_runner)
+
+    assert result["verdict"] == "APPROVED"
+    assert current_commit != stale_commit
+    prompt = prompt_holder["prompt"]
+    assert current_commit in prompt
+    assert stale_commit not in prompt
+    assert "- src/reviewed.txt" in prompt
+    assert "tests/e2e/10-diagnostic.spec.ts" not in prompt
+    assert "- A\tsrc/reviewed.txt" in prompt
+
+    current_paths = json.loads((review_dir / "current-paths.json").read_text(encoding="utf-8"))
+    assert current_paths["produced_commit"] == current_commit
+    assert current_paths["modified_paths"] == ["src/reviewed.txt"]
+    assert current_paths["name_status"] == ["A\tsrc/reviewed.txt"]
+    current_state = json.loads((review_dir / "current-task-state.json").read_text(encoding="utf-8"))
+    assert current_state["current_commit"] == current_commit
+    assert current_state["current_paths"] == ["src/reviewed.txt"]
+    assert "10-diagnostic.spec.ts" not in (review_dir / "current-diff.patch").read_text(encoding="utf-8")
+    assert (review_dir / "current-name-status.txt").read_text(encoding="utf-8").strip() == "A\tsrc/reviewed.txt"
+
+
+def test_review_task_ignores_stale_run_result_metadata_and_accepts_current_report(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    backlog = write_backlog(repo, [make_task("T1")])
+    commit_all(repo, "add backlog")
+
+    def fake_claude_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        worktree = Path(kwargs["worktree"])
+        allowed = worktree / "src" / "reviewed.txt"
+        allowed.parent.mkdir(parents=True, exist_ok=True)
+        allowed.write_text("current\n", encoding="utf-8")
+        outside = worktree / "tests" / "e2e" / "10-diagnostic.spec.ts"
+        outside.parent.mkdir(parents=True, exist_ok=True)
+        outside.write_text("obsolete\n", encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=worktree, check=True)
+        subprocess.run(["git", "commit", "-m", "stale scope"], cwd=worktree, check=True, capture_output=True, text=True)
+        return {"command": ["claude", "-p"], "returncode": 0, "stdout": "done", "stderr": ""}
+
+    with pytest.raises(RunTaskError, match="hors périmètre autorisé"):
+        run_task(backlog, "T1", dry_run=False, claude_runner=fake_claude_runner)
+
+    run_dir = repo / ".autodev" / "runs" / "T1"
+    result_path = run_dir / "result.json"
+    stale_result = json.loads(result_path.read_text(encoding="utf-8"))
+    assert stale_result["status"] == "failed"
+    assert stale_result["produced_commit"] is None
+    assert stale_result["modified_paths"] == ["src/reviewed.txt", "tests/e2e/10-diagnostic.spec.ts"]
+
+    worktree = repo / ".autodev" / "worktrees" / "T1"
+    subprocess.run(
+        ["git", "rm", "--", "tests/e2e/10-diagnostic.spec.ts"],
+        cwd=worktree,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(["git", "commit", "--amend", "--no-edit"], cwd=worktree, check=True, capture_output=True, text=True)
+    current_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=worktree,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    branch_commit = subprocess.run(
+        ["git", "rev-parse", "autodev/T1"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert current_commit == branch_commit
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "T1",
+                "verdict": "APPROVED",
+                "summary": "ok",
+                "requirement_checks": [{"requirement_id": "REQ-001", "status": "PASS", "evidence": []}],
+                "acceptance_checks": [{"criterion": "Accepter", "status": "PASS", "evidence": []}],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    result = review_task(backlog, "T1", codex_runner=fake_codex_runner)
+
+    assert result["verdict"] == "APPROVED"
+    review_dir = run_dir / "review"
+    current_state = json.loads((review_dir / "current-task-state.json").read_text(encoding="utf-8"))
+    assert current_state["current_commit"] == current_commit
+    assert current_state["current_paths"] == ["src/reviewed.txt"]
+    assert current_state["validation_summary"] == [f'{sys.executable} -c "print(\'ok\')"=OK']
+    report = json.loads((run_dir / "task-report.json").read_text(encoding="utf-8"))
+    assert report["modified_files"] == ["src/reviewed.txt"]
+    assert "tests/e2e/10-diagnostic.spec.ts" not in report["modified_files"]
+
+
+def test_review_task_rejects_stale_false_success_report_before_codex(tmp_path: Path) -> None:
+    repo, backlog = prepare_reviewable_task(tmp_path, "TASK-FALSE-SUCCESS")
+    data = json.loads(backlog.read_text(encoding="utf-8"))
+    data["tasks"][0]["validation_commands"] = [f'{sys.executable} -c "raise SystemExit(1)"']
+    backlog.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    run_dir = repo / ".autodev" / "runs" / "TASK-FALSE-SUCCESS"
+    (run_dir / "task-report.json").write_text(
+        json.dumps(
+            {
+                "task_id": "TASK-FALSE-SUCCESS",
+                "feature_id": "FEATURE-TEST",
+                "objective": "Titre TASK-FALSE-SUCCESS",
+                "modified_files": ["src/reviewed.txt"],
+                "validations": [
+                    {
+                        "command": f'{sys.executable} -c "raise SystemExit(1)"',
+                        "returncode": 0,
+                    }
+                ],
+                "problems": [],
+                "next_task": None,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def codex_must_not_run(**_: object) -> dict[str, object]:
+        raise AssertionError("codex should not run when the task report is stale")
+
+    with pytest.raises(ReviewTaskError, match="rapport de tâche courant est incohérent"):
+        review_task(backlog, "TASK-FALSE-SUCCESS", codex_runner=codex_must_not_run)
+
+
+def test_validate_backlog_rejects_absolute_allowed_path() -> None:
+    backlog = {
+        "feature_id": "FEATURE-TEST",
+        "feature_title": "Feature test",
+        "summary": "Résumé de test suffisant pour le backlog.",
+        "specification_path": "SPEC.md",
+        "requirements": [
+            {
+                "id": "REQ-001",
+                "description": "Description requirement",
+                "acceptance_criteria": ["Critère 1"],
+            }
+        ],
+        "tasks": [
+            {
+                "id": "TASK-ABS",
+                "title": "Titre",
+                "description": "Description de tâche suffisamment longue.",
+                "agent": "documentation",
+                "depends_on": [],
+                "requirement_ids": ["REQ-001"],
+                "allowed_paths": ["/home/user/project/src"],
+                "validation_commands": ["pytest"],
+                "acceptance_criteria": ["Accepter"],
+            }
+        ],
+    }
+
+    with pytest.raises(PlanningError, match="Chemin absolu interdit"):
+        validate_backlog_consistency(backlog)
+
+
+def test_validate_backlog_rejects_parent_segment_allowed_path() -> None:
+    backlog = {
+        "feature_id": "FEATURE-TEST",
+        "feature_title": "Feature test",
+        "summary": "Résumé de test suffisant pour le backlog.",
+        "specification_path": "SPEC.md",
+        "requirements": [
+            {
+                "id": "REQ-001",
+                "description": "Description requirement",
+                "acceptance_criteria": ["Critère 1"],
+            }
+        ],
+        "tasks": [
+            {
+                "id": "TASK-DOTDOT",
+                "title": "Titre",
+                "description": "Description de tâche suffisamment longue.",
+                "agent": "documentation",
+                "depends_on": [],
+                "requirement_ids": ["REQ-001"],
+                "allowed_paths": ["src/../secret"],
+                "validation_commands": ["pytest"],
+                "acceptance_criteria": ["Accepter"],
+            }
+        ],
+    }
+
+    with pytest.raises(PlanningError, match="Chemin avec '\\.\\.' interdit"):
+        validate_backlog_consistency(backlog)
+
+
+def test_review_task_uses_integrated_dependency_proof_without_requiring_dependency_files(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    requirements = [
+        {
+            "id": "REQ-CONTRACT",
+            "description": "Le diagnostic UI doit consommer le contrat TypeScript stabilisé.",
+            "acceptance_criteria": ["Le contrat de diagnostic est exposé et utilisé côté UI."],
+        }
+    ]
+    backlog = write_backlog(
+        repo,
+        [
+            make_task(
+                "TASK-CONTRACT",
+                requirement_ids=["REQ-CONTRACT"],
+                acceptance_criteria=["Expose DiagnosticDTO et getDiagnostic()."],
+                shared_requirement_justifications=[
+                    {
+                        "requirement_id": "REQ-CONTRACT",
+                        "justification": "Le contrat backend couvre explicitement la partie exposition TypeScript.",
+                    }
+                ],
+            ),
+            make_task(
+                "TASK-UI",
+                depends_on=["TASK-CONTRACT"],
+                requirement_ids=["REQ-CONTRACT"],
+                acceptance_criteria=["Affiche le diagnostic en réutilisant le contrat existant sans le modifier."],
+                shared_requirement_justifications=[
+                    {
+                        "requirement_id": "REQ-CONTRACT",
+                        "justification": "La même exigence est partagée car cette tâche couvre uniquement la consommation UI.",
+                    }
+                ],
+            ),
+        ],
+        requirements=requirements,
+    )
+    commit_all(repo, "add backlog")
+
+    base_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    dependency_branch = "autodev/TASK-CONTRACT"
+    subprocess.run(["git", "checkout", "-b", dependency_branch], cwd=repo, check=True, capture_output=True, text=True)
+    contract_file = repo / "src" / "lib" / "diagnostic.ts"
+    contract_file.parent.mkdir(parents=True, exist_ok=True)
+    contract_file.write_text("export type DiagnosticDTO = { status: string };\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "add contract"], cwd=repo, check=True, capture_output=True, text=True)
+    contract_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    subprocess.run(["git", "checkout", "-"], cwd=repo, check=True, capture_output=True, text=True)
+
+    write_dependency_review_artifacts(
+        repo,
+        task_id="TASK-CONTRACT",
+        produced_commit=contract_commit,
+        modified_paths=["src/lib/diagnostic.ts"],
+        requirement_checks=[
+            {
+                "requirement_id": "REQ-CONTRACT",
+                "status": "PASS",
+                "evidence": ["DiagnosticDTO et getDiagnostic() sont déjà validés dans la dépendance intégrée."],
+            }
+        ],
+        acceptance_checks=[
+            {
+                "criterion": "Expose DiagnosticDTO et getDiagnostic().",
+                "status": "PASS",
+                "evidence": ["Le contrat TypeScript est présent dans src/lib/diagnostic.ts."],
+            }
+        ],
+    )
+
+    branch = "autodev/TASK-UI"
+    subprocess.run(["git", "checkout", "-b", branch], cwd=repo, check=True, capture_output=True, text=True)
+    ui_file = repo / "src" / "ui.tsx"
+    ui_file.parent.mkdir(parents=True, exist_ok=True)
+    ui_file.write_text("import type { DiagnosticDTO } from './lib/diagnostic';\n", encoding="utf-8")
+    subprocess.run(["git", "add", "src/ui.tsx"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "use contract in ui"], cwd=repo, check=True, capture_output=True, text=True)
+    ui_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    run_dir = repo / ".autodev" / "runs" / "TASK-UI"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "task.json").write_text(
+        json.dumps(
+            {
+                "backlog": str(backlog),
+                "task": make_task("TASK-UI", depends_on=["TASK-CONTRACT"]),
+                "branch": branch,
+                "worktree": str(repo),
+                "base_commit": base_commit,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (run_dir / "result.json").write_text(
+        json.dumps(
+            {
+                "task_id": "TASK-UI",
+                "status": "success",
+                "branch": branch,
+                "worktree": str(repo),
+                "base_commit": base_commit,
+                "produced_commit": ui_commit,
+                "modified_paths": ["src/ui.tsx"],
+                "validations": [
+                    {
+                        "command": "pytest -q",
+                        "returncode": 0,
+                        "stdout": "ok\n",
+                        "stderr": "",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    prompt_holder: dict[str, str] = {}
+
+    def fake_codex_runner(*_: object, **kwargs: object) -> dict[str, object]:
+        prompt_holder["prompt"] = str(kwargs["prompt"])
+        write_codex_result(
+            Path(kwargs["output_path"]),
+            {
+                "task_id": "TASK-UI",
+                "verdict": "APPROVED",
+                "summary": "ok",
+                "requirement_checks": [
+                    {
+                        "requirement_id": "REQ-CONTRACT",
+                        "status": "PASS",
+                        "evidence": ["Le diff UI consomme le contrat déjà validé côté dépendance intégrée."],
+                    }
+                ],
+                "acceptance_checks": [
+                    {
+                        "criterion": "Affiche le diagnostic en réutilisant le contrat existant sans le modifier.",
+                        "status": "PASS",
+                        "evidence": ["src/ui.tsx importe DiagnosticDTO sans modifier src/lib/diagnostic.ts."],
+                    }
+                ],
+                "issues": [],
+                "tests": {"status": "PASS", "details": []},
+                "scope": {"status": "PASS", "unexpected_paths": []},
+            },
+        )
+        return {"command": ["codex", "exec"], "returncode": 0, "stdout": "ok", "stderr": ""}
+
+    result = review_task(backlog, "TASK-UI", codex_runner=fake_codex_runner)
+
+    assert result["verdict"] == "APPROVED"
+    prompt = prompt_holder["prompt"]
+    assert "# Dépendances intégrées et preuves héritées" in prompt
+    assert "TASK-CONTRACT" in prompt
+    assert "src/lib/diagnostic.ts" in prompt
+    assert "N'exige jamais que les fichiers d'une dépendance intégrée réapparaissent dans le diff Git courant." in prompt
+    assert "- src/ui.tsx" in prompt
+    assert "shared_requirements_with_current_task" in prompt

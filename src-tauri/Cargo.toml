@@ -1,0 +1,31 @@
+[package]
+name = "gestion-cimetiere"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tauri = { version = "2", features = ["specta"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+specta = "2.0.0-rc.25"
+tauri-specta = "2.0.0-rc.22"
+tokio = { version = "1", features = ["rt"] }
+chrono = { version = "0.4", features = ["serde"] }
+printpdf = "0.7"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dev-dependencies]
+tempfile = "3"
+tauri = { version = "2", features = ["test"] }
+
+[lib]
+name = "gestion_cimetiere"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gestion-cimetiere"
+path = "src/main.rs"

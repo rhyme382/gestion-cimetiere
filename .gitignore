@@ -72,6 +72,8 @@ pnpm-debug.log*
 coverage/
 dist/
 build/
+src/pages/*.js
+src/router.js
 
 # Rust and Tauri
 target/
@@ -89,4 +91,28 @@ orchestration/state/
 !.vscode/settings.json
 !.vscode/launch.json
 !.vscode/tasks.json
+.archive/
 
+# AI orchestrator runtime
+.venv-orchestrator/
+worktrees/
+orchestrator-state.sqlite
+orchestrator/logs/
+tasks/runtime/
+
+# Autodev runtime
+.autodev/state/
+.autodev/worktrees/
+.autodev/runs/
+.autodev/plans/
+
+# Autodev local tasks and generated plans
+.autodev/tasks/
+.autodev/plans/
+.autodev/runs/
+.autodev/worktrees/
+.autodev/state/
+
+# Playwright generated artifacts
+playwright-report/
+test-results/

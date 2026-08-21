@@ -31,6 +31,7 @@ Constats :
 
 - la couche CLI `autodev` est la plus riche, la plus testée et celle qui contient les invariants utiles pour un superviseur produit ;
 - la couche `orchestrator/` expose une autre CLI Python basée sur `argparse` avec `init`, `audit`, `run`, `resume`, `status`, `approve`, `reject`, `cleanup`, mais elle reste plus générique et moins intégrée aux garde-fous d'`autodev`.
+- l'orchestrateur Python doit rester le seul composant autorisé à appliquer la politique, muter Git, créer les commits d'intégration, gérer les checkpoints, les pauses et les reprises.
 
 ### 2. Couche `run-task`
 
@@ -161,6 +162,11 @@ Constat :
 
 - les wrappers `orchestrator/` sont réutilisables comme façade basse couche, mais la politique métier robuste est aujourd'hui dans `autodev/`.
 - aucune politique propriétaire de spécification n'existe encore pour distinguer `approved-only`, `draft` et `autonomous`, ni pour interdire strictement la planification d'une spécification non validée.
+- la séparation cible des rôles est la suivante :
+  - Claude agent d'implémentation : modifie uniquement les fichiers autorisés ; aucun `commit`, `amend`, `reset`, `rebase`, `merge`, `cherry-pick` ni mutation de référence Git.
+  - Codex reviewer : produit un verdict structuré sur le commit et les preuves courantes.
+  - Codex superviseur : produit un diagnostic structuré et propose des actions typées.
+  - orchestrateur Python : applique la politique et exécute les actions autorisées.
 
 ### 10. Schémas JSON et contrats
 
@@ -221,6 +227,225 @@ Incidents déjà couverts par les tests :
 - `autodev.git_context`, `autodev.task_report`, `autodev.feature_status`, `autodev.monitor_state` pour la lecture d'état déterministe.
 - `orchestrator.storage.task_store` et les wrappers runners de `orchestrator/` comme briques secondaires si un plan produit séparé doit être sérialisé.
 
+## incidents observés : classement, composants concernés et insuffisances
+
+### 1. Incidents fournisseur et quotas temporaires
+
+- **Incidents couverts** : quota Claude, limite de session, indisponibilité temporaire, reprise différée.
+- **Fonctions concernées** :
+  - `autodev.task_runner.run_task`
+  - `autodev.correct_task.correct_task`
+  - `autodev.process_runner.run_process_capturing_timeout`
+  - `autodev.monitor_state.read_heartbeat`
+  - `autodev.run_feature.run_feature`
+- **Insuffisances actuelles** :
+  - aucun parseur d'heure/date de renouvellement ;
+  - aucun état `WAITING_PROVIDER_RESET` ;
+  - aucune distinction forte entre fournisseur Claude et fournisseur Codex ;
+  - un incident quota finit aujourd'hui dans les voies d'échec ou d'interruption génériques.
+- **Composants réutilisables** :
+  - heartbeat et monitoring existants ;
+  - journalisation des stdout/stderr Claude/Codex ;
+  - mécanisme de reprise `run-feature --resume`.
+
+### 2. Réconciliation Git après interruption, hooks et worktree partiel
+
+- **Incidents couverts** : worktree partiel après interruption, mutation hook `AGENTS.md`, reprise cumulative.
+- **Fonctions concernées** :
+  - `autodev.correct_task.correct_task`
+  - `autodev.correct_task.run_correction_attempt`
+  - `autodev.git_context.build_current_task_git_state`
+  - `autodev.git_tools.changed_paths_since`
+  - `autodev.git_tools.dirty_paths`
+  - `autodev.git_tools.git_status_porcelain`
+  - `autodev.git_tools.git_status_with_branch`
+- **Insuffisances actuelles** :
+  - capture avant/après trop pauvre pour attribuer un changement à un hook, à l'agent ou à une mutation externe ;
+  - comparaison essentiellement par chemins, pas par contenu ;
+  - absence d'empreintes index/worktree/untracked ;
+  - absence d'inventaire systématique des patchs produits par tentative ;
+  - impossibilité d'expliquer de façon vérifiable pourquoi un fichier a été restauré ou conservé.
+- **Composants réutilisables** :
+  - artefacts `before-status.txt`, `modified-paths.json`, `out-of-scope-paths.json`, `restored-paths.json` ;
+  - `git_context` pour récupérer une vue consolidée ;
+  - logique de restauration sélective déjà présente dans `correct-task`.
+
+### 3. Mutations Git agent interdites
+
+- **Incidents couverts** : commit/amend/reset par l'agent, divergence d'historique, récupération bornée.
+- **Fonctions concernées** :
+  - `autodev.correct_task.correct_task`
+  - `autodev.git_tools.amend_head_commit`
+  - `autodev.git_tools.create_commit`
+  - `autodev.integrate_task.integrate_task`
+  - `autodev.run_feature.determine_task_resume_action`
+- **Insuffisances actuelles** :
+  - `correct-task` committe lui-même en fin de correction, mais ne capture pas de reflog avant/après l'exécution Claude ;
+  - aucun contrôle structuré de `HEAD`, refs et reflog autour du runner agent ;
+  - aucune récupération documentée des commits utiles créés illégalement par un agent.
+- **Composants réutilisables** :
+  - helpers Git existants ;
+  - contrôle d'intégration transactionnelle déjà strict dans `integrate-task`.
+
+### 4. Artefacts techniques stale et rapports narratifs contradictoires
+
+- **Incidents couverts** : `task-report.json` périmé, `review-result.json` contradictoire, récit ancien factuellement faux.
+- **Fonctions concernées** :
+  - `autodev.task_report.verify_task_report`
+  - `autodev.task_report.write_task_report`
+  - `autodev.review_task.review_task`
+  - `autodev.integrate_task.integrate_task`
+  - `autodev.validation_baseline.compare_validation_results`
+- **Insuffisances actuelles** :
+  - `verify_task_report` compare des structures simples mais n'archive pas l'artefact stale ;
+  - aucune empreinte explicite de diff ou de validations ;
+  - pas de régénération idempotente de `review-result.json` ou de `current-paths.json` à l'échelle superviseur ;
+  - pas de règle formelle séparant rapport narratif et artefact technique dans l'orchestration produit.
+- **Composants réutilisables** :
+  - vérification déjà robuste du `task-report.json` ;
+  - relance déterministe des validations et lecture du diff courant dans `review-task` ;
+  - comparaison baseline/post-merge déjà structurée.
+
+### 5. Critères impossibles dans leur scope et extensions minimales de périmètre
+
+- **Incidents couverts** : critère owned par la mauvaise tâche, besoin exact sur `plot_repo.rs`, besoin exact sur `dto/plot.rs`, fix mécanique hors scope sur `ParametresPage.tsx`.
+- **Fonctions concernées** :
+  - `autodev.acceptance_criteria.owned_criteria_by_task`
+  - `autodev.planner.validate_backlog_consistency`
+  - `autodev.task_runner.ensure_paths_allowed`
+  - `autodev.task_runner.ensure_dependency_changes_allowed`
+  - `autodev.validation_baseline.run_validation_set`
+- **Insuffisances actuelles** :
+  - validation backlog centrée sur la cohérence de structure, pas sur la faisabilité technique réelle par task owner ;
+  - aucune comparaison baseline-vs-tentative pour distinguer défaut préexistant et régression ;
+  - aucune procédure versionnée de réattribution ou d'extension exacte de scope ;
+  - aucune règle imposant qu'une extension ou une réattribution reste explicite, bornée, mécanique, auditée et autorisée par politique avant application ;
+  - absence de distinction entre décision mécanique bornée et décision métier.
+- **Composants réutilisables** :
+  - mapping requirement/task déjà existant ;
+  - contrôles actuels de `allowed_paths` ;
+  - baseline de validations réutilisable pour classer un défaut comme préexistant ou nouveau.
+
+### 6. Corrections cumulatives et non-régression des acquis
+
+- **Incidents couverts** : FP004-T02 avec sept corrections, régressions en chaîne, distinction plafond ordinaire/supervisé.
+- **Fonctions concernées** :
+  - `autodev.run_feature.node_decide_review`
+  - `autodev.run_feature.node_correct_task`
+  - `autodev.correct_task.build_correction_prompt`
+  - `autodev.review_task.review_task`
+  - `autodev.acceptance_criteria`
+- **Insuffisances actuelles** :
+  - pas de registre explicite des acquis validés à préserver ;
+  - pas de contrôle structuré qu'un critère déjà `PASS` ne repasse pas `FAIL` ;
+  - pas de budget supervisé séparé au-dessus du plafond ordinaire `run-feature`.
+- **Composants réutilisables** :
+  - séquence implement/review/correct/integrate existante ;
+  - preuves requirement/acceptance déjà présentes dans les sorties de revue.
+
+### 7. Validations sûres et ressources transitoires locales
+
+- **Incidents couverts** : `rg` avec pipe littéral refusé à tort, `env PYTHONPATH=autodev/src pytest`, conflit de port Vite/Playwright.
+- **Fonctions concernées** :
+  - `autodev.task_runner.validate_command_safe`
+  - `autodev.validation_baseline.run_validation_set`
+  - `autodev.validation_baseline.compare_validation_results`
+  - `autodev.integrate_task.integrate_task`
+- **Insuffisances actuelles** :
+  - validation textuelle par sous-chaînes interdites dans `FORBIDDEN_COMMAND_TOKENS` ;
+  - aucune modélisation des préfixes d'environnement sûrs ;
+  - aucune identification formelle des ports/processus locaux d'un worktree.
+- **Composants réutilisables** :
+  - exécution déjà sans shell ;
+  - classification baseline/post-merge déjà apte à distinguer certaines erreurs d'environnement.
+
+### 8. Persistance durable, multi-feature et points d'arrêt humains
+
+- **Incidents couverts** : backlog ignoré par Git, décisions non durables, autonomie multi-feature, arrêt humain si ambiguïté.
+- **Fonctions concernées** :
+  - `autodev.run_feature.run_feature`
+  - `autodev.monitor_state.read_feature_state`
+  - `autodev.feature_status`
+  - `autodev.cli`
+- **Insuffisances actuelles** :
+  - aucun `ProductGraph` ;
+  - pas de source persistée pour les décisions de scope/ownership au-delà des artefacts éphémères ;
+  - pas de sélection déterministe de la prochaine feature ni de dépendances produit globales.
+- **Composants réutilisables** :
+  - état et monitoring feature existants ;
+  - checkpoint LangGraph et artefacts `.autodev/runs/features/`.
+
+## décisions purement mécaniques vs décisions métier
+
+### Décisions purement mécaniques
+
+- parser une heure de reset fournisseur avec timezone explicite ;
+- calculer un `retry_at` ou un backoff borné ;
+- comparer des empreintes de contenu avant/après ;
+- régénérer un artefact technique stale depuis diff et validations courants ;
+- classer un échec de validation comme identique à la baseline ou comme nouvelle régression ;
+- proposer une extension de scope exacte à un fichier pour une correction mécanique bloquante ;
+- proposer une réattribution de critère vers une unique tâche réellement capable lorsqu'aucune ambiguïté métier ni concurrente n'existe ;
+- rejouer une validation après conflit transitoire de port dûment identifié ;
+- reprendre une feature après crash si l'état reconstruit est non ambigu.
+
+### Décisions métier ou nécessitant validation humaine
+
+- accepter une ambiguïté de spécification produit ;
+- réattribuer un critère si plusieurs tâches propriétaires restent plausibles ;
+- étendre le périmètre pour une modification fonctionnelle et non purement mécanique ;
+- appliquer une extension ou une réattribution lorsque la politique ne l'autorise pas explicitement ;
+- choisir entre deux interprétations concurrentes d'un même critère ;
+- intégrer une feature quand une validation obligatoire reste contournée ou incertaine ;
+- trancher une divergence Git dont l'attribution ne peut pas être prouvée ;
+- décider d'abandonner l'attente fournisseur lorsqu'aucune borne fiable n'existe.
+
+## points d'insertion concrets du ProductGraph
+
+### 1. Entrée produit
+
+- nouvelle commande CLI `autodev run-product PLAN` ;
+- chargement d'un plan produit versionné distinct du backlog feature ;
+- création d'un `product_run_id` et d'un namespace stable sous `.autodev/runs/products/<run_id>/`.
+
+### 2. Sélection de feature
+
+- lecture du plan produit global ;
+- reconstruction des features déjà intégrées via Git et artefacts de feature ;
+- sélection stable par dépendances, priorité puis identifiant.
+
+### 3. Préparation de feature
+
+- validation de la politique `approved-only` / `draft` / `autonomous` ;
+- génération ou validation de spécification ;
+- appel à `autodev plan` et audit de couverture ;
+- audit de faisabilité des critères et du scope avant tout lancement agent.
+
+### 4. Exécution et supervision
+
+- encapsulation de `autodev.run_feature.run_feature` comme `FeatureGraph` exécutable ;
+- interception des incidents structurés issus de `run-task`, `review-task`, `correct-task`, `integrate-task` ;
+- appel éventuel au diagnostic Codex superviseur puis passage obligé par le moteur de politique.
+
+### 5. Réconciliation et reprise
+
+- capture Git avant hook, après hook et après agent ;
+- inventaire des patchs et décisions de préservation ;
+- reprise idempotente par action typée `RESUME_FEATURE`, `WAIT_PROVIDER_RESET`, `REGENERATE_TASK_REPORT`, `RECOVER_AGENT_GIT_HISTORY`.
+
+### 6. Intégration transactionnelle de feature
+
+- baseline produit ;
+- merge temporaire sans commit sur branche produit ;
+- validations feature puis produit ;
+- commit d'intégration uniquement après `APPROVED`, `TESTS PASS`, `SCOPE PASS` et non-régression.
+
+### 7. Clôture produit
+
+- génération du rapport final produit à partir des preuves ;
+- passage automatique à la feature suivante ;
+- arrêt seulement si toutes les features requises sont intégrées ou si un arrêt humain est imposé.
+
 ## couplages actuels au niveau feature
 
 - La source de vérité opérationnelle d'une tâche est répartie entre Git, `.autodev/runs/<task_id>/`, le backlog JSON et le checkpoint de feature.
@@ -232,6 +457,7 @@ Incidents déjà couverts par les tests :
 
 ## risques de concurrence entre deux workflows
 
+- aucun workflow concurrent ne doit pouvoir exécuter ou reprendre la même feature ;
 - collision sur `.autodev/state/checkpoints.sqlite` si plusieurs graphes écrivent sans coordination globale ;
 - collision sur `.autodev/worktrees/<task_id>` si deux superviseurs choisissent la même tâche ;
 - concurrence entre une intégration en cours et un autre workflow qui salit la branche cible ;
@@ -244,6 +470,9 @@ Incidents déjà couverts par les tests :
 - absence de règle d'exclusion empêchant deux plans partageant le même `feature_id` ou `task_id` d'écrire dans les mêmes artefacts ;
 - absence d'état global pour empêcher qu'une feature B parte alors que la feature A n'a pas encore stabilisé une décision structurante partagée ;
 - aucune attente native en cas de limite de session Claude, de quota ou de fenêtre horaire de reprise.
+- absence de politique distincte pour sérialiser Claude lorsque plusieurs workflows partagent le même compte ou le même quota fournisseur ;
+- absence de garde-fou explicite contre une double reprise, une double intégration ou une clôture concurrente ;
+- `monitor` et `product-status` devront rester strictement non mutateurs.
 
 ## lacunes empêchant un ProductGraph
 
@@ -270,6 +499,154 @@ Incidents déjà couverts par les tests :
 - pas de tests de collision entre deux runs concurrents ;
 - pas de clôture produit dérivée des preuves ni de rapport final produit structuré ;
 - la couche `orchestrator/` n'exploite pas encore les invariants riches d'`autodev`.
+
+## stratégie de tests progressive attendue pour le superviseur
+
+### Niveau 1 — Unit tests purs
+
+- parseur d'incidents fournisseur et de timezone ;
+- empreintes de contenu index/worktree/untracked ;
+- validation lexicale des commandes ;
+- calcul d'idempotence et de backoff ;
+- détection d'artefact stale par empreintes ;
+- décision de scope extension vs réattribution vs arrêt humain.
+
+### Niveau 2 — Intégration Git locale
+
+- worktree partiel après interruption ;
+- même chemin avant/après mais contenu différent ;
+- hook `AGENTS.md` entre capture pré-hook et post-hook ;
+- commit/amend/reset réalisés par l'agent ;
+- baseline `ParametresPage.tsx` vs tentative corrigée ;
+- retry Vite/Playwright avec conflit de port identifié.
+
+### Niveau 3 — Intégration FeatureGraph
+
+- plafond ordinaire puis corrections supervisées de type FP004-T02 ;
+- artefacts stale régénérés avant revue ;
+- reprise idempotente après crash ;
+- décisions acquises réinjectées dans la correction.
+
+### Niveau 4 — E2E ProductGraph
+
+- deux features successives avec dépendance satisfaite ;
+- arrêt humain sur ambiguïté produit ;
+- absence de double reprise et de double intégration ;
+
+## stratégie d'atomisation complète attendue
+
+Chaque exigence `R1` à `R29` doit avoir exactement une tâche propriétaire capable de la mettre en œuvre. Le nombre de tâches n'a pas besoin de refléter le nombre d'exigences, mais aucune exigence ne doit être omise et aucune tâche ne doit recevoir un scope irréaliste.
+
+Lots d'implémentation cohérents attendus :
+
+1. plan produit et schéma versionné ;
+   exigences couvertes : `R1` ;
+   scope réaliste : modules de plan produit et schémas JSON versionnés, avec leurs tests.
+2. politique des spécifications ;
+   exigences couvertes : `R20` ;
+   scope réaliste : modules de politique `approved-only` / `draft` / `autonomous`, validation et tests dédiés.
+3. état produit, reconstruction et persistance durable ;
+   exigences couvertes : `R2`, `R29.1` à `R29.3` ;
+   scope réaliste : modules d'état produit, stockage runtime et tests de reconstruction.
+4. sélection de feature et dépendances Git ;
+   exigences couvertes : `R4` ;
+   scope réaliste : modules de sélection produit, `git_context`, `git_tools` et tests Git.
+5. taxonomie des incidents ;
+   exigences couvertes : `R6` ;
+   scope réaliste : schémas d'incidents, enums, validation et tests de contrat.
+6. diagnostic Codex et collecteur de preuves ;
+   exigences couvertes : `R7` ;
+   scope réaliste : collecteur produit, schéma de diagnostic et tests de sérialisation.
+7. registre des décisions acquises ;
+   exigences couvertes : `R8`, `R28.1` ;
+   scope réaliste : registre de décisions/acquis et tests de persistance.
+8. politique déterministe et liste fermée des actions ;
+   exigences couvertes : `R9`, `R12` ;
+   scope réaliste : modules de politique produit, actions typées et tests d'autorisation.
+9. runtime, namespaces, idempotence et verrous ;
+   exigences couvertes : `R13` ;
+   scope réaliste : `run_product.py`, stockage de run, verrous et tests de crash/reprise.
+10. quotas fournisseur, retry_at, attente, pause et reprise ;
+    exigences couvertes : `R14`, `R21` ;
+    scope réaliste : runners Claude/Codex, orchestration de reprise, commandes CLI produit et tests d'attente.
+11. snapshots Git complets, empreintes et attribution ;
+    exigences couvertes : `R11`, `R22` ;
+    scope réaliste : `git_tools`, `git_context`, `correct_task` et tests d'empreintes/réconciliation.
+12. protection et récupération d'historique Git ;
+    exigences couvertes : `R23` ;
+    scope réaliste : runners agent, audit reflog, récupération bornée et tests d'intégration Git.
+13. fraîcheur et régénération des artefacts ;
+    exigences couvertes : `R24` ;
+    scope réaliste : `review_task.py`, `task_report.py` et tests d'artefacts stale.
+14. audit de faisabilité des critères ;
+    exigences couvertes : `R25.1` à `R25.4` ;
+    scope réaliste : planificateur/backlog et tests de faisabilité.
+15. réattribution contrôlée des critères ;
+    exigences couvertes : `R25.5` à `R25.9` ;
+    scope réaliste : politique produit, backlog versionné et tests de réattribution.
+16. baseline différentielle et extension minimale de scope ;
+    exigences couvertes : `R26` ;
+    scope réaliste : `validation_baseline.py`, `correct_task.py`, backlog et tests d'extension.
+17. validation sécurisée et exécutable des commandes ;
+    exigences couvertes : `R27.1` à `R27.5` ;
+    scope réaliste : `task_runner.py` et ses tests.
+18. incidents Vite/Playwright et ressources locales ;
+    exigences couvertes : `R19.4`, `R27.6` à `R27.8` ;
+    scope réaliste : `validation_baseline.py`, `integrate_task.py` et tests de retry local.
+19. préparation de feature, exécution ProductGraph / FeatureGraph et corrections cumulatives ;
+    exigences couvertes : `R3`, `R5`, `R10`, `R28.2` à `R28.8`, `R29.4`, `R29.5` ;
+    scope réaliste : `run_feature.py`, `run_product.py`, modules superviseur et tests FP004.
+20. intégration transactionnelle, clôture produit, CLI, monitoring et non-régression multi-feature ;
+    exigences couvertes : `R16`, `R17`, `R18`, `R19`, `R29.6`, `R29.7` ;
+    scope réaliste : `run_product.py`, `cli.py`, `monitor_state.py`, intégration produit et tests E2E.
+
+## dépendances minimales de planification
+
+1. plan produit et politique de spécification avant toute sélection ;
+2. plan et état reconstruit avant sélection ;
+3. taxonomie des incidents avant diagnostics ;
+4. snapshots Git avant empreintes et attribution ;
+5. empreintes avant réconciliation des fichiers déjà modifiés ;
+6. registre des décisions acquises avant corrections cumulatives ;
+7. politique et liste fermée des actions avant actions sensibles ;
+8. quotas fournisseur avant reprise temporisée ;
+9. snapshots Git avant récupération d'historique ;
+10. faisabilité avant préparation ou exécution d'une feature ;
+11. baseline avant extension de scope ;
+12. artefacts frais avant revue ;
+13. exécution avant intégration ;
+14. intégration avant clôture ;
+15. CLI et monitoring après disponibilité des composants utiles.
+
+## règles de scope réaliste pour les tâches futures
+
+- une tâche de réconciliation peut viser `correct_task.py` et ses tests si elle traite la réconciliation, pas un module produit sans lien ;
+- une tâche de validation des commandes peut viser `task_runner.py` et ses tests, avec contrôle automatique préalable de tout le backlog ;
+- une tâche d'artefacts stale peut viser `review_task.py`, `task_report.py` et leurs tests ;
+- une tâche de quotas ou d'interdiction Git peut viser les runners Claude/Codex et les tests associés ;
+- une tâche de reprise temporisée ou de plafonds peut viser `run_feature.py` et les tests de reprise ;
+- une tâche de snapshots Git peut viser `git_tools.py`, `git_context.py` et les tests exacts de snapshots ;
+- une tâche CLI produit peut viser `cli.py`, les commandes `run-product` / `resume-product` / `product-status` / `monitor-product` / `pause-product` et leurs tests ;
+- les modules produit dédiés, les tests exacts et les rapports correspondants doivent être inclus lorsque nécessaires, sans ouvrir des chemins plus larges que l'exigence.
+
+## validations exécutables
+
+- les validations doivent être directement exécutables sans shell implicite ;
+- `env PYTHONPATH=autodev/src pytest -q ...` est valide ;
+- `PYTHONPATH=autodev/src pytest -q ...` ne doit jamais être émis comme `argv[0]` d'un processus lancé sans shell ;
+- un contrôle automatique de toutes les commandes du backlog doit être exécuté avant lancement.
+
+## clarification scope extension / arrêt humain
+
+- une modification hors scope non autorisée reste interdite ;
+- une extension de scope ne peut jamais être implicite ;
+- `REQUEST_SCOPE_EXTENSION` produit une proposition structurée ;
+- `APPLY_SCOPE_EXTENSION` n'est possible que si une politique explicite l'autorise ;
+- l'extension doit viser un fichier précis, être justifiée, mécanique, bornée, auditée et sans ambiguïté métier ;
+- `REQUEST_HUMAN` reste obligatoire si la politique ne l'autorise pas, si plusieurs solutions existent, si l'impact fonctionnel est ambigu ou si la sûreté Git ne peut être garantie ;
+- la même logique s'applique à `REQUEST_CRITERION_REALLOCATION` et `APPLY_CRITERION_REALLOCATION`.
+- persistance durable des décisions de scope/ownership ;
+- clôture complète du produit sans double intégration.
 
 ## endroits où ajouter un superviseur structuré
 

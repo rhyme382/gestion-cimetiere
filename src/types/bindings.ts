@@ -70,6 +70,59 @@ export interface UpdateCemeteryRequest {
   is_active?: number;
 }
 
+// --- Hierarchical Path (FP-004) ---
+
+export interface HierarchicalPathDTO {
+  section_id?: number | null;
+  section_code?: string | null;
+  section_label?: string | null;
+  square_id?: number | null;
+  square_code?: string | null;
+  square_label?: string | null;
+  row_id?: number | null;
+  row_code?: string | null;
+  row_label?: string | null;
+}
+
+// --- Section (FP-004) ---
+
+export interface SectionDTO {
+  id: number;
+  cemetery_id: number;
+  normalized_code: string;
+  display_label: string;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// --- Square / Carré (FP-004) ---
+
+export interface SquareDTO {
+  id: number;
+  section_id: number;
+  normalized_code: string;
+  display_label: string;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// --- Row / Rangée (FP-004) ---
+
+export interface RowDTO {
+  id: number;
+  square_id: number;
+  normalized_code: string;
+  display_label: string;
+  display_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // --- Plot (Emplacement) ---
 
 export interface PlotDTO {
@@ -80,6 +133,8 @@ export interface PlotDTO {
   number: number | null;
   capacity: number;
   status: PlotStatus;
+  administrative_reference?: string | null;
+  hierarchical_path?: HierarchicalPathDTO | null;
   created_at: string;
   updated_at: string;
 }
@@ -101,6 +156,12 @@ export interface UpdatePlotRequest {
   capacity?: number;
   status?: PlotStatus;
 }
+
+// --- Hierarchy List Types (tuples from Tauri commands) ---
+
+export type SectionTuple = [id: number, code: string, label: string];
+export type SquareTuple = [id: number, code: string, label: string];
+export type RowTuple = [id: number, code: string, label: string];
 
 // --- Concession ---
 

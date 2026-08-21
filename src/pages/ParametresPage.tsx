@@ -239,7 +239,7 @@ export default function ParametresPage() {
                     onChange={(e) => handleInputChange("email", e.target.value)}
                     disabled={isSubmitting}
                     className="mt-1"
-                    aria-invalid={!!fieldErrors.email || (formData.email && !validateEmail(formData.email))}
+                    aria-invalid={!!fieldErrors.email || !!(formData.email && !validateEmail(formData.email))}
                     aria-describedby={fieldErrors.email || (formData.email && !validateEmail(formData.email)) ? "email-error" : undefined}
                   />
                   {(fieldErrors.email || (formData.email && !validateEmail(formData.email))) && (

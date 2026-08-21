@@ -1,0 +1,134 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Autodev Product Incident Taxonomy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "incidents"
+  ],
+  "$defs": {
+    "incident_code": {
+      "type": "string",
+      "enum": [
+        "PROVIDER_QUOTA_EXCEEDED",
+        "PROVIDER_RATE_LIMITED",
+        "PROVIDER_UNAVAILABLE",
+        "PERMISSION_DENIED",
+        "GIT_DIVERGENT_STATE",
+        "GIT_CONFLICT_DETECTED",
+        "INITIALIZATION_MUTATION_FAILED",
+        "WORKTREE_DIRTY",
+        "WORKTREE_INTERRUPTED",
+        "VALIDATION_TRANSITIVE_FAILED",
+        "CORRECTION_LIMIT_ORDINARY_EXCEEDED",
+        "CORRECTION_LIMIT_SUPERVISED_EXCEEDED",
+        "DEPENDENCY_MISSING",
+        "SPECIFICATION_MISSING",
+        "HUMAN_DECISION_REQUIRED"
+      ],
+      "description": "Closed set of valid incident codes"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d?)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+      "description": "Semantic version of the schema"
+    },
+    "incidents": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "severity",
+          "scope",
+          "proofs",
+          "repeatability",
+          "recommended_action",
+          "retryable",
+          "deferrable",
+          "correctable_under_supervision",
+          "terminal"
+        ],
+        "properties": {
+          "code": {
+            "$ref": "#/$defs/incident_code",
+            "description": "Unique, stable incident code from closed taxonomy"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 3,
+            "description": "Human-readable incident title"
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed description of the incident type"
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium", "low"],
+            "description": "Severity level of the incident"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "provider",
+              "permissions",
+              "git_state",
+              "initialization",
+              "worktree",
+              "validation",
+              "correction_limit",
+              "dependency",
+              "git_conflict",
+              "human_decision"
+            ],
+            "description": "Scope of the incident (which subsystem it affects)"
+          },
+          "proofs": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            },
+            "description": "Evidence or symptoms that indicate this incident type"
+          },
+          "repeatability": {
+            "type": "string",
+            "enum": [
+              "always",
+              "sometimes",
+              "rarely",
+              "unknown"
+            ],
+            "description": "How reliably this incident can be reproduced"
+          },
+          "recommended_action": {
+            "type": "string",
+            "description": "Recommended action when this incident occurs"
+          },
+          "retryable": {
+            "type": "boolean",
+            "description": "Whether the operation can be safely retried"
+          },
+          "deferrable": {
+            "type": "boolean",
+            "description": "Whether the incident can be deferred for later handling"
+          },
+          "correctable_under_supervision": {
+            "type": "boolean",
+            "description": "Whether the incident can be corrected under human supervision"
+          },
+          "terminal": {
+            "type": "boolean",
+            "description": "Whether this incident terminates the process"
+          }
+        }
+      }
+    }
+  }
+}

@@ -23,6 +23,8 @@ impl PlotRepository {
                 number: row.get(4)?,
                 capacity: row.get(5)?,
                 status: row.get(6)?,
+                administrative_reference: None,
+                hierarchical_path: None,
                 created_at: row.get(7)?,
                 updated_at: row.get(8)?,
             })
@@ -45,6 +47,8 @@ impl PlotRepository {
                     number: row.get(4)?,
                     capacity: row.get(5)?,
                     status: row.get(6)?,
+                    administrative_reference: None,
+                    hierarchical_path: None,
                     created_at: row.get(7)?,
                     updated_at: row.get(8)?,
                 })

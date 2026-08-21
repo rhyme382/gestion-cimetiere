@@ -48,3 +48,21 @@ pub fn update_plot(
 
     PlotRepository::update(&conn, id, &plot).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn list_sections(state: State<DbConnection>, cemetery_id: i64) -> Result<Vec<(i64, String, String)>, String> {
+    let conn = state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    PlotRepository::list_sections(&conn, cemetery_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_squares(state: State<DbConnection>, section_id: i64) -> Result<Vec<(i64, String, String)>, String> {
+    let conn = state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    PlotRepository::list_squares(&conn, section_id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn list_rows(state: State<DbConnection>, square_id: i64) -> Result<Vec<(i64, String, String)>, String> {
+    let conn = state.lock().map_err(|e| format!("Lock error: {}", e))?;
+    PlotRepository::list_rows(&conn, square_id).map_err(|e| e.to_string())
+}

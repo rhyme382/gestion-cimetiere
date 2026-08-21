@@ -19,6 +19,7 @@ from autodev.integrate_task import IntegrateTaskError, integrate_task
 from autodev.monitor import monitor_feature
 from autodev.monitor_state import MonitorStateError
 from autodev.planner import PlanningError, find_repo_root, load_json, plan_feature
+from autodev.product_plan import ProductPlanError, load_product_plan, freeze_plan_revision
 from autodev.run_feature import RunFeatureError, run_feature
 from autodev.review_task import ReviewTaskError, review_task
 from autodev.task_runner import RunTaskError, run_task
@@ -80,6 +81,70 @@ def doctor() -> None:
         raise typer.Exit(code=1)
 
     console.print("\n[bold green]Structure autodev prête.[/bold green]")
+
+
+@app.command("run-product")
+def run_product_command(
+    plan_path: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
+        help="Chemin du fichier de plan produit JSON.",
+    ),
+    run_id: str = typer.Option(
+        ...,
+        "--run-id",
+        help="Identifiant unique du run produit.",
+    ),
+) -> None:
+    """Orchestre l'exécution d'un plan produit versionné avec features séquentielles."""
+    console.print(f"[bold]Orchestration du plan produit {plan_path.name}[/bold]")
+
+    try:
+        plan = load_product_plan(plan_path)
+    except ProductPlanError as exc:
+        console.print(f"\n[bold red]Erreur plan produit :[/bold red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    frozen_revision = freeze_plan_revision(plan, run_id)
+
+    runs_dir = Path.cwd() / ".autodev" / "runs" / "products" / run_id
+    runs_dir.mkdir(parents=True, exist_ok=True)
+
+    journal_path = runs_dir / "journal.jsonl"
+    revision_path = runs_dir / "frozen_revision.json"
+
+    with open(journal_path, "a", encoding="utf-8") as f:
+        journal_entry = {
+            "timestamp": frozen_revision["frozen_at"],
+            "event": "PLAN_FROZEN",
+            "run_id": run_id,
+            "plan_id": frozen_revision["plan_id"],
+            "plan_hash": frozen_revision["plan_hash"],
+            "schema_version": frozen_revision["schema_version"],
+            "feature_count": frozen_revision["feature_count"],
+        }
+        f.write(json.dumps(journal_entry, ensure_ascii=False) + "\n")
+
+    with open(revision_path, "w", encoding="utf-8") as f:
+        json.dump(frozen_revision, f, ensure_ascii=False, indent=2)
+
+    table = Table(title="Plan produit gelé")
+    table.add_column("Champ")
+    table.add_column("Valeur")
+    table.add_row("Run ID", frozen_revision["run_id"])
+    table.add_row("Plan ID", frozen_revision["plan_id"])
+    table.add_row("Plan Hash", frozen_revision["plan_hash"][:16] + "...")
+    table.add_row("Schéma", frozen_revision["schema_version"])
+    table.add_row("Branche intégration", frozen_revision["integration_branch"])
+    table.add_row("Nombre de features", str(frozen_revision["feature_count"]))
+    table.add_row("Figé à", frozen_revision["frozen_at"])
+    console.print(table)
+    console.print(f"\n[bold green]Révision gelée :[/bold green] {revision_path}")
+    console.print(f"[bold green]Journal :[/bold green] {journal_path}")
 
 
 @app.command("plan")

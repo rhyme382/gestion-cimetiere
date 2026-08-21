@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Autodev Specification Validation Metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "source",
+    "commit",
+    "validation_status"
+  ],
+  "properties": {
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Source of specification: 'approved-spec', 'generated:draft', 'generated:autonomous', or path"
+    },
+    "prompt": {
+      "type": ["string", "null"],
+      "description": "Original prompt or specification request used to generate the specification"
+    },
+    "commit": {
+      "type": "string",
+      "minLength": 7,
+      "maxLength": 40,
+      "pattern": "^[a-f0-9]+$",
+      "description": "Git commit hash where specification was introduced or last validated"
+    },
+    "validation_status": {
+      "type": "string",
+      "enum": ["approved", "draft", "rejected", "pending-human"],
+      "description": "Current validation status of the specification"
+    },
+    "validated_at": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when validation was completed"
+    },
+    "validated_by": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "Human or system that validated the specification (e.g., 'user@example.com', 'autonomous-contract')"
+    },
+    "ambiguities": {
+      "type": "array",
+      "description": "List of detected ambiguities or issues in the specification",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

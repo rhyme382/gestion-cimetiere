@@ -127,6 +127,38 @@ def valid_plan_dict():
     }
 
 
+def _materialize_approved_specifications(temp_dir: Path, plan_dict: dict) -> None:
+    for feature in plan_dict["features"]:
+        spec_path = temp_dir / feature["specification_path"]
+        spec_path.parent.mkdir(parents=True, exist_ok=True)
+        spec_path.write_text(
+            f"""## Objectif
+Formaliser la feature {feature["feature_id"]}.
+
+## Exigences
+- R1: Implémenter {feature["title"]} conformément au plan produit.
+
+## Critères d'acceptation
+- AC1: La feature {feature["feature_id"]} dispose d'une spécification approuvée exploitable.
+""",
+            encoding="utf-8",
+        )
+        spec_path.with_suffix(f"{spec_path.suffix}.validation.json").write_text(
+            json.dumps(
+                {
+                    "source": f"spec:manual/{feature['specification_path']}",
+                    "prompt": None,
+                    "commit": "abc123def456",
+                    "validation_status": "approved",
+                    "validated_at": datetime.now(timezone.utc).isoformat(),
+                    "validated_by": "human-supervisor",
+                    "ambiguities": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+
 class TestSchemaVersion:
     def test_valid_semantic_version(self):
         validate_schema_version("1.0.0")
@@ -315,6 +347,7 @@ class TestMutableStatuses:
 
 class TestLoadProductPlan:
     def test_load_valid_plan(self, temp_dir, valid_schema, valid_plan_dict):
+        _materialize_approved_specifications(temp_dir, valid_plan_dict)
         plan_path = temp_dir / "plan.json"
         with open(plan_path, "w") as f:
             json.dump(valid_plan_dict, f)
@@ -457,6 +490,7 @@ class TestLoadProductPlan:
 
 class TestProductPlanImmutability:
     def test_plan_is_frozen(self, temp_dir, valid_schema, valid_plan_dict):
+        _materialize_approved_specifications(temp_dir, valid_plan_dict)
         plan_path = temp_dir / "plan.json"
         with open(plan_path, "w") as f:
             json.dump(valid_plan_dict, f)
@@ -466,6 +500,7 @@ class TestProductPlanImmutability:
         assert len(plan.plan_hash) == 64
 
     def test_plan_hash_consistent(self, temp_dir, valid_schema, valid_plan_dict):
+        _materialize_approved_specifications(temp_dir, valid_plan_dict)
         plan_path = temp_dir / "plan.json"
         with open(plan_path, "w") as f:
             json.dump(valid_plan_dict, f)
@@ -475,6 +510,7 @@ class TestProductPlanImmutability:
         assert plan1.plan_hash == plan2.plan_hash
 
     def test_plan_features_are_immutable(self, temp_dir, valid_schema, valid_plan_dict):
+        _materialize_approved_specifications(temp_dir, valid_plan_dict)
         plan_path = temp_dir / "plan.json"
         with open(plan_path, "w") as f:
             json.dump(valid_plan_dict, f)
@@ -485,6 +521,7 @@ class TestProductPlanImmutability:
 
     def test_plan_hash_changes_with_generated_at(self, temp_dir, valid_schema, valid_plan_dict):
         # Load plan with original generated_at
+        _materialize_approved_specifications(temp_dir, valid_plan_dict)
         plan_path = temp_dir / "plan.json"
         with open(plan_path, "w") as f:
             json.dump(valid_plan_dict, f)
@@ -503,6 +540,7 @@ class TestProductPlanImmutability:
 
     def test_plan_hash_changes_with_global_validations(self, temp_dir, valid_schema, valid_plan_dict):
         # Load plan with original global_validations
+        _materialize_approved_specifications(temp_dir, valid_plan_dict)
         plan_path = temp_dir / "plan.json"
         with open(plan_path, "w") as f:
             json.dump(valid_plan_dict, f)

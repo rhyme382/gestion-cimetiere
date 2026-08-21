@@ -22,6 +22,9 @@ import {
   getPlot,
   listAlerts,
   getAlertSummary,
+  listSections,
+  listSquares,
+  listRows,
 } from "@/lib/tauri";
 import type {
   MunicipalityDTO,
@@ -38,6 +41,9 @@ import type {
   CreateIndividualRequest,
   UpdateIndividualRequest,
   PlotDTO,
+  SectionTuple,
+  SquareTuple,
+  RowTuple,
 } from "@/types/bindings";
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -675,6 +681,98 @@ describe("Tauri client functions", () => {
 
       expect(mockInvoke).toHaveBeenCalledWith("get_alert_summary");
       expect(result).toEqual(mockSummaryData);
+    });
+  });
+
+  describe("Hierarchy commands (FP-004)", () => {
+    it("listSections should invoke list_sections with cemetery_id", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const mockInvoke = invoke as ReturnType<typeof vi.fn>;
+
+      const mockSections: SectionTuple[] = [
+        [1, "A", "Section A"],
+        [2, "B", "Section B"],
+      ];
+
+      mockInvoke.mockResolvedValueOnce(mockSections);
+
+      const result = await listSections(1);
+
+      expect(mockInvoke).toHaveBeenCalledWith("list_sections", { cemetery_id: 1 });
+      expect(result).toEqual(mockSections);
+      expect(result.length).toBe(2);
+      expect(result[0][0]).toBe(1);
+      expect(result[0][1]).toBe("A");
+    });
+
+    it("listSquares should invoke list_squares with section_id", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const mockInvoke = invoke as ReturnType<typeof vi.fn>;
+
+      const mockSquares: SquareTuple[] = [
+        [1, "001", "Square 001"],
+        [2, "002", "Square 002"],
+      ];
+
+      mockInvoke.mockResolvedValueOnce(mockSquares);
+
+      const result = await listSquares(1);
+
+      expect(mockInvoke).toHaveBeenCalledWith("list_squares", { section_id: 1 });
+      expect(result).toEqual(mockSquares);
+      expect(result.length).toBe(2);
+      expect(result[0][0]).toBe(1);
+      expect(result[0][1]).toBe("001");
+    });
+
+    it("listRows should invoke list_rows with square_id", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const mockInvoke = invoke as ReturnType<typeof vi.fn>;
+
+      const mockRows: RowTuple[] = [
+        [1, "1", "Row 1"],
+        [2, "2", "Row 2"],
+        [3, "3", "Row 3"],
+      ];
+
+      mockInvoke.mockResolvedValueOnce(mockRows);
+
+      const result = await listRows(1);
+
+      expect(mockInvoke).toHaveBeenCalledWith("list_rows", { square_id: 1 });
+      expect(result).toEqual(mockRows);
+      expect(result.length).toBe(3);
+      expect(result[0][0]).toBe(1);
+      expect(result[0][1]).toBe("1");
+    });
+
+    it("listSections should handle empty result", async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const mockInvoke = invoke as ReturnType<typeof vi.fn>;
+
+      mockInvoke.mockResolvedValueOnce([]);
+
+      const result = await listSections(999);
+
+      expect(mockInvoke).toHaveBeenCalledWith("list_sections", { cemetery_id: 999 });
+      expect(result).toEqual([]);
+    });
+
+    it("tuple types are indexable for hierarchy data", async () => {
+      const section: SectionTuple = [10, "TEST", "Test Section"];
+      const square: SquareTuple = [20, "TST001", "Test Square"];
+      const row: RowTuple = [30, "1", "Test Row"];
+
+      expect(section[0]).toBe(10);
+      expect(section[1]).toBe("TEST");
+      expect(section[2]).toBe("Test Section");
+
+      expect(square[0]).toBe(20);
+      expect(square[1]).toBe("TST001");
+
+      expect(row[0]).toBe(30);
+      expect(row[1]).toBe("1");
+      expect(row[2]).toBe("Test Row");
     });
   });
 });

@@ -3,6 +3,7 @@ import type {
   MunicipalityDTO, CreateMunicipalityRequest, UpdateMunicipalityRequest,
   CemeteryDTO, CreateCemeteryRequest, UpdateCemeteryRequest,
   PlotDTO, CreatePlotRequest, UpdatePlotRequest,
+  SectionTuple, SquareTuple, RowTuple,
   ConcessionDTO, CreateConcessionRequest, UpdateConcessionRequest,
   IndividualDTO, CreateIndividualRequest, UpdateIndividualRequest,
   BurialDTO, CreateBurialRequest,
@@ -29,6 +30,11 @@ export const listPlots = (cemeteryId: number) => invoke<PlotDTO[]>("list_plots",
 export const getPlot = (id: number) => invoke<PlotDTO>("get_plot", { id });
 export const createPlot = (req: CreatePlotRequest) => invoke<PlotDTO>("create_plot", { request: req });
 export const updatePlot = (id: number, req: UpdatePlotRequest) => invoke<PlotDTO>("update_plot", { id, request: req });
+
+// Hierarchy (FP-004) — Reading cemetery structure without CRUD
+export const listSections = (cemeteryId: number) => invoke<SectionTuple[]>("list_sections", { cemetery_id: cemeteryId });
+export const listSquares = (sectionId: number) => invoke<SquareTuple[]>("list_squares", { section_id: sectionId });
+export const listRows = (squareId: number) => invoke<RowTuple[]>("list_rows", { square_id: squareId });
 
 // Concession
 export const listConcessions = (cemeteryId?: number) => invoke<ConcessionDTO[]>("list_concessions", cemeteryId ? { cemeteryId } : {});

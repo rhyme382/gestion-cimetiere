@@ -5,6 +5,13 @@ import type {
   UpdateMunicipalityRequest,
   CemeteryDTO,
   PlotDTO,
+  HierarchicalPathDTO,
+  SectionDTO,
+  SquareDTO,
+  RowDTO,
+  SectionTuple,
+  SquareTuple,
+  RowTuple,
   ConcessionDTO,
   IndividualDTO,
   DiagnosticDTO,
@@ -122,6 +129,92 @@ describe("Types bindings — cohérence de forme", () => {
     expect(example.is_active).toBe(0);
   });
 
+  it("HierarchicalPathDTO représente la hiérarchie spatiale (FP-004)", () => {
+    const path: HierarchicalPathDTO = {
+      section_id: 1,
+      section_code: "A",
+      section_label: "Section A",
+      square_id: 2,
+      square_code: "001",
+      square_label: "Square 001",
+      row_id: 3,
+      row_code: "1",
+      row_label: "Row 1",
+    };
+    expect(path.section_id).toBe(1);
+    expect(path.section_code).toBe("A");
+    expect(path.square_id).toBe(2);
+    expect(path.row_id).toBe(3);
+  });
+
+  it("HierarchicalPathDTO peut avoir des valeurs partielles ou nulles", () => {
+    const partialPath: HierarchicalPathDTO = {
+      section_id: 1,
+      section_code: "A",
+      section_label: undefined,
+      square_id: undefined,
+      square_code: undefined,
+      square_label: undefined,
+      row_id: null,
+      row_code: null,
+      row_label: null,
+    };
+    expect(partialPath.section_id).toBe(1);
+    expect(partialPath.square_id).toBeUndefined();
+    expect(partialPath.row_id).toBeNull();
+  });
+
+  it("SectionDTO a les champs attendus (FP-004)", () => {
+    const section: SectionDTO = {
+      id: 1,
+      cemetery_id: 1,
+      normalized_code: "A",
+      display_label: "Section A",
+      display_order: 1,
+      is_active: true,
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+    };
+    expect(section.id).toBe(1);
+    expect(section.normalized_code).toBe("A");
+    expect(section.display_label).toBe("Section A");
+    expect(section.is_active).toBe(true);
+  });
+
+  it("SquareDTO a les champs attendus (FP-004)", () => {
+    const square: SquareDTO = {
+      id: 2,
+      section_id: 1,
+      normalized_code: "001",
+      display_label: "Square 001",
+      display_order: 1,
+      is_active: true,
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+    };
+    expect(square.id).toBe(2);
+    expect(square.section_id).toBe(1);
+    expect(square.normalized_code).toBe("001");
+    expect(square.is_active).toBe(true);
+  });
+
+  it("RowDTO a les champs attendus (FP-004)", () => {
+    const row: RowDTO = {
+      id: 3,
+      square_id: 2,
+      normalized_code: "1",
+      display_label: "Row 1",
+      display_order: 1,
+      is_active: true,
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+    };
+    expect(row.id).toBe(3);
+    expect(row.square_id).toBe(2);
+    expect(row.normalized_code).toBe("1");
+    expect(row.is_active).toBe(true);
+  });
+
   it("PlotDTO a les champs attendus", () => {
     const example: PlotDTO = {
       id: 1,
@@ -135,6 +228,72 @@ describe("Types bindings — cohérence de forme", () => {
       updated_at: "2024-01-01T00:00:00Z",
     };
     expect(example.status).toBe("available");
+  });
+
+  it("PlotDTO supporte les champs hiérarchiques et administratifs (FP-004)", () => {
+    const enrichedPlot: PlotDTO = {
+      id: 1,
+      cemetery_id: 1,
+      section: "A",
+      row: 1,
+      number: 5,
+      capacity: 2,
+      status: "available",
+      administrative_reference: "EMP-001",
+      hierarchical_path: {
+        section_id: 1,
+        section_code: "A",
+        section_label: "Section A",
+        square_id: 2,
+        square_code: "001",
+        square_label: "Square 001",
+        row_id: 3,
+        row_code: "1",
+        row_label: "Row 1",
+      },
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+    };
+    expect(enrichedPlot.administrative_reference).toBe("EMP-001");
+    expect(enrichedPlot.hierarchical_path?.section_code).toBe("A");
+    expect(enrichedPlot.hierarchical_path?.row_id).toBe(3);
+  });
+
+  it("PlotDTO est rétrocompatible sans champs hiérarchiques", () => {
+    const basicPlot: PlotDTO = {
+      id: 2,
+      cemetery_id: 1,
+      section: null,
+      row: null,
+      number: null,
+      capacity: 1,
+      status: "available",
+      created_at: "2024-01-01T00:00:00Z",
+      updated_at: "2024-01-01T00:00:00Z",
+    };
+    expect(basicPlot.administrative_reference).toBeUndefined();
+    expect(basicPlot.hierarchical_path).toBeUndefined();
+  });
+
+  it("SectionTuple représente un tuple (id, code, label) depuis Tauri", () => {
+    const tuple: SectionTuple = [1, "A", "Section A"];
+    expect(tuple[0]).toBe(1);
+    expect(tuple[1]).toBe("A");
+    expect(tuple[2]).toBe("Section A");
+  });
+
+  it("SquareTuple représente un tuple (id, code, label) depuis Tauri", () => {
+    const tuple: SquareTuple = [2, "001", "Square 001"];
+    expect(tuple[0]).toBe(2);
+    expect(tuple[1]).toBe("001");
+    expect(tuple[2]).toBe("Square 001");
+  });
+
+  it("RowTuple représente un tuple (id, code, label) depuis Tauri", () => {
+    const tuple: RowTuple = [3, "1", "Row 1"];
+    expect(tuple[0]).toBe(3);
+    expect(tuple[1]).toBe("1");
+    expect(tuple[2]).toBe("Row 1");
   });
 
   it("ConcessionDTO a les champs attendus", () => {

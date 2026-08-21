@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Autodev Product Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "plan_id",
+    "generated_at",
+    "integration_branch",
+    "specification_policy",
+    "features",
+    "global_validations"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d?)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+      "description": "Semantic version of the schema"
+    },
+    "plan_id": {
+      "type": "string",
+      "minLength": 3,
+      "description": "Unique identifier for this product plan"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when plan was generated"
+    },
+    "integration_branch": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Git branch where features will be integrated"
+    },
+    "specification_policy": {
+      "type": "string",
+      "enum": ["approved-only", "draft", "autonomous"],
+      "description": "Policy for how feature specifications are handled"
+    },
+    "global_validations": {
+      "type": "array",
+      "description": "Global product validation commands",
+      "items": {
+        "type": "string"
+      }
+    },
+    "features": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "feature_id",
+          "title",
+          "specification_path",
+          "required",
+          "priority",
+          "depends_on",
+          "validations"
+        ],
+        "properties": {
+          "feature_id": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9-]*$",
+            "description": "Unique identifier for the feature"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 3,
+            "description": "Human-readable title"
+          },
+          "specification_path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Path to the specification file"
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Whether this feature must be completed"
+          },
+          "priority": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Priority order (lower values = higher priority)"
+          },
+          "depends_on": {
+            "type": "array",
+            "description": "List of feature IDs this feature depends on",
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9-]*$"
+            }
+          },
+          "validations": {
+            "type": "array",
+            "description": "Feature-specific validation commands",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

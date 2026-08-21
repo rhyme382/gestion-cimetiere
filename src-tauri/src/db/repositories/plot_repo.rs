@@ -1,65 +1,91 @@
 use crate::{
     core::models::Plot,
-    dto::PlotDTO,
-    errors::{AppError, AppResult},
+    dto::{PlotDTO, HierarchicalPathDTO},
+    errors::{AppError, AppResult, NotFoundKind},
 };
 use rusqlite::Connection;
 
 pub struct PlotRepository;
 
 impl PlotRepository {
-    /// List all plots for a cemetery, ordered by section, row, and number
+    /// List all plots for a cemetery, ordered by section, row, and number, including hierarchy
     pub fn list(conn: &Connection, cemetery_id: i64) -> AppResult<Vec<PlotDTO>> {
         let mut stmt = conn.prepare(
-            "SELECT id, cemetery_id, section, row, number, capacity, status, created_at, updated_at FROM plots WHERE cemetery_id = ? ORDER BY section, row, number"
+            "SELECT id, cemetery_id, section, row, number, capacity, status, administrative_reference, created_at, updated_at FROM plots WHERE cemetery_id = ? ORDER BY section, row, number"
         )?;
 
-        let plots = stmt.query_map([cemetery_id], |row| {
-            Ok(PlotDTO {
-                id: row.get(0)?,
-                cemetery_id: row.get(1)?,
-                section: row.get(2)?,
-                row: row.get(3)?,
-                number: row.get(4)?,
-                capacity: row.get(5)?,
-                status: row.get(6)?,
-                administrative_reference: None,
-                hierarchical_path: None,
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
-            })
-        })?;
+        let plot_rows: Vec<(i64, i64, Option<String>, Option<i32>, Option<i32>, i32, String, String, String, String)> = stmt.query_map([cemetery_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<i32>>(3)?,
+                row.get::<_, Option<i32>>(4)?,
+                row.get::<_, i32>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
+                row.get::<_, String>(8)?,
+                row.get::<_, String>(9)?,
+            ))
+        })?.collect::<Result<Vec<_>, _>>()?;
 
-        plots.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+        plot_rows.into_iter().map(|(id, c_id, sec, row_num, num, cap, stat, admin_ref, c_at, u_at)| {
+            Ok(PlotDTO {
+                id,
+                cemetery_id: c_id,
+                section: sec,
+                row: row_num,
+                number: num,
+                capacity: cap,
+                status: stat,
+                administrative_reference: Some(admin_ref),
+                hierarchical_path: Self::get_hierarchical_path(conn, id)?,
+                created_at: c_at,
+                updated_at: u_at,
+            })
+        }).collect()
     }
 
-    /// Get a plot by id
+    /// Get a plot by id, including its hierarchical path
     pub fn get(conn: &Connection, id: i64) -> AppResult<PlotDTO> {
         conn.query_row(
-            "SELECT id, cemetery_id, section, row, number, capacity, status, created_at, updated_at FROM plots WHERE id = ?",
+            "SELECT id, cemetery_id, section, row, number, capacity, status, administrative_reference, created_at, updated_at FROM plots WHERE id = ?",
             [id],
             |row| {
-                Ok(PlotDTO {
-                    id: row.get(0)?,
-                    cemetery_id: row.get(1)?,
-                    section: row.get(2)?,
-                    row: row.get(3)?,
-                    number: row.get(4)?,
-                    capacity: row.get(5)?,
-                    status: row.get(6)?,
-                    administrative_reference: None,
-                    hierarchical_path: None,
-                    created_at: row.get(7)?,
-                    updated_at: row.get(8)?,
-                })
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<i32>>(3)?,
+                    row.get::<_, Option<i32>>(4)?,
+                    row.get::<_, i32>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, String>(9)?,
+                ))
             }
         ).map_err(|err| {
             match err {
                 rusqlite::Error::QueryReturnedNoRows => {
-                    AppError::NotFound(format!("Plot with id {} not found", id))
+                    AppError::with_kind(NotFoundKind::Plot, format!("Plot with id {} not found", id))
                 }
                 _ => AppError::Database(err),
             }
+        }).and_then(|(id, c_id, sec, row_num, num, cap, stat, admin_ref, c_at, u_at)| {
+            Ok(PlotDTO {
+                id,
+                cemetery_id: c_id,
+                section: sec,
+                row: row_num,
+                number: num,
+                capacity: cap,
+                status: stat,
+                administrative_reference: Some(admin_ref),
+                hierarchical_path: Self::get_hierarchical_path(conn, id)?,
+                created_at: c_at,
+                updated_at: u_at,
+            })
         })
     }
 
@@ -103,6 +129,190 @@ impl PlotRepository {
         )?;
 
         Self::get(conn, id)
+    }
+
+    /// Get the hierarchical path for a plot (section, square, row with identifiers, codes and labels)
+    pub fn get_hierarchical_path(conn: &Connection, plot_id: i64) -> AppResult<Option<HierarchicalPathDTO>> {
+        let result: Option<(Option<i64>, Option<String>, Option<String>, Option<i64>, Option<String>, Option<String>, Option<i64>, Option<String>, Option<String>)> = conn.query_row(
+            "SELECT s.id, s.normalized_code, s.display_label, sq.id, sq.normalized_code, sq.display_label, r.id, r.normalized_code, r.display_label
+             FROM plots p
+             LEFT JOIN rows r ON p.row_id = r.id
+             LEFT JOIN squares sq ON r.square_id = sq.id
+             LEFT JOIN sections s ON sq.section_id = s.id
+             WHERE p.id = ?",
+            [plot_id],
+            |row| {
+                let has_any = row.get::<_, Option<i64>>(0)?.is_some()
+                    || row.get::<_, Option<i64>>(3)?.is_some()
+                    || row.get::<_, Option<i64>>(6)?.is_some();
+
+                if has_any {
+                    Ok(Some((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                        row.get(8)?,
+                    )))
+                } else {
+                    Ok(None)
+                }
+            }
+        ).or_else(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => Ok(None),
+            e => Err(e),
+        })?;
+
+        Ok(result.map(|(sec_id, sec_code, sec_label, sq_id, sq_code, sq_label, row_id, row_code, row_label)| {
+            HierarchicalPathDTO {
+                section_id: sec_id,
+                section_code: sec_code,
+                section_label: sec_label,
+                square_id: sq_id,
+                square_code: sq_code,
+                square_label: sq_label,
+                row_id: row_id,
+                row_code: row_code,
+                row_label: row_label,
+            }
+        }))
+    }
+
+    /// List all sections in a cemetery
+    pub fn list_sections(conn: &Connection, cemetery_id: i64) -> AppResult<Vec<(i64, String, String)>> {
+        // Verify cemetery exists
+        if !Self::cemetery_exists(conn, cemetery_id)? {
+            return Err(AppError::with_kind(
+                NotFoundKind::Cemetery,
+                format!("Cemetery with id {} not found", cemetery_id),
+            ));
+        }
+
+        let mut stmt = conn.prepare(
+            "SELECT id, normalized_code, display_label FROM sections WHERE cemetery_id = ? AND is_active = 1 ORDER BY display_order, normalized_code"
+        )?;
+
+        let sections = stmt.query_map([cemetery_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+
+        sections.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+    }
+
+    /// List all squares in a section
+    pub fn list_squares(conn: &Connection, section_id: i64) -> AppResult<Vec<(i64, String, String)>> {
+        // Verify section exists
+        let section_exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM sections WHERE id = ? AND is_active = 1",
+            [section_id],
+            |row| row.get(0),
+        )?;
+
+        if section_exists == 0 {
+            return Err(AppError::with_kind(
+                NotFoundKind::Section,
+                format!("Section with id {} not found", section_id),
+            ));
+        }
+
+        let mut stmt = conn.prepare(
+            "SELECT id, normalized_code, display_label FROM squares WHERE section_id = ? AND is_active = 1 ORDER BY display_order, normalized_code"
+        )?;
+
+        let squares = stmt.query_map([section_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+
+        squares.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+    }
+
+    /// List all rows in a square
+    pub fn list_rows(conn: &Connection, square_id: i64) -> AppResult<Vec<(i64, String, String)>> {
+        // Verify square exists
+        let square_exists: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM squares WHERE id = ? AND is_active = 1",
+            [square_id],
+            |row| row.get(0),
+        )?;
+
+        if square_exists == 0 {
+            return Err(AppError::with_kind(
+                NotFoundKind::Square,
+                format!("Square with id {} not found", square_id),
+            ));
+        }
+
+        let mut stmt = conn.prepare(
+            "SELECT id, normalized_code, display_label FROM rows WHERE square_id = ? AND is_active = 1 ORDER BY display_order, normalized_code"
+        )?;
+
+        let rows = stmt.query_map([square_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(AppError::from)
+    }
+
+    /// Get section by id with cemetery validation
+    pub fn get_section(conn: &Connection, section_id: i64, cemetery_id: i64) -> AppResult<(i64, String, String)> {
+        conn.query_row(
+            "SELECT id, normalized_code, display_label FROM sections WHERE id = ? AND cemetery_id = ? AND is_active = 1",
+            rusqlite::params![section_id, cemetery_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        ).map_err(|err| {
+            match err {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    AppError::with_kind(NotFoundKind::Section, format!("Section with id {} not found in cemetery {}", section_id, cemetery_id))
+                }
+                _ => AppError::Database(err),
+            }
+        })
+    }
+
+    /// Get square by id with section validation
+    pub fn get_square(conn: &Connection, square_id: i64, section_id: i64) -> AppResult<(i64, String, String)> {
+        conn.query_row(
+            "SELECT id, normalized_code, display_label FROM squares WHERE id = ? AND section_id = ? AND is_active = 1",
+            rusqlite::params![square_id, section_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        ).map_err(|err| {
+            match err {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    AppError::with_kind(NotFoundKind::Square, format!("Square with id {} not found in section {}", square_id, section_id))
+                }
+                _ => AppError::Database(err),
+            }
+        })
+    }
+
+    /// Get row by id with square validation
+    pub fn get_row(conn: &Connection, row_id: i64, square_id: i64) -> AppResult<(i64, String, String)> {
+        conn.query_row(
+            "SELECT id, normalized_code, display_label FROM rows WHERE id = ? AND square_id = ? AND is_active = 1",
+            rusqlite::params![row_id, square_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        ).map_err(|err| {
+            match err {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    AppError::with_kind(NotFoundKind::Row, format!("Row with id {} not found in square {}", row_id, square_id))
+                }
+                _ => AppError::Database(err),
+            }
+        })
+    }
+
+    /// Verify cemetery exists
+    pub fn cemetery_exists(conn: &Connection, cemetery_id: i64) -> AppResult<bool> {
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM cemeteries WHERE id = ?",
+            [cemetery_id],
+            |row| row.get(0)
+        )?;
+        Ok(count > 0)
     }
 }
 

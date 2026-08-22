@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Autodev Product Diagnostic",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "timestamp",
+    "facts",
+    "inferences",
+    "constraints",
+    "proposed_action",
+    "confidence_level"
+  ],
+  "$defs": {
+    "confidence": {
+      "type": "string",
+      "enum": ["very_high", "high", "medium", "low", "very_low"],
+      "description": "Supervisor's confidence in the diagnosis"
+    },
+    "action_id": {
+      "type": "string",
+      "enum": [
+        "WAIT_PROVIDER_RESET",
+        "RECONCILE_WORKTREE",
+        "PRESERVE_PARTIAL_CHANGES",
+        "REGENERATE_TASK_REPORT",
+        "REQUEST_SCOPE_EXTENSION",
+        "APPLY_SCOPE_EXTENSION",
+        "REQUEST_CRITERION_REALLOCATION",
+        "APPLY_CRITERION_REALLOCATION",
+        "RECOVER_AGENT_GIT_HISTORY",
+        "RUN_BASELINE_VALIDATION",
+        "REVALIDATE_TASK",
+        "RESUME_FEATURE",
+        "INTEGRATE_FEATURE",
+        "REQUEST_HUMAN"
+      ],
+      "description": "Closed set of valid proposed actions"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d?)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+      "description": "Semantic version of the schema"
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identifier of the task being diagnosed"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of diagnostic collection"
+    },
+    "facts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "base_commit",
+        "produced_commit",
+        "modified_paths",
+        "review_verdict",
+        "test_status",
+        "diff_summary",
+        "git_status",
+        "prior_corrections",
+        "prior_incident_codes",
+        "acquired_decisions",
+        "policy_context"
+      ],
+      "properties": {
+        "base_commit": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Starting commit hash for the task"
+        },
+        "produced_commit": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Final commit produced by the task"
+        },
+        "modified_paths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of files modified between base and produced commit"
+        },
+        "review_verdict": {
+          "type": "string",
+          "enum": ["APPROVED", "CORRECTION_REQUIRED", "HUMAN_REVIEW_REQUIRED"],
+          "description": "Review system verdict (separate from supervisor diagnosis)"
+        },
+        "test_status": {
+          "type": "string",
+          "enum": ["PASS", "FAIL", "SKIPPED"],
+          "description": "Status of required validation tests"
+        },
+        "scope_violations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Paths modified outside authorized scope"
+        },
+        "prior_incident_codes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Incident codes from this task session (if any)"
+        },
+        "diff_summary": {
+          "type": "string",
+          "description": "Summary of the diff between base and produced commits"
+        },
+        "git_status": {
+          "type": "object",
+          "description": "Current Git state (working directory, index, refs)"
+        },
+        "prior_corrections": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "History of prior corrections applied to this task"
+        },
+        "acquired_decisions": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Recorded decisions that must be preserved"
+        },
+        "policy_context": {
+          "type": "object",
+          "description": "Structured, authoritative T07 policy facts and execution context"
+        }
+      }
+    },
+    "inferences": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scope_compliant": {
+          "type": "boolean",
+          "description": "Inferred: All modifications within authorized paths"
+        },
+        "test_confidence": {
+          "type": "string",
+          "enum": ["high", "medium", "low"],
+          "description": "Inferred: Confidence in test results validity"
+        },
+        "implementation_completeness": {
+          "type": "string",
+          "enum": ["complete", "partial", "incomplete"],
+          "description": "Inferred: Whether implementation appears complete"
+        },
+        "risk_factors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Identified risk factors or concerns"
+        }
+      }
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "must_preserve": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Architectural/policy constraints that must not be violated"
+        },
+        "must_not_modify": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Paths that must not be modified in this task"
+        },
+        "required_validations": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Validations that must pass before acceptance"
+        }
+      }
+    },
+    "proposed_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action_id",
+        "rationale",
+        "next_steps"
+      ],
+      "properties": {
+        "action_id": {
+          "$ref": "#/$defs/action_id",
+          "description": "Canonical closed action identifier from T07 ProductActionRegistry"
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why this action is proposed"
+        },
+        "next_steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Concrete steps to take (no free-form shell commands)"
+        },
+        "action_inputs": {
+          "type": "object",
+          "description": "Structured T07 action inputs; never a shell command"
+        },
+        "blocking_issue": {
+          "type": "string",
+          "description": "Reason the diagnostic safely escalated to a human"
+        }
+      }
+    },
+    "confidence_level": {
+      "$ref": "#/$defs/confidence",
+      "description": "Overall confidence in this diagnosis"
+    }
+  }
+}

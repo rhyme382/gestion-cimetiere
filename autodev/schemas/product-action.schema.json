@@ -1,0 +1,260 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Autodev Product Action",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "action_id",
+    "title",
+    "category",
+    "preconditions",
+    "authorization",
+    "inputs",
+    "expected_effect",
+    "scope",
+    "audit_trail",
+    "idempotence_rule",
+    "rollback_strategy",
+    "stop_reasons"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d?)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+      "description": "Semantic version of the action schema"
+    },
+    "action_id": {
+      "type": "string",
+      "enum": [
+        "WAIT_PROVIDER_RESET",
+        "RECONCILE_WORKTREE",
+        "PRESERVE_PARTIAL_CHANGES",
+        "REGENERATE_TASK_REPORT",
+        "REQUEST_SCOPE_EXTENSION",
+        "APPLY_SCOPE_EXTENSION",
+        "REQUEST_CRITERION_REALLOCATION",
+        "APPLY_CRITERION_REALLOCATION",
+        "RECOVER_AGENT_GIT_HISTORY",
+        "RUN_BASELINE_VALIDATION",
+        "REVALIDATE_TASK",
+        "RESUME_FEATURE",
+        "INTEGRATE_FEATURE",
+        "REQUEST_HUMAN"
+      ],
+      "description": "Unique identifier for this action (uppercase, no spaces)"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 3,
+      "description": "Human-readable title"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "workflow_control",
+        "git_reconciliation",
+        "data_preservation",
+        "reporting",
+        "scope_management",
+        "ownership_management",
+        "agent_recovery",
+        "validation",
+        "resumption",
+        "integration",
+        "human_escalation"
+      ],
+      "description": "Action category"
+    },
+    "preconditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required_state", "forbidden_state"],
+      "properties": {
+        "required_state": {
+          "type": "array",
+          "description": "States that must be true for action to proceed",
+          "items": {
+            "type": "string"
+          }
+        },
+        "forbidden_state": {
+          "type": "array",
+          "description": "States that must not be true for action to proceed",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy_requirement", "default_allowed"],
+      "properties": {
+        "policy_requirement": {
+          "type": "string",
+          "enum": ["none", "explicit", "supervisor_only"],
+          "description": "What policy authorization this action requires"
+        },
+        "default_allowed": {
+          "type": "boolean",
+          "description": "Whether action is allowed without explicit policy (if policy_requirement is 'none')"
+        },
+        "policy_field": {
+          "type": "string",
+          "description": "If explicit policy required, field name to check in policy"
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "optional"],
+      "properties": {
+        "required": {
+          "type": "array",
+          "description": "Required input parameters with types",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "type"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["string", "integer", "boolean", "list", "object", "path"]
+              },
+              "description": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "optional": {
+          "type": "array",
+          "description": "Optional input parameters with types",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "type"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["string", "integer", "boolean", "list", "object", "path"]
+              },
+              "description": {
+                "type": "string"
+              },
+              "default": {
+                "type": ["string", "integer", "boolean", "null"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "expected_effect": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What this action is expected to accomplish"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_entities", "entity_types", "modifications_bounded"],
+      "properties": {
+        "max_entities": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of entities this action can touch"
+        },
+        "entity_types": {
+          "type": "array",
+          "description": "Types of entities this action can modify",
+          "items": {
+            "type": "string"
+          }
+        },
+        "modifications_bounded": {
+          "type": "boolean",
+          "description": "Whether modifications must be finite and knowable in advance"
+        }
+      }
+    },
+    "audit_trail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mandatory_evidence", "decision_recorded"],
+      "properties": {
+        "mandatory_evidence": {
+          "type": "array",
+          "description": "Evidence that must be captured if action succeeds",
+          "items": {
+            "type": "string"
+          }
+        },
+        "decision_recorded": {
+          "type": "boolean",
+          "description": "Whether this action must be recorded as a decision"
+        }
+      }
+    },
+    "idempotence_rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["is_idempotent", "rule"],
+      "properties": {
+        "is_idempotent": {
+          "type": "boolean",
+          "description": "Whether executing twice is same as once"
+        },
+        "rule": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How idempotence is guaranteed"
+        }
+      }
+    },
+    "rollback_strategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["can_rollback", "strategy"],
+      "properties": {
+        "can_rollback": {
+          "type": "boolean",
+          "description": "Whether this action can be rolled back if needed"
+        },
+        "strategy": {
+          "type": "string",
+          "minLength": 1,
+          "description": "How to rollback if action fails midway"
+        }
+      }
+    },
+    "stop_reasons": {
+      "type": "array",
+      "description": "Conditions that force REQUEST_HUMAN instead of proceeding",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["reason", "severity"],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "high", "medium"]
+          }
+        }
+      }
+    }
+  }
+}

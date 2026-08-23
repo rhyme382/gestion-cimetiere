@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from pathlib import Path
 from shutil import rmtree
@@ -44,8 +45,8 @@ def ensure_clean_worktree(repo_root: Path) -> None:
         raise GitError("Le dépôt principal contient des modifications non enregistrées.")
 
 
-def current_head(repo_root: Path) -> str:
-    return git_output(repo_root, ["rev-parse", "HEAD"])
+def current_head(repo_root: Path, cwd: Path | None = None) -> str:
+    return git_output(repo_root, ["rev-parse", "HEAD"], cwd=cwd)
 
 
 def current_branch(repo_root: Path, cwd: Path | None = None) -> str:
@@ -287,3 +288,37 @@ def remove_worktree(repo_root: Path, worktree_path: Path) -> None:
     if result.returncode != 0:
         stderr = result.stderr.strip() or result.stdout.strip()
         raise GitError(f"Impossible de supprimer le worktree {worktree_path}: {stderr}")
+
+
+def get_index_changed_paths(repo_root: Path, cwd: Path | None = None) -> list[str]:
+    """Fichiers en index (staged) modifiés."""
+    output = git_output_raw(repo_root, ["diff", "--cached", "--name-only", "-z"], cwd=cwd)
+    return sorted(parse_git_path_list(output))
+
+
+def get_tracked_dirty_paths(repo_root: Path, cwd: Path | None = None) -> list[str]:
+    """Fichiers suivis (tracked) modifiés mais non stagés."""
+    output = git_output_raw(repo_root, ["diff", "--name-only", "-z"], cwd=cwd)
+    return sorted(parse_git_path_list(output))
+
+
+def get_untracked_paths(repo_root: Path, cwd: Path | None = None) -> list[str]:
+    """Fichiers non suivis (untracked)."""
+    output = git_output_raw(repo_root, ["ls-files", "--others", "--exclude-standard", "-z"], cwd=cwd)
+    return sorted(parse_git_path_list(output))
+
+
+def compute_file_hashes(worktree_path: Path, file_paths: list[str]) -> dict[str, str]:
+    """Calcule les hashes SHA256 de fichiers pour détecter les mutations de contenu."""
+    hashes: dict[str, str] = {}
+    for rel_path in file_paths:
+        file_path = worktree_path / rel_path
+        if file_path.is_file():
+            try:
+                with open(file_path, "rb") as f:
+                    content = f.read()
+                    file_hash = hashlib.sha256(content).hexdigest()
+                    hashes[rel_path] = file_hash
+            except (OSError, IOError):
+                pass
+    return hashes

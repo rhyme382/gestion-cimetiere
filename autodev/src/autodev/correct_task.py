@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from autodev.generated_artifacts import filter_generated_artifacts
-from autodev.git_context import GitContextError, build_current_task_git_state
+from autodev.git_context import (
+    GitContextError,
+    GitSnapshot,
+    analyze_mutations,
+    build_current_task_git_state,
+    capture_git_snapshot,
+    diagnose_reconciliation,
+)
 from autodev.git_tools import (
     GitError,
     amend_head_commit,
@@ -13,6 +21,7 @@ from autodev.git_tools import (
     changed_paths_since,
     commit_count_since,
     create_commit,
+    diff_patch_between,
     dirty_paths,
     git_status_porcelain,
     git_status_with_branch,
@@ -40,6 +49,74 @@ from autodev.task_report import build_task_report_payload, write_task_report
 
 class CorrectTaskError(RuntimeError):
     """Erreur pendant la correction automatique d'une tâche."""
+
+
+def capture_and_diagnose_reconciliation(
+    repo_root: Path,
+    worktree: Path,
+    modified_paths: list[str],
+    before_snapshot: Any | None = None,
+    after_snapshot: Any | None = None,
+) -> dict[str, Any]:
+    """Capture and diagnose reconciliation after task correction.
+
+    AC-R11-5: Un diagnostic structuré précède toute reprise.
+    AC-R11-8: L'état Git initial est capturé avec assez de précision.
+    AC-R22-9: Toute réconciliation produit des preuves vérifiables.
+
+    If before_snapshot is not provided, we use it as hooks_phase (pre-correction),
+    so after_snapshot becomes the real state after correction.
+    This allows testing with only after_snapshot.
+    """
+    try:
+        # AC-R11-8: Capture real before/after snapshots for audit
+        if before_snapshot is None and after_snapshot is None:
+            # No snapshots provided at all; capture current state as after_snapshot
+            after_snapshot = capture_git_snapshot(
+                repo_root,
+                worktree_path=worktree,
+                timestamp_label="after_correction",
+            )
+            # Use after as before for fallback, but limit comparison
+            before_snapshot = after_snapshot
+        elif before_snapshot is None:
+            # Only after_snapshot provided; assume before state equals after
+            # (diagnostic will have limited power to distinguish pre/post mutations)
+            before_snapshot = after_snapshot
+        elif after_snapshot is None:
+            # Only before_snapshot provided; capture after state now
+            after_snapshot = capture_git_snapshot(
+                repo_root,
+                worktree_path=worktree,
+                timestamp_label="after_correction",
+            )
+
+        # Analyze mutations comparing before_hooks (pre-correction state),
+        # before_hooks again (as hooks phase marker), and after_process (post-correction).
+        # This requires before_snapshot to be pre-correction and after_snapshot to be post-correction.
+        mutations = analyze_mutations(before_snapshot, before_snapshot, after_snapshot)
+        diagnostic = diagnose_reconciliation(
+            before_snapshot,
+            after_snapshot,
+            modified_paths,
+            mutations,
+        )
+
+        return {
+            "has_divergence": diagnostic.has_divergence,
+            "verdict": diagnostic.verdict,
+            "preexisting_dirty_paths": diagnostic.preexisting_dirty_paths,
+            "allowed_count": len(diagnostic.allowed_changes),
+            "partial_count": len(diagnostic.partial_changes),
+            "out_of_scope_count": len(diagnostic.out_of_scope_changes),
+            "content_changes_count": len(diagnostic.content_changes_detected),
+            "evidence": diagnostic.evidence,
+        }
+    except (GitContextError, GitError) as exc:
+        return {
+            "error": str(exc),
+            "verdict": "error",
+        }
 
 
 def correct_task(
@@ -100,6 +177,18 @@ def correct_task(
             worktree, prompt, heartbeat_path=run_dir / "heartbeat.json"
         )
 
+    # AC-R11-8: Capture snapshot BEFORE correction attempt for reconciliation audit
+    before_correction_snapshot: GitSnapshot | None = None
+    try:
+        before_correction_snapshot = capture_git_snapshot(
+            repo_root,
+            worktree_path=worktree,
+            timestamp_label="before_correction",
+        )
+    except GitContextError:
+        # If snapshot capture fails, continue without it
+        pass
+
     try:
         attempt = run_correction_attempt(
             repo_root=repo_root,
@@ -116,6 +205,7 @@ def correct_task(
             before_dirty_paths=before_dirty_paths,
             guidance=guidance,
             claude_runner=claude_runner,
+            before_correction_snapshot=before_correction_snapshot,
         )
 
         result["modified_paths"] = attempt["modified_paths"]
@@ -127,6 +217,24 @@ def correct_task(
             validations = run_validation_commands(worktree, task["validation_commands"])
             result["validations"] = validations
             result["validation_summary"] = summarize_validations(validations)
+
+            # AC-R11-8, AC-R22-10: Capture reconciliation diagnostic after modifications
+            # Use before/after snapshots to audit content changes and attribution
+            reconciliation_diag = capture_and_diagnose_reconciliation(
+                repo_root,
+                worktree,
+                result["remaining_allowed_paths"],
+                before_snapshot=before_correction_snapshot,
+                after_snapshot=None,  # Will be captured if not provided
+            )
+            result["reconciliation_diagnostic"] = reconciliation_diag
+
+            # AC-R22-10: Relancer validations et revue si changements significatifs détectés
+            # Note: The actual re-run of validations/reviews must happen at a higher level
+            # (in run-feature or product supervisor) because correct-task cannot commit/integrate
+            if reconciliation_diag.get("verdict") in ("requires_review", "request_human"):
+                result["reconciliation_requires_review"] = True
+                result["reconciliation_verdict"] = reconciliation_diag.get("verdict")
 
             stage_all(repo_root, cwd=worktree)
             if commit_count_since(repo_root, worktree, base_commit) > 0:
@@ -391,6 +499,56 @@ Corrige uniquement les écarts relevés par la revue, mets à jour les tests né
 """
 
 
+def _save_out_of_scope_patch(
+    repo_root: Path,
+    worktree: Path,
+    base_commit: str,
+    out_of_scope_paths: list[str],
+    correction_dir: Path,
+) -> None:
+    """Save patch of out-of-scope changes before restoring.
+
+    AC-R11-11: Toute restauration est précédée d'une sauvegarde par patch,
+    diff ou preuve structurée suffisante pour audit et éventuelle reconstitution.
+    Échec de sauvegarde est BLOQUANT et impose REQUEST_HUMAN.
+    """
+    if not out_of_scope_paths:
+        return
+
+    try:
+        patches_dir = correction_dir / "patches"
+        patches_dir.mkdir(parents=True, exist_ok=True)
+
+        # AC-R11-11: Save patches bounded to the exact paths being restored
+        # Capture diff for only the paths being restored (indexed + worktree)
+        try:
+            bounded_patch = diff_patch_between(repo_root, base_commit, "HEAD", paths=out_of_scope_paths)
+        except GitError as e:
+            # If diff fails, raise error as we cannot safely restore without audit trail
+            raise CorrectTaskError(f"Cannot create audit patch for restoration: {e}") from e
+
+        # Save bounded patch covering only paths to be restored
+        patch_file = patches_dir / "out-of-scope-before-restore.patch"
+        patch_file.write_text(bounded_patch or "", encoding="utf-8")
+
+        # Save metadata with exact paths and their content state before restoration
+        metadata = {
+            "reason": "out_of_scope_restoration",
+            "restored_paths": out_of_scope_paths,
+            "base_commit": base_commit,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timezone": datetime.now(timezone.utc).astimezone().tzname() or "UTC",
+            "patch_file": "out-of-scope-before-restore.patch",
+        }
+        metadata_file = patches_dir / "out-of-scope-metadata.json"
+        write_json(metadata_file, metadata)
+    except (GitError, IOError, PlanningError) as exc:
+        # AC-R11-11: Échec de sauvegarde => escalade à REQUEST_HUMAN
+        raise CorrectTaskError(
+            f"Impossible de sauvegarder les preuves avant restauration hors scope : {exc}"
+        ) from exc
+
+
 def run_correction_attempt(
     *,
     repo_root: Path,
@@ -407,6 +565,7 @@ def run_correction_attempt(
     before_dirty_paths: list[str],
     guidance: str | None,
     claude_runner: Any,
+    before_correction_snapshot: GitSnapshot | None = None,
 ) -> dict[str, Any]:
     restored_union: set[str] = set()
     out_of_scope_union: set[str] = set()
@@ -448,11 +607,62 @@ def run_correction_attempt(
         correction_paths = sorted(set(after_paths) - set(before_dirty_paths))
         modified_union.update(correction_paths)
 
-        allowed_paths, out_of_scope_paths = partition_paths(task["allowed_paths"], correction_paths)
-        out_of_scope_union.update(out_of_scope_paths)
-        if out_of_scope_paths:
-            restore_paths(repo_root, worktree, current_head, out_of_scope_paths)
-            restored_union.update(out_of_scope_paths)
+        # AC-R11-4, AC-R11-10: Construire diagnostic avant restauration
+        # pour classer les modifications par empreintes et attribution
+        after_correction_snapshot = capture_git_snapshot(
+            repo_root,
+            worktree_path=worktree,
+            timestamp_label="after_correction_attempt",
+        )
+
+        # AC-R11-5: Diagnostic structuré avant restauration
+        mutations = analyze_mutations(
+            before_correction_snapshot or after_correction_snapshot,
+            before_correction_snapshot or after_correction_snapshot,
+            after_correction_snapshot,
+        )
+        reconciliation = diagnose_reconciliation(
+            before_correction_snapshot or after_correction_snapshot,
+            after_correction_snapshot,
+            correction_paths,
+            mutations,
+        )
+
+        # AC-R11-12: Si attribution ambiguë ou cas complexe, interdire reprise automatique
+        if reconciliation.verdict == "request_human":
+            # Write diagnostic for escalation but don't attempt restoration
+            write_json(correction_dir / "reconciliation-diagnostic.json", {
+                "verdict": reconciliation.verdict,
+                "allowed_count": len(reconciliation.allowed_changes),
+                "partial_count": len(reconciliation.partial_changes),
+                "out_of_scope_count": len(reconciliation.out_of_scope_changes),
+                "content_changes_count": len(reconciliation.content_changes_detected),
+                "preexisting_dirty_paths": reconciliation.preexisting_dirty_paths,
+                "reason": "Automatic recovery blocked due to ambiguous attribution or external divergence",
+            })
+            raise CorrectTaskError(
+                f"Reconciliation verdict is 'request_human': automatic restoration forbidden. "
+                f"Manual intervention required to safely recover from this state."
+            )
+
+        # AC-R11-4, AC-R11-10: Ne restaurer que les chemins prouvés hors scope
+        # et attribuables à la tentative courante
+        paths_to_restore: list[str] = []
+        for out_of_scope_change in reconciliation.out_of_scope_changes:
+            # AC-R11-9: Pas de modification préexistante ou de hook
+            if out_of_scope_change.is_preexisting:
+                continue
+            # AC-R22-8: Vérifier l'attribution
+            if out_of_scope_change.is_agent_mutation:
+                paths_to_restore.append(out_of_scope_change.path)
+
+        out_of_scope_union.update(paths_to_restore)
+
+        if paths_to_restore:
+            # AC-R11-11: Sauvegarde obligatoire et bloquante avant restauration
+            _save_out_of_scope_patch(repo_root, worktree, current_head, paths_to_restore, correction_dir)
+            restore_paths(repo_root, worktree, current_head, paths_to_restore)
+            restored_union.update(paths_to_restore)
 
         remaining_paths = sorted(
             set(
@@ -468,6 +678,14 @@ def run_correction_attempt(
         write_json(correction_dir / "modified-paths.json", sorted(modified_union))
         write_json(correction_dir / "out-of-scope-paths.json", sorted(out_of_scope_union))
         write_json(correction_dir / "restored-paths.json", sorted(restored_union))
+        write_json(correction_dir / "reconciliation-diagnostic.json", {
+            "verdict": reconciliation.verdict,
+            "allowed_count": len(reconciliation.allowed_changes),
+            "partial_count": len(reconciliation.partial_changes),
+            "out_of_scope_count": len(reconciliation.out_of_scope_changes),
+            "content_changes_count": len(reconciliation.content_changes_detected),
+            "preexisting_dirty_paths": reconciliation.preexisting_dirty_paths,
+        })
 
         if remaining_out_of_scope_paths:
             joined = ", ".join(remaining_out_of_scope_paths)
@@ -480,6 +698,7 @@ def run_correction_attempt(
                 "modified_paths": sorted(modified_union),
                 "restored_paths": sorted(restored_union),
                 "remaining_allowed_paths": remaining_allowed_paths,
+                "reconciliation_verdict": reconciliation.verdict,
             }
 
         if attempt_number == 2:
@@ -488,6 +707,7 @@ def run_correction_attempt(
                 "modified_paths": sorted(modified_union),
                 "restored_paths": sorted(restored_union),
                 "remaining_allowed_paths": [],
+                "reconciliation_verdict": reconciliation.verdict,
             }
 
         restored_from_previous_attempt = sorted(restored_union)

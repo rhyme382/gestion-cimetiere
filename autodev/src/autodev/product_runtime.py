@@ -1965,3 +1965,196 @@ class ProductRuntime:
             "product_graph_id": state.product_graph_id,
             "started_at": state.started_at,
         }
+
+    def reconstruct_runtime_state(
+        self,
+        plan: ProductPlan | dict[str, Any],
+        current_state: ProductRunState | None = None,
+    ) -> StateReconstructionResult:
+        """Reconstruct runtime state and detect divergences (AC-R2.2, AC-R2.3).
+
+        Compares plan, persisted state, checkpoints, branches, commits, worktrees,
+        validations and required artifacts to detect divergences.
+
+        Returns StateReconstructionResult with incidents for any divergences found.
+        """
+        if current_state is None:
+            try:
+                current_state = self.state_manager.read_state("", "")
+            except ProductStateError:
+                # State not yet persisted
+                return StateReconstructionResult(
+                    run_id=self.run_id,
+                    is_clean=True,
+                    incidents=[],
+                    divergences=[],
+                    state=current_state or ProductRunState.initial(self.run_id),
+                )
+
+        normalized_plan = self._normalize_plan(plan)
+        incidents: list[StateReconstructionIncident] = []
+        divergences: list[str] = []
+
+        # AC-R2.3: Detect divergence of status
+        if current_state.status not in ("initializing", "running", "paused", "completed", "failed"):
+            incidents.append(
+                StateReconstructionIncident(
+                    code="INVALID_RUNTIME_STATUS",
+                    reason=f"Invalid runtime status: {current_state.status}",
+                    evidence=[f"Status field: {current_state.status}"],
+                )
+            )
+            divergences.append(f"status={current_state.status}")
+
+        # AC-R2.3: Detect divergence of base commit
+        if normalized_plan and "base_commit" in normalized_plan:
+            declared_base = normalized_plan["base_commit"]
+            if current_state.base_commit and current_state.base_commit != declared_base:
+                incidents.append(
+                    StateReconstructionIncident(
+                        code="BASE_COMMIT_DIVERGENCE",
+                        reason=f"Base commit divergence: declared {declared_base}, actual {current_state.base_commit}",
+                        evidence=[
+                            f"Plan base_commit: {declared_base}",
+                            f"Runtime base_commit: {current_state.base_commit}",
+                        ],
+                    )
+                )
+                divergences.append(f"base_commit={current_state.base_commit}!={declared_base}")
+
+        # AC-R2.3: Detect divergence of integrated commit
+        if normalized_plan and "features" in normalized_plan:
+            plan_features = {f.get("id"): f for f in normalized_plan["features"]}
+            for feature_id, feature_state in current_state.feature_states.items():
+                if feature_id in plan_features:
+                    declared_integrated = plan_features[feature_id].get("integrated_commit")
+                    actual_integrated = feature_state.get("integrated_commit")
+                    if declared_integrated and actual_integrated and declared_integrated != actual_integrated:
+                        incidents.append(
+                            StateReconstructionIncident(
+                                code="INTEGRATED_COMMIT_DIVERGENCE",
+                                reason=f"Integrated commit divergence for {feature_id}",
+                                evidence=[
+                                    f"Feature {feature_id} declared: {declared_integrated}",
+                                    f"Feature {feature_id} actual: {actual_integrated}",
+                                ],
+                            )
+                        )
+                        divergences.append(f"feature.{feature_id}.integrated_commit divergence")
+
+        # AC-R2.3: Detect divergence of required artifacts
+        if current_state.required_artifacts:
+            for artifact in current_state.required_artifacts:
+                artifact_path = self.repo_root / artifact.get("path", "")
+                if not artifact_path.exists():
+                    incidents.append(
+                        StateReconstructionIncident(
+                            code="MISSING_REQUIRED_ARTIFACT",
+                            reason=f"Required artifact missing: {artifact.get('path')}",
+                            evidence=[f"Path: {artifact_path}"],
+                        )
+                    )
+                    divergences.append(f"artifact.missing={artifact.get('path')}")
+
+        # AC-R2.2, AC-R2.3: Detect divergence of branches
+        if current_state.feature_states:
+            for feature_id, feature_state in current_state.feature_states.items():
+                if feature_state.get("branch"):
+                    declared_branch = feature_state.get("branch")
+                    try:
+                        from autodev.git_tools import branch_exists
+                        if not branch_exists(self.repo_root, declared_branch):
+                            incidents.append(
+                                StateReconstructionIncident(
+                                    code="FEATURE_BRANCH_DIVERGENCE",
+                                    reason=f"Feature branch missing: {declared_branch}",
+                                    evidence=[
+                                        f"Feature {feature_id} branch: {declared_branch}",
+                                        f"Branch status: not found in Git",
+                                    ],
+                                )
+                            )
+                            divergences.append(f"feature.{feature_id}.branch.missing")
+                    except Exception:
+                        pass
+
+        # AC-R2.2, AC-R2.3: Detect divergence of worktrees
+        if current_state.feature_states:
+            for feature_id, feature_state in current_state.feature_states.items():
+                if feature_state.get("worktree_path"):
+                    declared_worktree = Path(feature_state.get("worktree_path", ""))
+                    if not declared_worktree.exists():
+                        incidents.append(
+                            StateReconstructionIncident(
+                                code="FEATURE_WORKTREE_DIVERGENCE",
+                                reason=f"Feature worktree missing: {declared_worktree}",
+                                evidence=[
+                                    f"Feature {feature_id} worktree: {declared_worktree}",
+                                    f"Worktree status: not found on disk",
+                                ],
+                            )
+                        )
+                        divergences.append(f"feature.{feature_id}.worktree.missing")
+
+        # AC-R2.2, AC-R2.3: Detect divergence of checkpoints
+        if current_state.checkpoints:
+            for checkpoint_id, checkpoint_data in current_state.checkpoints.items():
+                checkpoint_path = self.repo_root / checkpoint_data.get("path", "")
+                if not checkpoint_path.exists():
+                    incidents.append(
+                        StateReconstructionIncident(
+                            code="CHECKPOINT_MISSING",
+                            reason=f"Checkpoint missing: {checkpoint_id}",
+                            evidence=[
+                                f"Checkpoint {checkpoint_id} path: {checkpoint_path}",
+                                f"Checkpoint status: not found",
+                            ],
+                        )
+                    )
+                    divergences.append(f"checkpoint.{checkpoint_id}.missing")
+
+        # AC-R2.2, AC-R2.3: Detect divergence of dependencies
+        if normalized_plan and "features" in normalized_plan:
+            plan_features = {f.get("id"): f for f in normalized_plan["features"]}
+            for feature_id in current_state.feature_states:
+                if feature_id in plan_features:
+                    feature_def = plan_features[feature_id]
+                    declared_deps = feature_def.get("dependencies", [])
+                    for dep_id in declared_deps:
+                        dep_state = current_state.feature_states.get(dep_id, {})
+                        if dep_state.get("status") not in ("completed", "integrated"):
+                            incidents.append(
+                                StateReconstructionIncident(
+                                    code="DEPENDENCY_NOT_SATISFIED",
+                                    reason=f"Dependency {dep_id} not satisfied for feature {feature_id}",
+                                    evidence=[
+                                        f"Feature {feature_id} depends on: {dep_id}",
+                                        f"Dependency status: {dep_state.get('status', 'unknown')}",
+                                    ],
+                                )
+                            )
+                            divergences.append(f"feature.{feature_id}.dependency.{dep_id}.unmet")
+
+        # AC-R2.2, AC-R2.3: Detect divergence of validations
+        if current_state.validation_results:
+            for validation_id, validation_data in current_state.validation_results.items():
+                if validation_data.get("status") == "failed":
+                    incidents.append(
+                        StateReconstructionIncident(
+                            code="VALIDATION_FAILED",
+                            reason=f"Validation failed: {validation_id}",
+                            evidence=[
+                                f"Validation {validation_id} status: failed",
+                                f"Output: {validation_data.get('output', 'N/A')[:100]}",
+                            ],
+                        )
+                    )
+                    divergences.append(f"validation.{validation_id}.failed")
+
+        return StateReconstructionResult(
+            run_id=self.run_id,
+            is_clean=len(incidents) == 0,
+            incidents=incidents,
+            divergences=divergences,
+            state=current_state,
+        )

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from autodev.git_tools import (
     GitError,
@@ -38,6 +38,8 @@ class GitSnapshot:
     timestamp_label: str
     worktree_path: str
     file_hashes: dict[str, str] | None = None
+    # Chemins affectés par changement de HEAD (commits entre deux HEAD)
+    paths_from_head_change: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -49,13 +51,41 @@ class GitSnapshotTriple:
 
 
 @dataclass(frozen=True)
+class ExecutionMutationMetadata:
+    """Métadonnées optionnelles d'exécution pour corroboration d'attributions.
+
+    Une revendication dans les métadonnées ne constitue pas à elle seule une preuve.
+    Elle doit correspondre et corroborer une transition Git réellement observée.
+    """
+    attempt_id: str | None = None
+    agent_claimed_commits: list[str] = field(default_factory=list)
+    externally_proven_commits: list[str] = field(default_factory=list)
+    agent_claimed_paths: list[str] = field(default_factory=list)
+    externally_proven_paths: list[str] = field(default_factory=list)
+    agent_claimed_index_transitions: dict[str, str] = field(default_factory=dict)
+    externally_proven_index_transitions: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class MutationAttribution:
-    """Attribution d'une mutation à sa source (hook, agent, préexistant)."""
+    """Attribution d'une mutation à sa source (hook, agent, préexistant, externe).
+
+    L'origine est déterministe et basée sur l'observation de l'état Git,
+    en corroboration avec les métadonnées optionnelles.
+    """
     path: str
     before_hooks: bool
     hook_mutation: bool
     agent_mutation: bool
     external_mutation: bool
+    # Transitions d'index détectées
+    hook_index_transition: str | None = None  # "untracked->staged", "dirty->staged", etc.
+    agent_index_transition: str | None = None
+    # Source prouvée via métadonnées (commit SHA, etc.)
+    proven_agent_source: bool = False
+    ambiguous_origin: bool = False
+    # Origine explicite et déterministe
+    origin: Literal["preexisting", "hook", "agent", "external", "indeterminate"] = "indeterminate"
 
 
 @dataclass(frozen=True)
@@ -143,12 +173,16 @@ def capture_git_snapshot(
     worktree_path: Path | None = None,
     timestamp_label: str = "",
     capture_file_hashes: bool = True,
+    previous_head: str | None = None,
 ) -> GitSnapshot:
     """Capture une vue détaillée de l'état Git à un moment donné.
 
     Capture toujours les hashes de fichiers pour détecter les mutations
     de contenu même sur les fichiers déjà dirty (prérequis pour audit
     fiable des mutations de hook vs agent sur état préexistant).
+
+    Si previous_head est fourni, capture aussi les chemins affectés
+    par le changement de HEAD (commits).
     """
     try:
         if worktree_path is None:
@@ -165,6 +199,15 @@ def capture_git_snapshot(
         all_dirty_files = index_changed + tracked_dirty + untracked
         file_hashes = compute_file_hashes(worktree_path, all_dirty_files) if capture_file_hashes else None
 
+        # Si HEAD a changé, récupérer les chemins affectés par le changement de commit
+        paths_from_head_change: list[str] | None = None
+        if previous_head is not None and previous_head != head:
+            try:
+                paths_from_head_change = changed_paths_between(repo_root, previous_head, head)
+            except GitError:
+                # Si la comparaison échoue (commits non liés), conserver None
+                paths_from_head_change = None
+
         return GitSnapshot(
             head=head,
             branch=branch,
@@ -175,6 +218,7 @@ def capture_git_snapshot(
             timestamp_label=timestamp_label,
             worktree_path=str(worktree_path.resolve()),
             file_hashes=file_hashes,
+            paths_from_head_change=paths_from_head_change,
         )
     except GitError as exc:
         raise GitContextError(f"Impossible de capturer l'état Git : {exc}") from exc
@@ -184,6 +228,7 @@ def analyze_mutations(
     before_hooks: GitSnapshot,
     after_hooks: GitSnapshot,
     after_process: GitSnapshot,
+    metadata: ExecutionMutationMetadata | None = None,
 ) -> dict[str, MutationAttribution]:
     """Analyse les mutations et les attribue à leur source.
 
@@ -191,18 +236,21 @@ def analyze_mutations(
     - mutations préexistantes (avant hooks)
     - mutations de hook (entre avant_hooks et after_hooks)
     - mutations d'agent (entre after_hooks et after_process)
-    - mutations externes (modifications impossibles à attribuer au hook ou à l'agent)
+    - mutations externes (preuve structurée requise, pas de heuristique)
 
-    Utilise les hashes de fichiers pour détecter les changements
-    même quand le statut dirty est identique (cas critique pour
-    fichiers préexistants modifiés par hook puis agent).
+    Les métadonnées optionnelles doivent être corroborées par l'état Git observé.
+    Une revendication sans corroboration Git ne produit pas d'attribution prouvée.
 
-    La détection des mutations externes se base sur:
-    - Les changements de HEAD qui suggèrent un commit externe
+    Détecte les transitions d'index et préserve les chemins commits via
+    paths_from_head_change. HEAD changé seul ne produit JAMAIS origin=external.
     """
-    attributions: dict[str, MutationAttribution] = {}
-    head_changed = before_hooks.head != after_process.head
+    if metadata is None:
+        metadata = ExecutionMutationMetadata()
 
+    attributions: dict[str, MutationAttribution] = {}
+    head_changed_before_to_after = before_hooks.head != after_process.head
+
+    # Univers des chemins : visible dans les snapshots + chemins commits
     all_paths = set()
     all_paths.update(before_hooks.index_changed)
     all_paths.update(before_hooks.tracked_dirty)
@@ -213,6 +261,12 @@ def analyze_mutations(
     all_paths.update(after_process.index_changed)
     all_paths.update(after_process.tracked_dirty)
     all_paths.update(after_process.untracked)
+
+    # Ajouter les chemins affectés par changements de commit
+    if after_process.paths_from_head_change:
+        all_paths.update(after_process.paths_from_head_change)
+    if after_hooks.paths_from_head_change:
+        all_paths.update(after_hooks.paths_from_head_change)
 
     for path in sorted(all_paths):
         before_hooks_dirty = (
@@ -231,6 +285,11 @@ def analyze_mutations(
             or path in after_process.untracked
         )
 
+        # Déterminer l'état d'index pour détecter les transitions
+        before_hooks_state = _get_index_state(path, before_hooks)
+        after_hooks_state = _get_index_state(path, after_hooks)
+        after_process_state = _get_index_state(path, after_process)
+
         hook_content_changed = False
         agent_content_changed = False
 
@@ -246,24 +305,117 @@ def analyze_mutations(
             if after_hook_hash is not None and after_process_hash is not None:
                 agent_content_changed = after_hook_hash != after_process_hash
 
+        # Détecter les mutations
         hook_mutation = (not before_hooks_dirty and after_hooks_dirty) or hook_content_changed
         agent_mutation = (not after_hooks_dirty and after_process_dirty) or agent_content_changed
 
-        external_mutation = False
-        if head_changed:
-            if (after_hooks_dirty and not after_process_dirty) or (not after_hooks_dirty and after_process_dirty):
-                external_mutation = True
+        # Détecter les transitions d'index
+        hook_index_transition = _detect_index_transition(before_hooks_state, after_hooks_state)
+        agent_index_transition = _detect_index_transition(after_hooks_state, after_process_state)
 
-        if before_hooks_dirty or hook_mutation or agent_mutation or external_mutation:
+        # Si une transition d'index est détectée, c'est une mutation
+        if hook_index_transition:
+            hook_mutation = True
+        if agent_index_transition:
+            agent_mutation = True
+
+        # Déterminer si le chemin est dans paths_from_head_change (commit détecté)
+        path_in_head_change = path in (after_process.paths_from_head_change or [])
+        path_in_hook_head_change = path in (after_hooks.paths_from_head_change or [])
+
+        # Détection de commits: si le chemin est dans paths_from_head_change,
+        # un commit l'a affecté. Déterminer si c'est hook ou agent.
+        if path_in_hook_head_change and not path_in_head_change:
+            # Chemin affecté par un commit entre before_hooks et after_hooks => hook mutation
+            hook_mutation = True
+        elif path_in_head_change and not path_in_hook_head_change:
+            # Chemin affecté par un commit entre after_hooks et after_process => agent mutation
+            agent_mutation = True
+
+        # Déterminer l'origine avec corroboration Git
+        # Priorité: preexisting > hook > external (prouvé) > agent > indeterminate
+        origin: Literal["preexisting", "hook", "agent", "external", "indeterminate"] = "indeterminate"
+        external_mutation = False
+        proven_agent_source = False
+
+        # Distinguer si agent_mutation provient d'un commit ou d'une transition d'index
+        agent_mutation_is_from_commit = path_in_head_change and not agent_index_transition
+        agent_mutation_is_from_index_transition = agent_index_transition is not None
+
+        if before_hooks_dirty and not hook_mutation and not agent_mutation:
+            # Fichier était dirty avant, rien ne l'a touché
+            origin = "preexisting"
+        elif hook_mutation and not agent_mutation:
+            # Hook a modifié, agent ne l'a pas touché
+            origin = "hook"
+        elif path in metadata.externally_proven_paths:
+            # Preuve externe structurée dans métadonnées (override agent_mutation)
+            external_mutation = True
+            origin = "external"
+        elif agent_mutation and agent_mutation_is_from_index_transition:
+            # Transition d'index = mutation d'agent directe (staging, etc.)
+            # Pas besoin de métadonnées, c'est clairement de l'agent
+            if path in metadata.agent_claimed_paths:
+                proven_agent_source = True
+            origin = "agent"
+        elif agent_mutation and agent_mutation_is_from_commit and path in metadata.agent_claimed_paths:
+            # Commit + revendication agent dans métadonnées = prouvé
+            proven_agent_source = True
+            origin = "agent"
+        elif agent_mutation and agent_mutation_is_from_commit:
+            # Commit sans métadonnées = indeterminate
+            # (On ne peut pas distinguer agent d'external sans preuve)
+            origin = "indeterminate"
+        else:
+            # Pas de mutation détectée
+            origin = "indeterminate"
+
+        if before_hooks_dirty or hook_mutation or agent_mutation or external_mutation or path_in_head_change:
             attributions[path] = MutationAttribution(
                 path=path,
                 before_hooks=before_hooks_dirty,
                 hook_mutation=hook_mutation,
                 agent_mutation=agent_mutation,
                 external_mutation=external_mutation,
+                hook_index_transition=hook_index_transition,
+                agent_index_transition=agent_index_transition,
+                proven_agent_source=proven_agent_source,
+                origin=origin,
             )
 
     return attributions
+
+
+def _get_index_state(path: str, snapshot: GitSnapshot) -> str:
+    """Détermine l'état d'index d'un fichier : staged, dirty, untracked, clean."""
+    if path in snapshot.index_changed:
+        return "staged"
+    elif path in snapshot.tracked_dirty:
+        return "dirty"
+    elif path in snapshot.untracked:
+        return "untracked"
+    else:
+        return "clean"
+
+
+def _detect_index_transition(from_state: str, to_state: str) -> str | None:
+    """Détecte une transition d'état d'index significative."""
+    if from_state == to_state:
+        return None
+
+    # Transitions significatives
+    transitions = {
+        ("dirty", "staged"): "dirty->staged",
+        ("untracked", "staged"): "untracked->staged",
+        ("dirty", "clean"): "dirty->clean",
+        ("staged", "clean"): "staged->clean",
+        ("untracked", "dirty"): "untracked->dirty",
+        ("clean", "dirty"): "clean->dirty",
+        ("clean", "untracked"): "clean->untracked",
+        ("clean", "staged"): "clean->staged",
+    }
+
+    return transitions.get((from_state, to_state))
 
 
 def capture_git_snapshot_triple(
@@ -317,7 +469,9 @@ def capture_git_snapshot_triple_with_lifecycle(
                    Simule l'exécution du processus agent.
 
     Retourne un GitSnapshotTriple avec les trois snapshots capturés aux
-    trois instants distincts du cycle réel.
+    trois instants distincts du cycle réel. Les snapshots after_hooks et
+    after_process capturent aussi les chemins affectés par les changements
+    de HEAD (commits).
     """
     if worktree_path is None:
         worktree_path = repo_root
@@ -335,6 +489,7 @@ def capture_git_snapshot_triple_with_lifecycle(
         repo_root,
         worktree_path=worktree_path,
         timestamp_label="after_hooks",
+        previous_head=before_hooks.head,
     )
 
     if agent_phase is not None:
@@ -344,6 +499,7 @@ def capture_git_snapshot_triple_with_lifecycle(
         repo_root,
         worktree_path=worktree_path,
         timestamp_label="after_process",
+        previous_head=after_hooks.head,
     )
 
     return GitSnapshotTriple(

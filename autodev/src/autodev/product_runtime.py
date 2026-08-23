@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from uuid import uuid4
 
 from autodev.product_incidents import IncidentRepeatability, IncidentScope, IncidentSeverity, ProductIncident
@@ -21,6 +21,7 @@ from autodev.product_state import (
     ProductStateError,
     ProductStateManager,
 )
+from autodev.provider_incidents import ProviderIncidentEvent
 
 class ProductRuntimeError(RuntimeError):
     """Error during product runtime execution."""
@@ -176,6 +177,35 @@ class DurableDecisionStore:
             self.record_decision(decision)
 
 @dataclass
+class ProviderWaitingState:
+    """Persistent state for provider incident waiting (AC-R14-1, R21-6)."""
+
+    incident: ProviderIncidentEvent
+    recorded_at: str
+    feature_id: str | None = None
+    task_id: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for persistence."""
+        return {
+            "incident": self.incident.to_dict(),
+            "recorded_at": self.recorded_at,
+            "feature_id": self.feature_id,
+            "task_id": self.task_id,
+        }
+
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> "ProviderWaitingState":
+        """Deserialize from dictionary."""
+        return ProviderWaitingState(
+            incident=ProviderIncidentEvent.from_dict(data["incident"]),
+            recorded_at=data["recorded_at"],
+            feature_id=data.get("feature_id"),
+            task_id=data.get("task_id"),
+        )
+
+
+@dataclass
 class StateReconstructionResult:
     """Result of state reconstruction."""
 
@@ -189,25 +219,35 @@ class StateReconstructionResult:
         """Check if reconstruction found critical issues."""
         return any(incident.severity.value == "critical" for incident in self.incidents)
 
+ResumeCallback = Callable[[dict[str, Any]], bool]
+
+
 class ProductRuntime:
     """Manages runtime execution and state of a product run."""
 
-    def __init__(self, repo_root: Path, run_id: str):
+    def __init__(self, repo_root: Path, run_id: str, clock: Callable[[], datetime] | None = None):
         """Initialize product runtime."""
         self.repo_root = repo_root
         self.run_id = run_id
         self.state_manager = ProductStateManager(repo_root, run_id)
         self.decision_store: DurableDecisionStore | None = None
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+
+    def _now(self) -> datetime:
+        now = self._clock()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ProductRuntimeError("Runtime clock must return a timezone-aware datetime")
+        return now
 
     @classmethod
-    def create(cls, repo_root: Path) -> "ProductRuntime":
+    def create(cls, repo_root: Path, clock: Callable[[], datetime] | None = None) -> "ProductRuntime":
         """Create a runtime with a globally unique product run identifier."""
         attempts = 0
         while attempts < 32:
             candidate = cls._generate_candidate_run_id()
             namespace = repo_root / ".autodev" / "runs" / "products" / candidate
             if not namespace.exists():
-                return cls(repo_root, candidate)
+                return cls(repo_root, candidate, clock=clock)
             attempts += 1
         raise ProductRuntimeError("Unable to generate a unique product run identifier")
 
@@ -1319,6 +1359,322 @@ class ProductRuntime:
     def get_run_checkpoint(self) -> dict[str, Any] | None:
         """Retrieve the latest product run checkpoint."""
         return self.state_manager.read_checkpoint()
+
+    def record_provider_waiting_state(
+        self,
+        incident: ProviderIncidentEvent,
+        feature_id: str | None = None,
+        task_id: str | None = None,
+    ) -> None:
+        """Persist a provider incident as WAITING_PROVIDER_RESET state (AC-R14-1, AC-R21-6).
+
+        Materializes the explicit WAITING_PROVIDER_RESET status and logs complete audit details
+        including provider, error type, raw message, timezone, deadline, policy and decision.
+        """
+        waiting_state = ProviderWaitingState(
+            incident=incident,
+            recorded_at=self._now().isoformat(),
+            feature_id=feature_id,
+            task_id=task_id,
+        )
+
+        def persist_waiting() -> dict[str, Any]:
+            state = self.state_manager.read_state("", "")
+            # Materialize explicit WAITING_PROVIDER_RESET status (AC-R14-1, AC-R21-6)
+            if feature_id:
+                feature_state = state.feature_states.setdefault(feature_id, {})
+                feature_state["provider_waiting_state"] = waiting_state.to_dict()
+                provider_states = feature_state.setdefault("provider_waiting_states", {})
+                previous = provider_states.get(str(incident.provider), {})
+                provider_states[str(incident.provider)] = {
+                    **waiting_state.to_dict(),
+                    "incident_count": int(previous.get("incident_count", 0)) + 1,
+                }
+                feature_state["status"] = "WAITING_PROVIDER_RESET"
+                state.feature_states[feature_id] = feature_state
+            else:
+                # Store product-level provider waiting state as separate file in run namespace
+                waiting_file = self.state_manager.run_namespace / "provider_waiting_state.json"
+                waiting_file.write_text(
+                    json.dumps(waiting_state.to_dict(), ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                ledger_file = self.state_manager.run_namespace / "provider_waiting_states.json"
+                try:
+                    provider_states = json.loads(ledger_file.read_text(encoding="utf-8")) if ledger_file.exists() else {}
+                except (json.JSONDecodeError, IOError):
+                    provider_states = {}
+                previous = provider_states.get(str(incident.provider), {})
+                provider_states[str(incident.provider)] = {
+                    **waiting_state.to_dict(),
+                    "incident_count": int(previous.get("incident_count", 0)) + 1,
+                }
+                ledger_file.write_text(json.dumps(provider_states, ensure_ascii=False), encoding="utf-8")
+                state.status = "WAITING_PROVIDER_RESET"
+            self.state_manager.write_state(state)
+
+            # Log complete audit details (AC-R21-8)
+            audit_entry = {
+                "action": "provider_incident_detected",
+                "provider": str(incident.provider),
+                "error_type": str(incident.error_type),
+                "raw_message": incident.raw_message,
+                "source_timezone": incident.source_timezone,
+                "retry_at": incident.retry_at,
+                "retry_after_seconds": incident.retry_after_seconds,
+                "policy": incident.policy,
+                "decision": incident.decision,
+                "scope": "feature" if feature_id else "product",
+                "recorded_at": waiting_state.recorded_at,
+            }
+            self.state_manager.write_journal_entry(
+                self._build_journal_entry(
+                    JournalEntryType.ACTION_APPLIED,
+                    feature_id=feature_id,
+                    task_id=task_id,
+                    action="record_provider_waiting_state",
+                    data=audit_entry,
+                )
+            )
+
+            return audit_entry
+
+        self._run_logged_transition(
+            action="record_provider_waiting_state",
+            lock_type="feature" if feature_id else "product",
+            locked_entity_id=feature_id,
+            feature_id=feature_id,
+            task_id=task_id,
+            attempt=1,
+            mutation=persist_waiting,
+        )
+
+    def get_provider_waiting_state(
+        self,
+        feature_id: str | None = None,
+        provider_name: str | None = None,
+    ) -> ProviderWaitingState | None:
+        """Retrieve provider waiting state if present (AC-R21-6)."""
+        waiting_data: dict[str, Any] | None = None
+
+        if feature_id:
+            state = self.state_manager.read_state("", "")
+            feature_state = state.feature_states.get(feature_id, {})
+            waiting_data = (
+                feature_state.get("provider_waiting_states", {}).get(provider_name)
+                if provider_name else feature_state.get("provider_waiting_state")
+            )
+        else:
+            # Retrieve product-level waiting state from separate file
+            waiting_file = self.state_manager.run_namespace / "provider_waiting_state.json"
+            waiting_file = self.state_manager.run_namespace / (
+                "provider_waiting_states.json" if provider_name else "provider_waiting_state.json"
+            )
+            if waiting_file.exists():
+                try:
+                    waiting_data = json.loads(waiting_file.read_text(encoding="utf-8"))
+                    if provider_name:
+                        waiting_data = waiting_data.get(provider_name)
+                except (json.JSONDecodeError, IOError):
+                    return None
+
+        if waiting_data is None:
+            return None
+
+        try:
+            return ProviderWaitingState.from_dict(waiting_data)
+        except (KeyError, ValueError, TypeError):
+            return None
+
+    def clear_provider_waiting_state(self, feature_id: str | None = None) -> None:
+        """Clear provider waiting state after successful resume (AC-R14-3)."""
+        def clear_waiting() -> dict[str, Any]:
+            state = self.state_manager.read_state("", "")
+            if feature_id:
+                feature_state = state.feature_states.get(feature_id, {})
+                waiting_data = feature_state.get("provider_waiting_state", {})
+                provider = waiting_data.get("incident", {}).get("provider")
+                if "provider_waiting_state" in feature_state:
+                    del feature_state["provider_waiting_state"]
+                if provider:
+                    feature_state.get("provider_waiting_states", {}).pop(provider, None)
+                # Clear WAITING_PROVIDER_RESET status when resuming
+                if feature_state.get("status") == "WAITING_PROVIDER_RESET":
+                    feature_state.pop("status", None)
+                state.feature_states[feature_id] = feature_state
+            else:
+                # Remove product-level waiting state file
+                waiting_file = self.state_manager.run_namespace / "provider_waiting_state.json"
+                try:
+                    waiting_data = json.loads(waiting_file.read_text(encoding="utf-8")) if waiting_file.exists() else {}
+                except (json.JSONDecodeError, IOError):
+                    waiting_data = {}
+                if waiting_file.exists():
+                    waiting_file.unlink()
+                ledger_file = self.state_manager.run_namespace / "provider_waiting_states.json"
+                if ledger_file.exists():
+                    try:
+                        provider_states = json.loads(ledger_file.read_text(encoding="utf-8"))
+                        provider_states.pop(waiting_data.get("incident", {}).get("provider"), None)
+                        ledger_file.write_text(json.dumps(provider_states, ensure_ascii=False), encoding="utf-8")
+                    except (json.JSONDecodeError, IOError):
+                        pass
+                # Clear WAITING_PROVIDER_RESET status when resuming
+                if state.status == "WAITING_PROVIDER_RESET":
+                    state.status = None
+            self.state_manager.write_state(state)
+            return {"cleared": True, "scope": "feature" if feature_id else "product"}
+
+        self._run_logged_transition(
+            action="clear_provider_waiting_state",
+            lock_type="feature" if feature_id else "product",
+            locked_entity_id=feature_id,
+            feature_id=feature_id,
+            attempt=1,
+            mutation=clear_waiting,
+        )
+
+    def resume_from_provider_wait(
+        self,
+        feature_id: str | None = None,
+        now: datetime | None = None,
+    ) -> dict[str, Any] | None:
+        """Resume from WAITING_PROVIDER_RESET after deadline (AC-R14-3).
+
+        Reloads and reconciles all proofs before action.
+        Returns incident details if deadline is reached, None otherwise.
+        """
+        now = now or self._now()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise ProductRuntimeError("now must be timezone-aware")
+
+        waiting_state = self.get_provider_waiting_state(feature_id=feature_id)
+        if waiting_state is None:
+            return None
+
+        try:
+            incident = waiting_state.incident
+            if not incident.retry_at:
+                return None
+
+            # Parse deadline with explicit timezone
+            retry_dt = datetime.fromisoformat(incident.retry_at.replace("Z", "+00:00"))
+            if now < retry_dt:
+                return None  # Deadline not reached yet
+
+            # AC-R14-3: Reload and reconcile all proofs before resumption
+            state = self.state_manager.read_state("", "")
+            current_waiting = self.get_provider_waiting_state(feature_id=feature_id)
+            if current_waiting is None or current_waiting.incident.retry_at != incident.retry_at:
+                # State diverged - escalate
+                return {
+                    "ready_to_resume": False,
+                    "reason": "state_diverged_during_reconciliation",
+                    "provider": str(incident.provider),
+                    "error_type": str(incident.error_type),
+                }
+
+            # All proofs reconciled - return resume details
+            return {
+                "ready_to_resume": True,
+                "provider": str(incident.provider),
+                "error_type": str(incident.error_type),
+                "retry_at": incident.retry_at,
+                "recorded_at": waiting_state.recorded_at,
+                "policy": incident.policy,
+                "source_timezone": incident.source_timezone,
+            }
+        except (KeyError, ValueError, TypeError) as exc:
+            return {
+                "ready_to_resume": False,
+                "reason": f"reconciliation_error: {exc}",
+            }
+
+    def tick_provider_wait(
+        self,
+        *,
+        feature_id: str | None = None,
+        now: datetime | None = None,
+        resume_callback: ResumeCallback,
+    ) -> dict[str, Any] | None:
+        """Non-blocking, atomic deadline tick that performs one bounded runtime resume.
+
+        The callback is the typed integration seam for later orchestration work; it
+        cannot issue shell commands through this runtime.  Failed callbacks retain
+        the persisted wait state for a later tick.
+        """
+        effective_now = now or self._now()
+        if effective_now.tzinfo is None or effective_now.utcoffset() is None:
+            raise ProductRuntimeError("now must be timezone-aware")
+
+        def resume() -> dict[str, Any]:
+            state = self.state_manager.read_state("", "")  # fresh proof under lock
+            waiting = self.get_provider_waiting_state(feature_id=feature_id)
+            if waiting is None or not waiting.incident.retry_at:
+                return {"resumed": False, "reason": "no_waiting_state"}
+            retry_at = datetime.fromisoformat(waiting.incident.retry_at.replace("Z", "+00:00"))
+            if effective_now < retry_at:
+                return {"resumed": False, "reason": "deadline_not_reached"}
+            evidence = {
+                "run_id": self.run_id,
+                "feature_id": feature_id,
+                "state_status": state.status,
+                "incident": waiting.incident.to_dict(),
+                "recorded_at": waiting.recorded_at,
+            }
+            if not resume_callback(evidence):
+                return {"resumed": False, "reason": "resume_callback_failed", **evidence}
+            if feature_id:
+                feature_state = state.feature_states.get(feature_id, {})
+                feature_state.pop("provider_waiting_state", None)
+                feature_state.get("provider_waiting_states", {}).pop(str(waiting.incident.provider), None)
+                if feature_state.get("status") == "WAITING_PROVIDER_RESET":
+                    feature_state["status"] = "READY"
+                state.feature_states[feature_id] = feature_state
+            else:
+                waiting_file = self.state_manager.run_namespace / "provider_waiting_state.json"
+                if waiting_file.exists():
+                    waiting_file.unlink()
+                ledger_file = self.state_manager.run_namespace / "provider_waiting_states.json"
+                if ledger_file.exists():
+                    try:
+                        provider_states = json.loads(ledger_file.read_text(encoding="utf-8"))
+                        provider_states.pop(str(waiting.incident.provider), None)
+                        ledger_file.write_text(json.dumps(provider_states, ensure_ascii=False), encoding="utf-8")
+                    except (json.JSONDecodeError, IOError):
+                        pass
+                if state.status == "WAITING_PROVIDER_RESET":
+                    state.status = "READY"
+            self.state_manager.write_state(state)
+            return {"resumed": True, "decision": "RESUME", **evidence}
+
+        result = self._run_logged_transition(
+            action="tick_provider_wait",
+            lock_type="feature" if feature_id else "product",
+            locked_entity_id=feature_id,
+            feature_id=feature_id,
+            attempt=1,
+            mutation=resume,
+        )
+        if result.get("reason") in {"no_waiting_state", "deadline_not_reached"}:
+            return None
+        return result
+
+    def pause(self, *, feature_id: str | None = None, reason: str = "manual_pause") -> None:
+        """Persist PAUSED independently from waiting, failed, and blocked states."""
+        def persist_pause() -> dict[str, Any]:
+            state = self.state_manager.read_state("", "")
+            if feature_id:
+                feature_state = state.feature_states.setdefault(feature_id, {})
+                feature_state["status"] = "PAUSED"
+            else:
+                state.status = "PAUSED"
+            self.state_manager.write_state(state)
+            return {"state": "PAUSED", "reason": reason, "decision": "PAUSE"}
+        self._run_logged_transition(
+            action="pause", lock_type="feature" if feature_id else "product",
+            locked_entity_id=feature_id, feature_id=feature_id, attempt=1, mutation=persist_pause,
+        )
 
     def acquire_product_lock(self) -> str:
         """Acquire a product-level lock to prevent concurrent drivers."""

@@ -9,6 +9,9 @@ import time
 from datetime import datetime, timezone
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Iterable
+
+from autodev.provider_incidents import ProviderIncidentEvent, detect_provider_incident
 
 
 TIMEOUTS_SECONDS = {
@@ -43,6 +46,40 @@ class ProcessExecutionResult:
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class ProviderProcessResult:
+    """Process evidence plus a provider-only wait decision; never a correction action."""
+
+    stdout: str
+    stderr: str
+    provider_incident: ProviderIncidentEvent | None
+    wait_state: str | None
+
+
+def classify_provider_result(
+    result: ProcessExecutionResult,
+    *,
+    provider_name: str | None = None,
+    declared_providers: Iterable[str] | None = None,
+    now: datetime | None = None,
+) -> ProviderProcessResult:
+    """Classify captured output without changing business-correction state or executing commands."""
+    raw_message = result.stderr or result.stdout
+    incident = detect_provider_incident(
+        raw_message,
+        stderr=result.stderr,
+        provider_name=provider_name,
+        declared_providers=declared_providers,
+        now=now,
+    ) if raw_message else None
+    return ProviderProcessResult(
+        stdout=result.stdout,
+        stderr=result.stderr,
+        provider_incident=incident,
+        wait_state="WAITING_PROVIDER_RESET" if incident is not None else None,
+    )
 
 
 def timeout_for_command(command: str) -> int:

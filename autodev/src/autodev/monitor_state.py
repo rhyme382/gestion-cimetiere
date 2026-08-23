@@ -11,6 +11,7 @@ from autodev.git_tools import GitError, branch_exists, dirty_paths, git_output, 
 from autodev.planner import PlanningError, find_repo_root, load_json, validate_backlog_consistency
 from autodev.run_feature import determine_task_resume_action
 from autodev.task_dependencies import get_unfinished_dependencies
+from autodev.provider_incidents import ProviderIncidentEvent
 
 DISPLAY_STATUSES = {
     "PENDING",
@@ -22,6 +23,9 @@ DISPLAY_STATUSES = {
     "INTEGRATING",
     "INTEGRATED",
     "FAILED",
+    "BLOCKED",
+    "PAUSED",
+    "WAITING_PROVIDER_RESET",
     "TIMEOUT",
     "HUMAN_REVIEW_REQUIRED",
     "COMPLETED",
@@ -633,3 +637,171 @@ def safe_dirty_paths(repo_root: Path, worktree: Path) -> list[str] | None:
         return dirty_paths(repo_root, cwd=worktree)
     except GitError:
         return None
+
+
+def read_provider_waiting_state(
+    run_namespace: Path,
+    feature_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Read provider waiting state from run namespace (AC-R21-6, AC-R14-3)."""
+    waiting_data: dict[str, Any] | None = None
+
+    if feature_id:
+        # Read feature-level waiting state from state.json
+        state_path = run_namespace / "state.json"
+        if not state_path.exists():
+            return None
+
+        try:
+            state_data = json.loads(state_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, IOError):
+            return None
+
+        feature_state = state_data.get("feature_states", {}).get(feature_id, {})
+        waiting_data = feature_state.get("provider_waiting_state")
+    else:
+        # Read product-level waiting state from separate file
+        waiting_file = run_namespace / "provider_waiting_state.json"
+        if waiting_file.exists():
+            try:
+                waiting_data = json.loads(waiting_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, IOError):
+                return None
+
+    return waiting_data
+
+
+def is_waiting_for_provider_reset(
+    run_namespace: Path,
+    now: datetime | None = None,
+    feature_id: str | None = None,
+) -> bool:
+    """Check if run is waiting for provider reset (AC-R21-6)."""
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    waiting_data = read_provider_waiting_state(run_namespace, feature_id=feature_id)
+    if not waiting_data:
+        return False
+
+    try:
+        incident_data = waiting_data.get("incident")
+        if not incident_data:
+            return False
+
+        incident = ProviderIncidentEvent.from_dict(incident_data)
+        if not incident.retry_at:
+            return False
+
+        retry_dt = datetime.fromisoformat(incident.retry_at.replace("Z", "+00:00"))
+        return now < retry_dt
+    except (KeyError, ValueError, TypeError):
+        return False
+
+
+def should_resume_from_provider_wait(
+    run_namespace: Path,
+    now: datetime | None = None,
+    feature_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Check if waiting state is ready for automatic resume with reconciliation (AC-R14-3).
+
+    Reloads and reconciles all proofs before determining resumability.
+    Returns details if deadline is reached and reconciliation passes, None otherwise.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    # AC-R14-3: Reload proof before deciding
+    waiting_data = read_provider_waiting_state(run_namespace, feature_id=feature_id)
+    if not waiting_data:
+        return None
+
+    try:
+        incident_data = waiting_data.get("incident")
+        if not incident_data:
+            return None
+
+        incident = ProviderIncidentEvent.from_dict(incident_data)
+        if not incident.retry_at:
+            return None
+
+        retry_dt = datetime.fromisoformat(incident.retry_at.replace("Z", "+00:00"))
+        if now < retry_dt:
+            return None  # Deadline not yet reached
+
+        # AC-R14-3: Reconcile proofs by re-reading state after timeout
+        state_path = run_namespace / "state.json"
+        if not state_path.exists():
+            return {
+                "ready_to_resume": False,
+                "reason": "state_path_missing_after_timeout",
+                "provider": str(incident.provider),
+                "error_type": incident.error_type.value,
+            }
+
+        try:
+            state_data = json.loads(state_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, IOError) as exc:
+            return {
+                "ready_to_resume": False,
+                "reason": f"state_reload_error: {exc}",
+                "provider": str(incident.provider),
+            }
+
+        # Verify waiting state still exists in current state (reconciliation check).
+        # For product-level incidents, reread from separate file to match persistence.
+        current_waiting: dict[str, Any] | None = None
+        if feature_id:
+            feature_state = state_data.get("feature_states", {}).get(feature_id, {})
+            current_waiting = feature_state.get("provider_waiting_state")
+        else:
+            # For product-level, re-read from separate file to reconcile correctly
+            waiting_file = run_namespace / "provider_waiting_state.json"
+            if waiting_file.exists():
+                try:
+                    current_waiting = json.loads(waiting_file.read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, IOError):
+                    current_waiting = None
+
+        if not current_waiting:
+            return {
+                "ready_to_resume": False,
+                "reason": "waiting_state_cleared_during_timeout",
+                "provider": str(incident.provider),
+            }
+
+        current_incident_data = current_waiting.get("incident")
+        if not current_incident_data:
+            return {
+                "ready_to_resume": False,
+                "reason": "incident_data_missing_in_current_state",
+            }
+
+        current_incident = ProviderIncidentEvent.from_dict(current_incident_data)
+
+        # Verify retry_at matches (no external mutation)
+        if current_incident.retry_at != incident.retry_at:
+            return {
+                "ready_to_resume": False,
+                "reason": "retry_deadline_diverged_during_wait",
+                "original_retry_at": incident.retry_at,
+                "current_retry_at": current_incident.retry_at,
+            }
+
+        # All reconciliation checks passed - ready to resume
+        return {
+            "ready_to_resume": True,
+            "provider": str(incident.provider),
+            "error_type": incident.error_type.value,
+            "retry_at": incident.retry_at,
+            "recorded_at": waiting_data.get("recorded_at"),
+            "policy": incident.policy,
+            "source_timezone": incident.source_timezone,
+            "reconciliation_passed": True,
+        }
+    except (KeyError, ValueError, TypeError) as exc:
+        return {
+            "ready_to_resume": False,
+            "reason": f"reconciliation_error: {type(exc).__name__}: {exc}",
+        }

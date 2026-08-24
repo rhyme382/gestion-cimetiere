@@ -529,6 +529,10 @@ def analyze_mutations(
             # Commit sans métadonnées = indeterminate
             # (On ne peut pas distinguer agent d'external sans preuve)
             origin = "indeterminate"
+        elif agent_mutation:
+            # Mutation de contenu observée entre after_hooks et after_process.
+            # Dans le cycle de correction, cette fenêtre correspond à la tentative agent.
+            origin = "agent"
         else:
             # Pas de mutation détectée
             origin = "indeterminate"
@@ -879,8 +883,12 @@ def classify_modifications(
         # allowed: modification (agent or otherwise) on an allowed path
         # out_of_scope: modification not in allowed paths
         # partial: preexisting + allowed (carries both states)
-        if is_preexisting and is_allowed:
+        if is_preexisting and is_allowed and is_agent_mutation:
+            classification_type: Literal["allowed", "partial", "out_of_scope", "preexisting"] = "allowed"
+        elif is_preexisting and is_allowed:
             classification_type: Literal["allowed", "partial", "out_of_scope", "preexisting"] = "partial"
+        elif is_preexisting and is_agent_mutation:
+            classification_type = "out_of_scope"
         elif is_preexisting and not is_allowed:
             classification_type = "preexisting"
         elif is_allowed:

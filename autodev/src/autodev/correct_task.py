@@ -225,6 +225,7 @@ def correct_task(
         result["restored_paths"] = attempt["restored_paths"]
         result["remaining_allowed_paths"] = attempt["remaining_allowed_paths"]
         result["claude_exit_code"] = attempt["claude_exit_code"]
+        result["reconciliation_verdict"] = attempt["reconciliation_verdict"]
 
         if result["remaining_allowed_paths"]:
             validations = run_validation_commands(worktree, task["validation_commands"])
@@ -883,8 +884,6 @@ def run_correction_attempt(
             changed_paths_since(repo_root, worktree, current_head),
             is_tracked=lambda path: is_path_tracked(repo_root, path, cwd=worktree),
         )
-        correction_paths = sorted(set(after_paths) - set(before_dirty_paths))
-        modified_union.update(correction_paths)
 
         # AC-R11-4, AC-R11-10: Construire diagnostic avant restauration
         # pour classer les modifications par empreintes et attribution
@@ -908,6 +907,12 @@ def run_correction_attempt(
             task["allowed_paths"],
             mutations,
         )
+        correction_paths = paths_with_current_attempt_delta(
+            after_paths,
+            before_dirty_paths,
+            reconciliation,
+        )
+        modified_union.update(correction_paths)
 
         # AC-R11-12: Si attribution ambiguë ou cas complexe, interdire reprise automatique
         if reconciliation.verdict == "request_human":
@@ -948,14 +953,13 @@ def run_correction_attempt(
             restore_paths(repo_root, worktree, current_head, paths_to_restore)
             restored_union.update(paths_to_restore)
 
-        remaining_paths = sorted(
-            set(
-                filter_generated_artifacts(
-                    changed_paths_since(repo_root, worktree, current_head),
-                    is_tracked=lambda path: is_path_tracked(repo_root, path, cwd=worktree),
-                )
-            )
-            - set(before_dirty_paths)
+        remaining_paths = paths_with_current_attempt_delta(
+            filter_generated_artifacts(
+                changed_paths_since(repo_root, worktree, current_head),
+                is_tracked=lambda path: is_path_tracked(repo_root, path, cwd=worktree),
+            ),
+            before_dirty_paths,
+            reconciliation,
         )
         remaining_allowed_paths, remaining_out_of_scope_paths = partition_paths(
             task["allowed_paths"],
@@ -1001,6 +1005,26 @@ def run_correction_attempt(
         restored_from_previous_attempt = sorted(restored_union)
 
     raise CorrectTaskError(f"Échec inattendu de la correction {task_id} #{correction_index}.")
+
+
+def paths_with_current_attempt_delta(
+    changed_paths: list[str],
+    before_dirty_paths: list[str],
+    reconciliation: Any,
+) -> list[str]:
+    """Keep preexisting dirty paths only when the attempt produced a proven delta."""
+    changed_set = set(changed_paths)
+    current_attempt = changed_set - set(before_dirty_paths)
+
+    for classification in (
+        reconciliation.allowed_changes
+        + reconciliation.partial_changes
+        + reconciliation.out_of_scope_changes
+    ):
+        if classification.is_agent_mutation:
+            current_attempt.add(classification.path)
+
+    return sorted(changed_set & current_attempt)
 
 
 def partition_paths(

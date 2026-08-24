@@ -1407,6 +1407,98 @@ def test_untracked_capture_failure_blocks_restoration(tmp_path: Path, monkeypatc
     assert (worktree / "generated.txt").read_text(encoding="utf-8") == "untracked proof required\n"
 
 
+def test_allowed_preexisting_dirty_file_with_new_fingerprint_delta_is_current_attempt(
+    tmp_path: Path,
+) -> None:
+    """AC-R22-4/5: A new delta on an already-dirty allowed file is kept."""
+    from autodev.correct_task import correct_task
+
+    _, backlog, worktree, _ = prepare_correction_case(
+        tmp_path,
+        allowed_paths=["src/task-pilot-002.py"],
+    )
+    target_file = worktree / "src" / "task-pilot-002.py"
+    target_file.write_text("preexisting dirty\n", encoding="utf-8")
+
+    def update_preexisting_allowed_file(target: Path) -> None:
+        (target / "src" / "task-pilot-002.py").write_text(
+            "preexisting dirty plus correction\n",
+            encoding="utf-8",
+        )
+
+    result = correct_task(
+        backlog,
+        "TASK-PILOT-002",
+        claude_runner=make_claude_runner([update_preexisting_allowed_file]),
+    )
+
+    assert result["status"] == "success"
+    assert result["remaining_allowed_paths"] == ["src/task-pilot-002.py"]
+    assert result["modified_paths"] == ["src/task-pilot-002.py"]
+    assert result["reconciliation_verdict"] == "safe_to_recover"
+    assert target_file.read_text(encoding="utf-8") == "preexisting dirty plus correction\n"
+
+
+def test_allowed_preexisting_dirty_file_without_fingerprint_delta_is_not_current_attempt(
+    tmp_path: Path,
+) -> None:
+    """AC-R22-4: An unchanged preexisting dirty file is not attributed to the attempt."""
+    from autodev.correct_task import correct_task
+
+    _, backlog, worktree, produced_commit = prepare_correction_case(
+        tmp_path,
+        allowed_paths=["src/task-pilot-002.py"],
+    )
+    target_file = worktree / "src" / "task-pilot-002.py"
+    target_file.write_text("preexisting dirty only\n", encoding="utf-8")
+
+    result = correct_task(
+        backlog,
+        "TASK-PILOT-002",
+        claude_runner=make_claude_runner([lambda _: None, lambda _: None]),
+    )
+
+    assert result["status"] == "no_allowed_changes"
+    assert result["produced_commit"] == produced_commit
+    assert result["remaining_allowed_paths"] == []
+    assert result["modified_paths"] == []
+    assert target_file.read_text(encoding="utf-8") == "preexisting dirty only\n"
+
+
+def test_preexisting_dirty_state_is_never_restored_or_overwritten(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC-R11-9: Preexisting dirty content is protected from destructive restore."""
+    from autodev.correct_task import CorrectTaskError, correct_task
+    import autodev.correct_task as correct_task_module
+
+    _, backlog, worktree, _ = prepare_correction_case(tmp_path, allowed_paths=["src"])
+    package_file = worktree / "package.json"
+    package_file.write_text('{"name":"demo","version":"preexisting"}\n', encoding="utf-8")
+
+    restore_spy = Mock()
+    monkeypatch.setattr(correct_task_module, "restore_paths", restore_spy)
+
+    def update_preexisting_out_of_scope_file(target: Path) -> None:
+        (target / "package.json").write_text(
+            '{"name":"demo","version":"preexisting-plus-attempt"}\n',
+            encoding="utf-8",
+        )
+
+    with pytest.raises(CorrectTaskError):
+        correct_task(
+            backlog,
+            "TASK-PILOT-002",
+            claude_runner=make_claude_runner([update_preexisting_out_of_scope_file]),
+        )
+
+    restore_spy.assert_not_called()
+    assert package_file.read_text(encoding="utf-8") == (
+        '{"name":"demo","version":"preexisting-plus-attempt"}\n'
+    )
+
+
 def test_missing_product_state_support_blocks_out_of_scope_restoration(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

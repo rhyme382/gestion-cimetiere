@@ -798,6 +798,97 @@ class TestHierarchicalScopeMatching:
         # docs should be out_of_scope
         assert any(c.path == "docs/file.txt" and c.classification == "out_of_scope" for c in diagnostic.out_of_scope_changes)
 
+    def test_ac_r22_7_directory_scope_matches_children_no_ambiguity(self, temp_repo, task_worktree):
+        """AC-R22-7: Directory scope allows children without false ambiguity.
+
+        Regression test for fix: diagnose_reconciliation() must use hierarchical
+        scope matching (path_matches_allowed_scope) instead of strict equality.
+
+        Reproduces: allowed_paths = ["src"], change = "src/module.py"
+        - src/module.py is allowed by directory scope "src"
+        - Change MUST NOT be marked ambiguous due to path inequality
+        - Verdict MUST NOT be request_human for this reason
+        """
+        # Create src directory with a file
+        src_dir = task_worktree / "src"
+        src_dir.mkdir()
+        src_dir.joinpath("module.py").write_text("# original\n")
+        run_git(temp_repo, ["add", "src/module.py"], cwd=task_worktree)
+        run_git(temp_repo, ["commit", "-m", "add module"], cwd=task_worktree)
+
+        before_snapshot = capture_git_snapshot(temp_repo, worktree_path=task_worktree)
+
+        # Agent modifies the file under src/ (coherent, allowed change)
+        src_dir.joinpath("module.py").write_text("# modified by agent\n")
+
+        after_snapshot = capture_git_snapshot(temp_repo, worktree_path=task_worktree)
+        mutations = analyze_mutations(before_snapshot, before_snapshot, after_snapshot)
+
+        # allowed_paths contains only directory "src"
+        allowed_paths = ["src"]
+
+        diagnostic = diagnose_reconciliation(before_snapshot, after_snapshot, allowed_paths, mutations)
+
+        # Core assertions for AC-R22-7
+        # 1. src/module.py must be classified as allowed (not out_of_scope)
+        assert any(
+            c.path == "src/module.py" and c.classification == "allowed"
+            for c in diagnostic.allowed_changes
+        ), "src/module.py must be allowed by directory scope 'src'"
+
+        # 2. No out-of-scope changes should be detected
+        assert len(diagnostic.out_of_scope_changes) == 0, \
+            "No out-of-scope changes should exist when all changes are within allowed directory"
+
+        # 3. Verdict must be safe_to_recover (not request_human)
+        # This would be request_human if path matching was done by strict equality
+        assert diagnostic.verdict == "safe_to_recover", \
+            "Verdict must be safe_to_recover for allowed coherent changes. " \
+            "Got request_human because diagnose_reconciliation() used strict equality " \
+            "instead of hierarchical scope matching."
+
+    def test_ac_r22_7_file_scope_does_not_match_descendants_in_ambiguity_check(self, temp_repo, task_worktree):
+        """AC-R22-7: File scope MUST NOT allow descendants in ambiguity checking.
+
+        Verifies that file-scope semantics are preserved: allowed_paths = ["src/file.py"]
+        must NOT authorize "src/file.py/evil.txt" (where a directory replaced the file).
+        """
+        src_dir = task_worktree / "src"
+        src_dir.mkdir()
+        scoped_file = src_dir / "file.py"
+        scoped_file.write_text("# original file\n")
+        run_git(temp_repo, ["add", "src/file.py"], cwd=task_worktree)
+        run_git(temp_repo, ["commit", "-m", "add scoped file"], cwd=task_worktree)
+
+        before_snapshot = capture_git_snapshot(temp_repo, worktree_path=task_worktree)
+
+        # Simulate malicious transformation: file becomes directory with evil content
+        scoped_file.unlink()
+        scoped_file.mkdir()
+        scoped_file.joinpath("evil.txt").write_text("payload\n")
+
+        after_snapshot = capture_git_snapshot(temp_repo, worktree_path=task_worktree)
+        mutations = analyze_mutations(before_snapshot, before_snapshot, after_snapshot)
+
+        diagnostic = diagnose_reconciliation(
+            before_snapshot,
+            after_snapshot,
+            ["src/file.py"],
+            mutations,
+        )
+
+        # src/file.py (the file itself) is allowed
+        assert any(
+            c.path == "src/file.py" and c.classification == "allowed"
+            for c in diagnostic.allowed_changes
+        ), "Original file path must be in allowed changes"
+
+        # src/file.py/evil.txt is NOT allowed (file scope does not permit descendants)
+        assert any(
+            c.path == "src/file.py/evil.txt" and c.classification == "out_of_scope"
+            for c in diagnostic.out_of_scope_changes
+        ), "Pseudo-descendant of file scope must be out_of_scope"
+
 
 def test_untracked_file_content_preservation(temp_repo):
     """Point 2: Verify untracked file content is properly preserved with hash.

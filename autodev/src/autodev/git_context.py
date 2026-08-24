@@ -951,7 +951,32 @@ def diagnose_reconciliation(
     # Déterminer le verdict
     has_divergence = len(out_of_scope) > 0
     has_content_changes = len(content_changes) > 0
-    has_ambiguity = any(c.hash_changed for c in content_changes if c.path not in modified_paths_set)
+    # AC-R22-7: Utiliser la même sémantique de scope hiérarchique que classify_modifications()
+    # pour déterminer si un changement de contenu est hors scope
+    try:
+        normalized_allowed = [normalize_repo_relative_path(item) for item in modified_paths]
+    except ValueError:
+        normalized_allowed = []
+
+    has_ambiguity = False
+    for ch in content_changes:
+        if ch.hash_changed:
+            try:
+                normalized_path = normalize_repo_relative_path(ch.path)
+            except ValueError:
+                # Chemin invalide => ambigu
+                has_ambiguity = True
+                break
+
+            # Vérifier si le chemin est dans un scope autorisé (matching hiérarchique)
+            is_in_allowed_scope = any(
+                path_matches_allowed_scope(after_process, normalized_path, allowed_scope)
+                for allowed_scope in normalized_allowed
+            )
+
+            if not is_in_allowed_scope:
+                has_ambiguity = True
+                break
 
     # AC-R11-12: Appliquer la logique de verdict
     # AC-R22-7: Assouplir pour mutations agent_mutation prouvées hors scope

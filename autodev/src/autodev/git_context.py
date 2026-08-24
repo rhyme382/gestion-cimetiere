@@ -6,6 +6,7 @@ from typing import Any, Callable, Literal
 
 from autodev.git_tools import (
     GitError,
+    branch_exists,
     branch_head,
     changed_paths_between,
     compute_file_hashes,
@@ -17,14 +18,56 @@ from autodev.git_tools import (
     get_index_changed_paths,
     get_tracked_dirty_paths,
     get_untracked_paths,
+    git_output,
     git_status_with_branch,
     name_status_between,
+    worktree_registered,
 )
+from autodev.path_rules import normalize_repo_relative_path
 from autodev.planner import PlanningError, load_json
 
 
 class GitContextError(RuntimeError):
     """État Git de tâche invalide ou incomplet."""
+
+
+def _is_path_relative_to(path: Path, parent: Path) -> bool:
+    """Check if path is a child of parent directory."""
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def _allowed_scope_is_directory(snapshot: GitSnapshot, scope: Path) -> bool:
+    """Determine whether an allowed scope is a directory from Git, then filesystem."""
+    worktree_path = Path(snapshot.worktree_path)
+    scope_text = scope.as_posix()
+
+    try:
+        object_type = git_output(
+            worktree_path,
+            ["cat-file", "-t", f"{snapshot.head}:{scope_text}"],
+            cwd=worktree_path,
+        )
+    except GitError:
+        scoped_path = worktree_path / scope
+        return scoped_path.is_dir()
+
+    return object_type == "tree"
+
+
+def path_matches_allowed_scope(snapshot: GitSnapshot, path: Path, allowed_scope: Path) -> bool:
+    """Return whether a normalized repo path is inside one normalized allowed scope.
+
+    Exact matches are always allowed. Descendants are allowed only when the
+    allowed scope is proven to be a directory from Git HEAD or the filesystem.
+    """
+    return path == allowed_scope or (
+        _allowed_scope_is_directory(snapshot, allowed_scope)
+        and _is_path_relative_to(path, allowed_scope)
+    )
 
 
 @dataclass(frozen=True)
@@ -795,9 +838,22 @@ def classify_modifications(
 
     AC-R11-3: Classe les modifications en autorisées, partielles ou hors scope.
     AC-R11-4: Les modifications autorisées sont conservées.
+
+    Les modified_paths sont des scopes hiérarchiques (allowd_paths) qui peuvent être:
+    - Des chemins exacts (ex: "file.py")
+    - Des répertoires (ex: "src")
+
+    Un chemin de fichier est autorisé s'il:
+    - Est exact match avec un scope, OU
+    - Est un enfant d'un scope répertoire (ex: "src/nested/file.py" est enfant de "src")
     """
     classifications: list[ModificationClassification] = []
-    allowed_set = set(modified_paths)
+
+    # Normaliser les allowed_paths (scopes hiérarchiques)
+    try:
+        normalized_allowed = [normalize_repo_relative_path(item) for item in modified_paths]
+    except ValueError as exc:
+        raise GitContextError(str(exc)) from exc
 
     all_dirty = set(snapshot.index_changed + snapshot.tracked_dirty + snapshot.untracked)
 
@@ -806,7 +862,17 @@ def classify_modifications(
         is_preexisting = attribution.before_hooks if attribution else False
         is_agent_mutation = attribution.agent_mutation if attribution else False
 
-        is_allowed = path in allowed_set
+        # Vérifier si le chemin est autorisé via matching hiérarchique
+        try:
+            normalized_path = normalize_repo_relative_path(path)
+        except ValueError:
+            # Chemin invalide => pas autorisé
+            is_allowed = False
+        else:
+            is_allowed = any(
+                path_matches_allowed_scope(snapshot, normalized_path, allowed_scope)
+                for allowed_scope in normalized_allowed
+            )
 
         # Determine classification type based on scope and origin
         # preexisting: dirty before process start
@@ -888,9 +954,32 @@ def diagnose_reconciliation(
     has_ambiguity = any(c.hash_changed for c in content_changes if c.path not in modified_paths_set)
 
     # AC-R11-12: Appliquer la logique de verdict
-    if has_ambiguous_origin or has_ambiguity or (has_divergence and has_content_changes):
+    # AC-R22-7: Assouplir pour mutations agent_mutation prouvées hors scope
+    # Une mutation hors scope prouvée comme agent_mutation n'est pas ambiguë,
+    # même avec changement de contenu, si elle peut être restaurée en toute sécurité.
+
+    # Vérifier si TOUS les changements hors scope sont prouvés agent_mutation
+    all_out_of_scope_are_agent = all(
+        mutations.get(oc.path, MutationAttribution(
+            path=oc.path,
+            before_hooks=False,
+            hook_mutation=False,
+            agent_mutation=False,
+            external_mutation=False,
+        )).agent_mutation
+        for oc in out_of_scope
+    )
+
+    if has_ambiguous_origin:
+        # Origines externes, indéterminées ou ambiguës => REQUEST_HUMAN
         verdict: Literal["safe_to_recover", "requires_review", "request_human"] = "request_human"
+    elif has_ambiguity and not (has_divergence and all_out_of_scope_are_agent):
+        # Changements de contenu sur des chemins non autorisés, sauf si tous
+        # les out_of_scope sont prouvés agent_mutation => REQUEST_HUMAN
+        verdict = "request_human"
     elif has_divergence or len(partial) > 0:
+        # Divergence (changements out_of_scope) ou parcelles (partiellement autorisées)
+        # => requires_review (pour validation/revue)
         verdict = "requires_review"
     else:
         verdict = "safe_to_recover"
@@ -935,3 +1024,146 @@ def diagnose_reconciliation(
         verdict=verdict,
         evidence=evidence,
     )
+
+
+@dataclass(frozen=True)
+class GitReconstructionIncident:
+    """Incident detected during runtime state reconstruction from Git."""
+    code: str
+    reason: str
+    evidence: list[str]
+    path_affected: str | None = None
+    expected_value: str | None = None
+    actual_value: str | None = None
+
+
+def verify_branch_exists(repo_root: Path, branch: str) -> GitReconstructionIncident | None:
+    """Verify that a branch exists in Git. AC-R2.2, AC-R2.3."""
+    try:
+        if not branch_exists(repo_root, branch):
+            return GitReconstructionIncident(
+                code="BRANCH_NOT_FOUND",
+                reason=f"Branch {branch} does not exist",
+                evidence=[f"git branch -r | grep {branch} returned nothing"],
+            )
+    except GitError as e:
+        return GitReconstructionIncident(
+            code="BRANCH_CHECK_FAILED",
+            reason=f"Failed to check if branch exists: {e}",
+            evidence=[str(e)],
+        )
+    return None
+
+
+def verify_branch_head(repo_root: Path, branch: str, expected_commit: str) -> GitReconstructionIncident | None:
+    """Verify that a branch points to the expected commit. AC-R2.2, AC-R2.3."""
+    try:
+        actual_head = branch_head(repo_root, branch)
+        if actual_head != expected_commit:
+            return GitReconstructionIncident(
+                code="BRANCH_HEAD_DIVERGENCE",
+                reason=f"Branch {branch} HEAD diverged",
+                evidence=[
+                    f"Expected: {expected_commit}",
+                    f"Actual: {actual_head}",
+                ],
+                path_affected=branch,
+                expected_value=expected_commit,
+                actual_value=actual_head,
+            )
+    except GitError as e:
+        return GitReconstructionIncident(
+            code="BRANCH_HEAD_CHECK_FAILED",
+            reason=f"Failed to check branch HEAD: {e}",
+            evidence=[str(e)],
+        )
+    return None
+
+
+def verify_worktree_state(
+    repo_root: Path,
+    worktree_path: Path,
+    expected_branch: str | None = None,
+    expected_head: str | None = None,
+) -> list[GitReconstructionIncident]:
+    """Verify worktree state against Git reality. AC-R2.2, AC-R2.3."""
+    incidents: list[GitReconstructionIncident] = []
+
+    # Check if worktree path exists
+    if not worktree_path.exists():
+        incidents.append(GitReconstructionIncident(
+            code="WORKTREE_PATH_NOT_FOUND",
+            reason=f"Worktree path does not exist: {worktree_path}",
+            evidence=[f"Path.exists() = False"],
+            path_affected=str(worktree_path),
+        ))
+        return incidents
+
+    # Check if registered in git
+    try:
+        if not worktree_registered(repo_root, worktree_path):
+            incidents.append(GitReconstructionIncident(
+                code="WORKTREE_NOT_REGISTERED",
+                reason=f"Worktree not registered in git: {worktree_path}",
+                evidence=["git worktree list does not include this path"],
+                path_affected=str(worktree_path),
+            ))
+            return incidents
+    except GitError as e:
+        incidents.append(GitReconstructionIncident(
+            code="WORKTREE_CHECK_FAILED",
+            reason=f"Failed to check worktree registration: {e}",
+            evidence=[str(e)],
+            path_affected=str(worktree_path),
+        ))
+        return incidents
+
+    # Check current branch if expected
+    if expected_branch:
+        try:
+            actual_branch = current_branch(repo_root, cwd=worktree_path)
+            if actual_branch != expected_branch:
+                incidents.append(GitReconstructionIncident(
+                    code="WORKTREE_BRANCH_DIVERGENCE",
+                    reason=f"Worktree branch diverged: {worktree_path}",
+                    evidence=[
+                        f"Expected branch: {expected_branch}",
+                        f"Actual branch: {actual_branch}",
+                    ],
+                    path_affected=str(worktree_path),
+                    expected_value=expected_branch,
+                    actual_value=actual_branch,
+                ))
+        except GitError as e:
+            incidents.append(GitReconstructionIncident(
+                code="WORKTREE_BRANCH_CHECK_FAILED",
+                reason=f"Failed to check worktree branch: {e}",
+                evidence=[str(e)],
+                path_affected=str(worktree_path),
+            ))
+
+    # Check current HEAD if expected
+    if expected_head:
+        try:
+            actual_head = current_head(repo_root, cwd=worktree_path)
+            if actual_head != expected_head:
+                incidents.append(GitReconstructionIncident(
+                    code="WORKTREE_HEAD_DIVERGENCE",
+                    reason=f"Worktree HEAD diverged: {worktree_path}",
+                    evidence=[
+                        f"Expected HEAD: {expected_head}",
+                        f"Actual HEAD: {actual_head}",
+                    ],
+                    path_affected=str(worktree_path),
+                    expected_value=expected_head,
+                    actual_value=actual_head,
+                ))
+        except GitError as e:
+            incidents.append(GitReconstructionIncident(
+                code="WORKTREE_HEAD_CHECK_FAILED",
+                reason=f"Failed to check worktree HEAD: {e}",
+                evidence=[str(e)],
+                path_affected=str(worktree_path),
+            ))
+
+    return incidents

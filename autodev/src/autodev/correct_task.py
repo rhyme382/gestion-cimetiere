@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +15,7 @@ from autodev.git_context import (
     build_current_task_git_state,
     capture_git_snapshot,
     diagnose_reconciliation,
+    path_matches_allowed_scope,
 )
 from autodev.git_tools import (
     GitError,
@@ -23,11 +26,13 @@ from autodev.git_tools import (
     create_commit,
     diff_patch_between,
     dirty_paths,
+    git_output,
     git_status_porcelain,
     git_status_with_branch,
     head_commit,
     is_path_tracked,
     restore_paths,
+    run_git,
     stage_all,
 )
 from autodev.path_rules import normalize_repo_relative_path
@@ -37,7 +42,6 @@ from autodev.task_runner import (
     build_prompt,
     ensure_dependency_changes_allowed,
     ensure_claude_completed_successfully,
-    is_relative_to,
     find_task,
     run_claude_non_interactive,
     run_validation_commands,
@@ -45,6 +49,14 @@ from autodev.task_runner import (
     write_json,
 )
 from autodev.task_report import build_task_report_payload, write_task_report
+
+try:
+    from autodev.product_state import ProductStateManager, ProductStateError
+    HAS_PRODUCT_STATE = True
+except ImportError:
+    HAS_PRODUCT_STATE = False
+    ProductStateManager = None  # type: ignore
+    ProductStateError = Exception  # type: ignore
 
 
 class CorrectTaskError(RuntimeError):
@@ -206,6 +218,7 @@ def correct_task(
             guidance=guidance,
             claude_runner=claude_runner,
             before_correction_snapshot=before_correction_snapshot,
+            run_dir=run_dir,
         )
 
         result["modified_paths"] = attempt["modified_paths"]
@@ -266,7 +279,21 @@ def correct_task(
             current_git_state = build_current_task_git_state(repo_root, task_id)
         except GitContextError as exc:
             raise CorrectTaskError(str(exc)) from exc
-        _, unexpected_paths = partition_paths(task["allowed_paths"], current_git_state.modified_paths)
+        scope_snapshot = GitSnapshot(
+            head=current_git_state.base_commit,
+            branch=current_git_state.branch,
+            index_changed=[],
+            tracked_dirty=[],
+            untracked=[],
+            status_porcelain="",
+            timestamp_label="task_base_scope",
+            worktree_path=str(current_git_state.worktree),
+        )
+        _, unexpected_paths = partition_paths(
+            task["allowed_paths"],
+            current_git_state.modified_paths,
+            scope_snapshot=scope_snapshot,
+        )
         task_report = build_task_report_payload(
             backlog=backlog,
             task=task,
@@ -499,18 +526,185 @@ Corrige uniquement les écarts relevés par la revue, mets à jour les tests né
 """
 
 
+def _try_save_patches_to_inventory(
+    repo_root: Path,
+    run_dir: Path,
+    task_id: str,
+    patches_dir: Path,
+    out_of_scope_paths: list[str],
+) -> None:
+    """Save patches to ProductStateManager inventory before restoration.
+
+    AC-R22-6: Le superviseur conserve un inventaire des patchs, blobs ou diffs
+    produits par tentative avant toute restauration ou reprise.
+    """
+    if not out_of_scope_paths:
+        return
+    if not HAS_PRODUCT_STATE or ProductStateManager is None:
+        raise CorrectTaskError(
+            "Impossible de sauvegarder l'inventaire persistant : ProductStateManager "
+            "n'est pas disponible alors que des chemins hors scope doivent être restaurés."
+        )
+
+    run_id = _resolve_product_run_id_for_inventory(repo_root, run_dir, task_id)
+    state_manager = ProductStateManager(repo_root, run_id)
+
+    staged_patch_file = patches_dir / "out-of-scope-staged.patch"
+    unstaged_patch_file = patches_dir / "out-of-scope-unstaged.patch"
+    untracked_manifest_file = patches_dir / "out-of-scope-untracked.json"
+    untracked_content_file = patches_dir / "out-of-scope-untracked-content.json"
+    restoration_metadata_file = patches_dir / "out-of-scope-metadata.json"
+
+    combined_patch = ""
+    if staged_patch_file.exists():
+        combined_patch += "=== STAGED CHANGES ===\n"
+        combined_patch += staged_patch_file.read_text(encoding="utf-8")
+    if unstaged_patch_file.exists():
+        combined_patch += "\n=== UNSTAGED CHANGES ===\n"
+        combined_patch += unstaged_patch_file.read_text(encoding="utf-8")
+
+    metadata: dict[str, Any] = {}
+    if restoration_metadata_file.exists():
+        metadata.update(load_json(restoration_metadata_file))
+    metadata["task_id"] = task_id
+    metadata["run_id"] = run_id
+    metadata["paths_affected"] = out_of_scope_paths
+    metadata["reason"] = "out_of_scope_restoration"
+    metadata.setdefault("artifacts", {})
+    metadata["artifacts"]["staged_patch"] = "out-of-scope-staged.patch"
+    metadata["artifacts"]["unstaged_patch"] = "out-of-scope-unstaged.patch"
+    metadata["artifacts"]["untracked_manifest"] = "out-of-scope-untracked.json"
+    metadata["artifacts"]["untracked_content"] = "out-of-scope-untracked-content.json"
+
+    correction_dir = patches_dir.parent
+    metadata["correction"] = correction_dir.name
+    try:
+        metadata["attempt"] = int(correction_dir.name)
+    except ValueError:
+        metadata["attempt"] = correction_dir.name
+
+    if untracked_manifest_file.exists():
+        metadata["untracked_metadata"] = load_json(untracked_manifest_file)
+
+    if untracked_content_file.exists():
+        metadata["untracked_content"] = load_json(untracked_content_file)
+
+    if not combined_patch.strip() and not metadata.get("untracked_content", {}).get("untracked_files"):
+        raise CorrectTaskError(
+            "Impossible de sauvegarder l'inventaire persistant : aucun patch ou artefact "
+            "untracked capturé pour la restauration hors scope."
+        )
+
+    state_manager.save_patch(
+        paths_affected=out_of_scope_paths,
+        patch_content=combined_patch,
+        reason="out_of_scope_restoration",
+        task_id=task_id,
+        metadata=metadata,
+    )
+
+
+def _resolve_product_run_id_for_inventory(repo_root: Path, run_dir: Path, task_id: str) -> str:
+    """Resolve the real product run_id from explicit persisted product-run proof."""
+    result_file = run_dir / "result.json"
+    task_file = run_dir / "task.json"
+
+    for source, payload in (
+        (result_file, load_json(result_file) if result_file.exists() else {}),
+        (task_file, load_json(task_file) if task_file.exists() else {}),
+    ):
+        run_id = payload.get("product_run_id") or payload.get("run_id")
+        if isinstance(run_id, str) and run_id.strip():
+            return _validate_product_run_id_candidate(repo_root, run_id.strip(), task_id, source)
+
+    matching_state_run_ids = _find_product_run_ids_for_task(repo_root, task_id)
+    if len(matching_state_run_ids) == 1:
+        return matching_state_run_ids[0]
+    if len(matching_state_run_ids) > 1:
+        raise CorrectTaskError(
+            "Impossible de sauvegarder l'inventaire persistant : plusieurs run_id produit "
+            f"référencent {task_id} ({', '.join(matching_state_run_ids)})."
+        )
+
+    raise CorrectTaskError(
+        "Impossible de sauvegarder l'inventaire persistant : aucun run_id produit explicite "
+        f"disponible pour {task_id}."
+    )
+
+
+def _validate_product_run_id_candidate(
+    repo_root: Path,
+    run_id: str,
+    task_id: str,
+    source: Path,
+) -> str:
+    if run_id == task_id:
+        raise CorrectTaskError(
+            f"run_id produit invalide dans {source}: le task_id {task_id} ne peut pas servir de run_id."
+        )
+
+    run_namespace = repo_root / ".autodev" / "runs" / "products" / run_id
+    state_file = run_namespace / "state.json"
+    claim_file = run_namespace / "run_claim.json"
+
+    if state_file.exists():
+        state_data = load_json(state_file)
+        if state_data.get("run_id") == run_id:
+            return run_id
+        raise CorrectTaskError(
+            f"run_id produit invalide dans {source}: {state_file} ne confirme pas {run_id}."
+        )
+
+    if claim_file.exists():
+        claim_data = load_json(claim_file)
+        if claim_data.get("run_id") == run_id:
+            return run_id
+        raise CorrectTaskError(
+            f"run_id produit invalide dans {source}: {claim_file} ne confirme pas {run_id}."
+        )
+
+    raise CorrectTaskError(
+        f"run_id produit invalide dans {source}: aucun état produit persistant pour {run_id}."
+    )
+
+
+def _find_product_run_ids_for_task(repo_root: Path, task_id: str) -> list[str]:
+    products_dir = repo_root / ".autodev" / "runs" / "products"
+    if not products_dir.exists():
+        return []
+
+    matches: list[str] = []
+    for product_run_dir in sorted(path for path in products_dir.iterdir() if path.is_dir()):
+        state_file = product_run_dir / "state.json"
+        if not state_file.exists():
+            continue
+        state_data = load_json(state_file)
+        run_id = state_data.get("run_id")
+        task_states = state_data.get("task_states")
+        if run_id == product_run_dir.name and isinstance(task_states, dict) and task_id in task_states:
+            matches.append(run_id)
+    return matches
+
+
 def _save_out_of_scope_patch(
     repo_root: Path,
     worktree: Path,
     base_commit: str,
     out_of_scope_paths: list[str],
     correction_dir: Path,
+    run_dir: Path | None = None,
+    task_id: str | None = None,
 ) -> None:
-    """Save patch of out-of-scope changes before restoring.
+    """Save comprehensive patch of out-of-scope changes before restoring.
 
     AC-R11-11: Toute restauration est précédée d'une sauvegarde par patch,
     diff ou preuve structurée suffisante pour audit et éventuelle reconstitution.
     Échec de sauvegarde est BLOQUANT et impose REQUEST_HUMAN.
+
+    Captures three forms of state for bounded restoration paths:
+    1. Staged changes (git diff --cached HEAD -- paths)
+    2. Unstaged worktree changes (git diff -- paths)
+    3. Untracked files manifest
     """
     if not out_of_scope_paths:
         return
@@ -519,29 +713,113 @@ def _save_out_of_scope_patch(
         patches_dir = correction_dir / "patches"
         patches_dir.mkdir(parents=True, exist_ok=True)
 
-        # AC-R11-11: Save patches bounded to the exact paths being restored
-        # Capture diff for only the paths being restored (indexed + worktree)
+        # AC-R11-11: Save comprehensive audit trail for bounded paths
+        # This captures what will be destroyed by restore_paths()
+
+        # 1. Patch: staged changes (git diff --cached HEAD -- paths)
+        # Bounded to the specific paths being restored
         try:
-            bounded_patch = diff_patch_between(repo_root, base_commit, "HEAD", paths=out_of_scope_paths)
+            staged_result = run_git(
+                repo_root,
+                ["diff", "--cached", "HEAD", "--", *out_of_scope_paths],
+                cwd=worktree
+            )
+            if staged_result.returncode != 0:
+                stderr = staged_result.stderr.strip() or staged_result.stdout.strip() or "erreur Git inconnue"
+                raise CorrectTaskError(f"Cannot capture staged changes for bounded paths: {stderr}")
+            staged_patch_content = staged_result.stdout
+            staged_file = patches_dir / "out-of-scope-staged.patch"
+            staged_file.write_text(staged_patch_content, encoding="utf-8")
         except GitError as e:
-            # If diff fails, raise error as we cannot safely restore without audit trail
-            raise CorrectTaskError(f"Cannot create audit patch for restoration: {e}") from e
+            raise CorrectTaskError(f"Cannot capture staged changes for bounded paths: {e}") from e
 
-        # Save bounded patch covering only paths to be restored
-        patch_file = patches_dir / "out-of-scope-before-restore.patch"
-        patch_file.write_text(bounded_patch or "", encoding="utf-8")
+        # 2. Patch: unstaged worktree changes (git diff -- paths)
+        # This captures differences between index and worktree (not staged)
+        try:
+            unstaged_result = run_git(
+                repo_root,
+                ["diff", "--", *out_of_scope_paths],
+                cwd=worktree
+            )
+            if unstaged_result.returncode != 0:
+                stderr = unstaged_result.stderr.strip() or unstaged_result.stdout.strip() or "erreur Git inconnue"
+                raise CorrectTaskError(f"Cannot capture unstaged changes for bounded paths: {stderr}")
+            unstaged_patch_content = unstaged_result.stdout
+            unstaged_file = patches_dir / "out-of-scope-unstaged.patch"
+            unstaged_file.write_text(unstaged_patch_content, encoding="utf-8")
+        except GitError as e:
+            raise CorrectTaskError(f"Cannot capture unstaged changes for bounded paths: {e}") from e
 
-        # Save metadata with exact paths and their content state before restoration
+        # 3. Untracked files preservation with full content
+        # AC-R11-11: These will be deleted by restore_paths(), so save content for reconstitution
+        # Byte-safe storage: use base64 encoding for binary-safe JSON serialization
+        untracked_manifest = {"untracked_files": {}, "timestamp": datetime.now(timezone.utc).isoformat()}
+        untracked_content_file = patches_dir / "out-of-scope-untracked-content.json"
+        untracked_content_data = {"untracked_files": {}, "timestamp": datetime.now(timezone.utc).isoformat()}
+
+        for path_str in out_of_scope_paths:
+            file_path = worktree / path_str
+            # Only if the file exists in worktree but is not in git (untracked)
+            if file_path.is_file():
+                try:
+                    is_tracked = git_output(repo_root, ["ls-files", "--cached", "--", path_str], cwd=worktree)
+                    if not is_tracked:
+                        # Untracked file: preserve content and metadata
+                        try:
+                            size = file_path.stat().st_size
+                            file_bytes = file_path.read_bytes()
+                            content_hash = hashlib.sha256(file_bytes).hexdigest()
+                            # Base64-encode for byte-safe JSON storage
+                            encoded_content = base64.b64encode(file_bytes).decode("ascii")
+                        except (OSError, IOError) as e:
+                            raise CorrectTaskError(f"Cannot read untracked file {path_str}: {e}") from e
+
+                        # Metadata-only manifest (for quick reference)
+                        untracked_manifest["untracked_files"][path_str] = {
+                            "exists": True,
+                            "size": size,
+                            "path": path_str,
+                            "content_hash": content_hash,
+                        }
+
+                        # Full content manifest (byte-safe)
+                        untracked_content_data["untracked_files"][path_str] = {
+                            "path": path_str,
+                            "size": size,
+                            "content_hash": content_hash,
+                            "content_b64": encoded_content,
+                            "encoding": "base64",
+                        }
+                except GitError as e:
+                    raise CorrectTaskError(
+                        f"Cannot prove tracked state for out-of-scope path {path_str}: {e}"
+                    ) from e
+
+        untracked_file = patches_dir / "out-of-scope-untracked.json"
+        write_json(untracked_file, untracked_manifest)
+        write_json(untracked_content_file, untracked_content_data)
+
+        # Save comprehensive metadata with exact paths and state before restoration
         metadata = {
             "reason": "out_of_scope_restoration",
             "restored_paths": out_of_scope_paths,
             "base_commit": base_commit,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "timezone": datetime.now(timezone.utc).astimezone().tzname() or "UTC",
-            "patch_file": "out-of-scope-before-restore.patch",
+            "artifacts": {
+                "staged_patch": "out-of-scope-staged.patch",
+                "unstaged_patch": "out-of-scope-unstaged.patch",
+                "untracked_manifest": "out-of-scope-untracked.json",
+            },
+            "purpose": "Bounded audit trail for restoration reversal and manual inspection",
+            "restoration_command": f"git restore --source={base_commit} -- {' '.join(out_of_scope_paths)}",
         }
         metadata_file = patches_dir / "out-of-scope-metadata.json"
         write_json(metadata_file, metadata)
+
+        # AC-R22-6: Try to save patches to ProductStateManager inventory if available
+        if run_dir and task_id:
+            _try_save_patches_to_inventory(repo_root, run_dir, task_id, patches_dir, out_of_scope_paths)
     except (GitError, IOError, PlanningError) as exc:
         # AC-R11-11: Échec de sauvegarde => escalade à REQUEST_HUMAN
         raise CorrectTaskError(
@@ -566,6 +844,7 @@ def run_correction_attempt(
     guidance: str | None,
     claude_runner: Any,
     before_correction_snapshot: GitSnapshot | None = None,
+    run_dir: Path | None = None,
 ) -> dict[str, Any]:
     restored_union: set[str] = set()
     out_of_scope_union: set[str] = set()
@@ -621,10 +900,12 @@ def run_correction_attempt(
             before_correction_snapshot or after_correction_snapshot,
             after_correction_snapshot,
         )
+        # AC-R11-3: Classer les modifications par rapport aux chemins autorisés,
+        # pas seulement les chemins réellement modifiés par Claude
         reconciliation = diagnose_reconciliation(
             before_correction_snapshot or after_correction_snapshot,
             after_correction_snapshot,
-            correction_paths,
+            task["allowed_paths"],
             mutations,
         )
 
@@ -660,7 +941,10 @@ def run_correction_attempt(
 
         if paths_to_restore:
             # AC-R11-11: Sauvegarde obligatoire et bloquante avant restauration
-            _save_out_of_scope_patch(repo_root, worktree, current_head, paths_to_restore, correction_dir)
+            _save_out_of_scope_patch(
+                repo_root, worktree, current_head, paths_to_restore, correction_dir,
+                run_dir=run_dir, task_id=task_id
+            )
             restore_paths(repo_root, worktree, current_head, paths_to_restore)
             restored_union.update(paths_to_restore)
 
@@ -673,7 +957,11 @@ def run_correction_attempt(
             )
             - set(before_dirty_paths)
         )
-        remaining_allowed_paths, remaining_out_of_scope_paths = partition_paths(task["allowed_paths"], remaining_paths)
+        remaining_allowed_paths, remaining_out_of_scope_paths = partition_paths(
+            task["allowed_paths"],
+            remaining_paths,
+            scope_snapshot=after_correction_snapshot,
+        )
 
         write_json(correction_dir / "modified-paths.json", sorted(modified_union))
         write_json(correction_dir / "out-of-scope-paths.json", sorted(out_of_scope_union))
@@ -715,14 +1003,22 @@ def run_correction_attempt(
     raise CorrectTaskError(f"Échec inattendu de la correction {task_id} #{correction_index}.")
 
 
-def partition_paths(allowed_paths: list[str], modified_paths: list[str]) -> tuple[list[str], list[str]]:
+def partition_paths(
+    allowed_paths: list[str],
+    modified_paths: list[str],
+    *,
+    scope_snapshot: GitSnapshot,
+) -> tuple[list[str], list[str]]:
     normalized_allowed = [normalize_allowed_path(item) for item in allowed_paths]
     allowed: list[str] = []
     unauthorized: list[str] = []
 
     for modified_path in modified_paths:
         candidate = normalize_modified_path(modified_path)
-        if any(is_relative_to(candidate, allowed_path) for allowed_path in normalized_allowed):
+        if any(
+            path_matches_allowed_scope(scope_snapshot, candidate, allowed_path)
+            for allowed_path in normalized_allowed
+        ):
             allowed.append(candidate.as_posix())
         else:
             unauthorized.append(candidate.as_posix())

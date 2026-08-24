@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,25 @@ from autodev.run_feature import (
 )
 
 from test_task_runner import commit_all, init_repo, make_task, write_backlog
+
+
+def write_product_run_state(repo: Path, task_id: str, run_id: str) -> None:
+    from autodev.product_state import ProductRunState, ProductStateManager
+
+    state_manager = ProductStateManager(repo, run_id)
+    state = ProductRunState(
+        run_id=run_id,
+        plan_id="plan-001",
+        product_key="plan-001",
+        schema_version="1.0",
+        plan_hash="hash-001",
+        started_at=datetime.now(timezone.utc).isoformat(),
+        run_namespace=state_manager.run_namespace,
+        task_states={task_id: {"status": "RUNNING"}},
+    )
+    state_manager.reserve_run_namespace(plan_id=state.plan_id, plan_hash=state.plan_hash)
+    with state_manager.bootstrap_writes():
+        state_manager.write_state(state)
 
 
 def write_integration_result(repo: Path, task_id: str, status: str = "INTEGRATED") -> None:
@@ -41,6 +61,7 @@ def write_run_result(
     base_commit: str,
     worktree: Path | None = None,
     produced_commit: str | None = None,
+    product_run_id: str | None = None,
 ) -> None:
     path = repo / ".autodev" / "runs" / task_id / "result.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -54,6 +75,8 @@ def write_run_result(
         "validations": [],
         "validation_summary": [],
     }
+    if product_run_id is not None:
+        payload["run_id"] = product_run_id
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
@@ -120,12 +143,15 @@ def create_task_workspace(
 
     write_task_record(repo, task_id, backlog=backlog, base_commit=base_commit, worktree=worktree)
     if write_result_artifact:
+        product_run_id = f"product-run-{task_id.lower()}"
+        write_product_run_state(repo, task_id, product_run_id)
         write_run_result(
             repo,
             task_id,
             base_commit=base_commit,
             worktree=worktree,
             produced_commit=produced_commit if produced_commit_in_result else None,
+            product_run_id=product_run_id,
         )
 
     return base_commit, worktree, produced_commit

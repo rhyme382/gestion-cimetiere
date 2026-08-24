@@ -589,7 +589,7 @@ def node_correct_task(
     requires_review = result.get("reconciliation_requires_review", False)
     reconciliation_verdict = result.get("reconciliation_verdict")
 
-    if requires_review and reconciliation_verdict == "request_human":
+    if reconciliation_verdict == "request_human":
         # AC-R11-12: Ambiguïté détectée => REQUEST_HUMAN
         error = f"Correction {task_id}: ambiguïté d'attribution détectée, exige révision humaine."
         if progress is not None:
@@ -688,7 +688,7 @@ def route_after_decision(state: RunFeatureState) -> str:
 
 
 def route_after_execution_step(state: RunFeatureState) -> str:
-    if state.get("status") == "FAILED":
+    if state.get("status") in TERMINAL_STATUSES:
         return "finish"
     return "review_task"
 

@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import autodev.review_task as review_task_module
+from autodev.correct_task import CorrectTaskError
 from autodev.run_feature import (
     RunFeatureError,
     determine_task_resume_action,
@@ -586,6 +587,138 @@ def test_correction_then_review_then_integration(tmp_path: Path) -> None:
     assert capture["correct"] == ["TASK-LOOP"]
     assert capture["integrate"] == ["TASK-LOOP"]
     assert result["status"] == "COMPLETED"
+
+
+def test_reconciliation_request_human_without_review_flag_stops_workflow(tmp_path: Path) -> None:
+    repo, backlog = prepare_backlog(tmp_path, [make_task("TASK-HUMAN")])
+    call_order: list[str] = []
+    review_calls = 0
+
+    def fake_run_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"run:{task_id}")
+        return {"task_id": task_id, "status": "success"}
+
+    def fake_review_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        nonlocal review_calls
+        review_calls += 1
+        call_order.append(f"review:{task_id}")
+        verdict = "CORRECTION_REQUIRED" if review_calls == 1 else "APPROVED"
+        write_review_result(repo, task_id, verdict)
+        return make_review_payload(task_id, verdict)
+
+    def fake_correct_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"correct:{task_id}")
+        return {
+            "task_id": task_id,
+            "status": "success",
+            "reconciliation_verdict": "request_human",
+        }
+
+    def fake_integrate_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"integrate:{task_id}")
+        write_integration_result(repo, task_id)
+        return {"task_id": task_id, "status": "INTEGRATED"}
+
+    result = run_feature(
+        backlog,
+        run_task_fn=fake_run_task,
+        review_task_fn=fake_review_task,
+        correct_task_fn=fake_correct_task,
+        integrate_task_fn=fake_integrate_task,
+    )
+
+    assert result["status"] == "HUMAN_REVIEW_REQUIRED"
+    assert result["tasks_integrated"] == []
+    assert call_order == [
+        "run:TASK-HUMAN",
+        "review:TASK-HUMAN",
+        "correct:TASK-HUMAN",
+    ]
+
+
+def test_correct_task_technical_error_stays_failed(tmp_path: Path) -> None:
+    repo, backlog = prepare_backlog(tmp_path, [make_task("TASK-TECH-ERR")])
+    call_order: list[str] = []
+
+    def fake_run_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"run:{task_id}")
+        return {"task_id": task_id, "status": "success"}
+
+    def fake_review_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"review:{task_id}")
+        write_review_result(repo, task_id, "CORRECTION_REQUIRED")
+        return make_review_payload(task_id, "CORRECTION_REQUIRED")
+
+    def fake_correct_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"correct:{task_id}")
+        raise CorrectTaskError("erreur technique de correction")
+
+    result = run_feature(
+        backlog,
+        run_task_fn=fake_run_task,
+        review_task_fn=fake_review_task,
+        correct_task_fn=fake_correct_task,
+        integrate_task_fn=lambda **_: (_ for _ in ()).throw(
+            AssertionError("integration ne doit pas tourner")
+        ),
+    )
+
+    assert result["status"] == "FAILED"
+    assert "erreur technique de correction" in result["error"]
+    assert call_order == [
+        "run:TASK-TECH-ERR",
+        "review:TASK-TECH-ERR",
+        "correct:TASK-TECH-ERR",
+    ]
+
+
+def test_reconciliation_requires_review_still_reruns_review(tmp_path: Path) -> None:
+    repo, backlog = prepare_backlog(tmp_path, [make_task("TASK-REVIEW-AGAIN")])
+    call_order: list[str] = []
+    review_calls = 0
+
+    def fake_run_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"run:{task_id}")
+        return {"task_id": task_id, "status": "success"}
+
+    def fake_review_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        nonlocal review_calls
+        review_calls += 1
+        call_order.append(f"review-{review_calls}:{task_id}")
+        verdict = "CORRECTION_REQUIRED" if review_calls == 1 else "APPROVED"
+        write_review_result(repo, task_id, verdict)
+        return make_review_payload(task_id, verdict)
+
+    def fake_correct_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"correct:{task_id}")
+        return {
+            "task_id": task_id,
+            "status": "success",
+            "reconciliation_requires_review": True,
+            "reconciliation_verdict": "requires_review",
+        }
+
+    def fake_integrate_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"integrate:{task_id}")
+        write_integration_result(repo, task_id)
+        return {"task_id": task_id, "status": "INTEGRATED"}
+
+    result = run_feature(
+        backlog,
+        run_task_fn=fake_run_task,
+        review_task_fn=fake_review_task,
+        correct_task_fn=fake_correct_task,
+        integrate_task_fn=fake_integrate_task,
+    )
+
+    assert result["status"] == "COMPLETED"
+    assert call_order == [
+        "run:TASK-REVIEW-AGAIN",
+        "review-1:TASK-REVIEW-AGAIN",
+        "correct:TASK-REVIEW-AGAIN",
+        "review-2:TASK-REVIEW-AGAIN",
+        "integrate:TASK-REVIEW-AGAIN",
+    ]
 
 
 def test_reconciliation_requires_review_reruns_real_validations_before_codex_review(

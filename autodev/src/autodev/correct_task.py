@@ -226,8 +226,13 @@ def correct_task(
         result["remaining_allowed_paths"] = attempt["remaining_allowed_paths"]
         result["claude_exit_code"] = attempt["claude_exit_code"]
         result["reconciliation_verdict"] = attempt["reconciliation_verdict"]
+        if attempt.get("reconciliation_requires_review"):
+            result["reconciliation_requires_review"] = True
 
-        if result["remaining_allowed_paths"]:
+        if result["reconciliation_verdict"] == "request_human":
+            result["status"] = "success"
+            result["reconciliation_requires_review"] = True
+        elif result["remaining_allowed_paths"]:
             validations = run_validation_commands(worktree, task["validation_commands"])
             result["validations"] = validations
             result["validation_summary"] = summarize_validations(validations)
@@ -275,7 +280,7 @@ def correct_task(
     run_result["status"] = "success"
     write_json(run_dir / "result.json", run_result)
 
-    if result["status"] == "success":
+    if result["status"] == "success" and result["produced_commit"] is not None:
         try:
             current_git_state = build_current_task_git_state(repo_root, task_id)
         except GitContextError as exc:
@@ -926,10 +931,14 @@ def run_correction_attempt(
                 "preexisting_dirty_paths": reconciliation.preexisting_dirty_paths,
                 "reason": "Automatic recovery blocked due to ambiguous attribution or external divergence",
             })
-            raise CorrectTaskError(
-                f"Reconciliation verdict is 'request_human': automatic restoration forbidden. "
-                f"Manual intervention required to safely recover from this state."
-            )
+            return {
+                "claude_exit_code": latest_exit_code,
+                "modified_paths": sorted(modified_union),
+                "restored_paths": sorted(restored_union),
+                "remaining_allowed_paths": [],
+                "reconciliation_requires_review": True,
+                "reconciliation_verdict": reconciliation.verdict,
+            }
 
         # AC-R11-4, AC-R11-10: Ne restaurer que les chemins prouvés hors scope
         # et attribuables à la tentative courante

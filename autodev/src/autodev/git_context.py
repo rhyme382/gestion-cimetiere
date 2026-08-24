@@ -6,9 +6,11 @@ from typing import Any, Callable, Literal
 
 from autodev.git_tools import (
     GitError,
+    branch_exists,
     branch_head,
     changed_paths_between,
     compute_file_hashes,
+    compute_indexed_blob_hashes,
     count_tracked_commits_between,
     current_branch,
     current_head,
@@ -16,14 +18,56 @@ from autodev.git_tools import (
     get_index_changed_paths,
     get_tracked_dirty_paths,
     get_untracked_paths,
+    git_output,
     git_status_with_branch,
     name_status_between,
+    worktree_registered,
 )
+from autodev.path_rules import normalize_repo_relative_path
 from autodev.planner import PlanningError, load_json
 
 
 class GitContextError(RuntimeError):
     """État Git de tâche invalide ou incomplet."""
+
+
+def _is_path_relative_to(path: Path, parent: Path) -> bool:
+    """Check if path is a child of parent directory."""
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False
+
+
+def _allowed_scope_is_directory(snapshot: GitSnapshot, scope: Path) -> bool:
+    """Determine whether an allowed scope is a directory from Git, then filesystem."""
+    worktree_path = Path(snapshot.worktree_path)
+    scope_text = scope.as_posix()
+
+    try:
+        object_type = git_output(
+            worktree_path,
+            ["cat-file", "-t", f"{snapshot.head}:{scope_text}"],
+            cwd=worktree_path,
+        )
+    except GitError:
+        scoped_path = worktree_path / scope
+        return scoped_path.is_dir()
+
+    return object_type == "tree"
+
+
+def path_matches_allowed_scope(snapshot: GitSnapshot, path: Path, allowed_scope: Path) -> bool:
+    """Return whether a normalized repo path is inside one normalized allowed scope.
+
+    Exact matches are always allowed. Descendants are allowed only when the
+    allowed scope is proven to be a directory from Git HEAD or the filesystem.
+    """
+    return path == allowed_scope or (
+        _allowed_scope_is_directory(snapshot, allowed_scope)
+        and _is_path_relative_to(path, allowed_scope)
+    )
 
 
 @dataclass(frozen=True)
@@ -38,6 +82,8 @@ class GitSnapshot:
     timestamp_label: str
     worktree_path: str
     file_hashes: dict[str, str] | None = None
+    # AC-R22-3: Hashes des blobs indexés, séparés du contenu worktree
+    indexed_blob_hashes: dict[str, str] | None = None
     # Chemins affectés par changement de HEAD (commits entre deux HEAD)
     paths_from_head_change: list[str] | None = None
 
@@ -48,6 +94,112 @@ class GitSnapshotTriple:
     before_hooks: GitSnapshot
     after_hooks: GitSnapshot
     after_process: GitSnapshot
+
+
+@dataclass(frozen=True)
+class ContentFingerprints:
+    """Empreintes déterministes du contenu des fichiers.
+
+    Couvre: blob indexé (staged), contenu worktree (dirty), fichiers non suivis.
+    Les empreintes permettent de détecter les changements de contenu
+    sur des fichiers déjà modifiés avant le début du processus.
+    """
+    indexed_blob_hashes: dict[str, str] = field(default_factory=dict)
+    worktree_content_hashes: dict[str, str] = field(default_factory=dict)
+    untracked_file_hashes: dict[str, str] = field(default_factory=dict)
+    timestamp_label: str = ""
+
+    def all_hashes(self) -> dict[str, str]:
+        """Combine all hashes for comparison.
+
+        Note: This merges categories by path and should only be used for
+        detecting presence changes. For comparing distinct categories
+        (indexed vs worktree for same path), use separate dictionaries.
+        """
+        result = {}
+        result.update(self.indexed_blob_hashes)
+        result.update(self.worktree_content_hashes)
+        result.update(self.untracked_file_hashes)
+        return result
+
+    def get_hash_with_category(self, path: str) -> tuple[str | None, str]:
+        """Get hash for a path with its primary category.
+
+        AC-R22-3: Distinguish between indexed blob, worktree content and untracked.
+        Returns (hash, category) where category is 'indexed', 'tracked_dirty', or 'untracked'.
+        For files that exist in multiple categories, prefer worktree > untracked > indexed.
+        """
+        if path in self.worktree_content_hashes:
+            return self.worktree_content_hashes[path], "tracked_dirty"
+        elif path in self.untracked_file_hashes:
+            return self.untracked_file_hashes[path], "untracked"
+        elif path in self.indexed_blob_hashes:
+            return self.indexed_blob_hashes[path], "indexed"
+        else:
+            return None, ""
+
+    def get_all_paths_with_categories(self) -> dict[str, tuple[str | None, str]]:
+        """Get all paths with their hashes and categories.
+
+        AC-R22-3: Returns dict mapping path -> (hash, category).
+        """
+        result = {}
+        # Collect all unique paths
+        all_paths = set()
+        all_paths.update(self.indexed_blob_hashes.keys())
+        all_paths.update(self.worktree_content_hashes.keys())
+        all_paths.update(self.untracked_file_hashes.keys())
+
+        for path in all_paths:
+            result[path] = self.get_hash_with_category(path)
+        return result
+
+
+@dataclass(frozen=True)
+class ModificationChange:
+    """Enregistre une modification détectée entre deux états."""
+    path: str
+    category: Literal["indexed", "tracked_dirty", "untracked"]
+    before_hash: str | None
+    after_hash: str | None
+    hash_changed: bool
+    presence_changed: bool  # Fichier apparu ou disparu
+
+
+@dataclass(frozen=True)
+class ModificationClassification:
+    """Classification d'une modification selon son scope autorisé."""
+    path: str
+    is_allowed: bool  # Chemin dans modified_paths
+    is_preexisting: bool  # Fichier dirty avant le début
+    is_agent_mutation: bool  # Mutation attribuée à l'agent
+    classification: Literal["allowed", "partial", "out_of_scope", "preexisting"] = "out_of_scope"
+
+
+@dataclass(frozen=True)
+class ReconciliationDiagnostic:
+    """Diagnostic structuré pour la réconciliation après interruption.
+
+    AC-R11-5: Un diagnostic structuré précède toute reprise.
+    AC-R22-9: Toute réconciliation produit des preuves vérifiables.
+    """
+    has_divergence: bool
+    preexisting_dirty_paths: list[str]
+    allowed_changes: list[ModificationClassification]
+    partial_changes: list[ModificationClassification]
+    out_of_scope_changes: list[ModificationClassification]
+    content_changes_detected: list[ModificationChange]
+    verdict: Literal["safe_to_recover", "requires_review", "request_human"]
+    evidence: dict[str, Any] = field(default_factory=dict)
+
+    def can_safely_restore_out_of_scope(self) -> bool:
+        """AC-R11-4: Les chemins hors scope peuvent être restaurés si pas d'ambiguïté."""
+        if self.verdict == "request_human":
+            return False
+        if any(ch.hash_changed for ch in self.content_changes_detected
+               if ch.path in [oc.path for oc in self.out_of_scope_changes]):
+            return False
+        return True
 
 
 @dataclass(frozen=True)
@@ -181,6 +333,8 @@ def capture_git_snapshot(
     de contenu même sur les fichiers déjà dirty (prérequis pour audit
     fiable des mutations de hook vs agent sur état préexistant).
 
+    AC-R22-3: Capture aussi les hashes des blobs indexés séparément du contenu worktree.
+
     Si previous_head est fourni, capture aussi les chemins affectés
     par le changement de HEAD (commits).
     """
@@ -198,6 +352,14 @@ def capture_git_snapshot(
 
         all_dirty_files = index_changed + tracked_dirty + untracked
         file_hashes = compute_file_hashes(worktree_path, all_dirty_files) if capture_file_hashes else None
+
+        # AC-R22-3: Capturer aussi les hashes des blobs indexés
+        indexed_blob_hashes = None
+        if capture_file_hashes and index_changed:
+            try:
+                indexed_blob_hashes = compute_indexed_blob_hashes(repo_root, index_changed, cwd=worktree_path)
+            except GitError:
+                indexed_blob_hashes = None
 
         # Si HEAD a changé, récupérer les chemins affectés par le changement de commit
         paths_from_head_change: list[str] | None = None
@@ -218,6 +380,7 @@ def capture_git_snapshot(
             timestamp_label=timestamp_label,
             worktree_path=str(worktree_path.resolve()),
             file_hashes=file_hashes,
+            indexed_blob_hashes=indexed_blob_hashes,
             paths_from_head_change=paths_from_head_change,
         )
     except GitError as exc:
@@ -366,6 +529,10 @@ def analyze_mutations(
             # Commit sans métadonnées = indeterminate
             # (On ne peut pas distinguer agent d'external sans preuve)
             origin = "indeterminate"
+        elif agent_mutation:
+            # Mutation de contenu observée entre after_hooks et after_process.
+            # Dans le cycle de correction, cette fenêtre correspond à la tentative agent.
+            origin = "agent"
         else:
             # Pas de mutation détectée
             origin = "indeterminate"
@@ -535,3 +702,501 @@ def categorize_agents_md_mutations(
             "untracked": "AGENTS.md" in after_process.untracked,
         },
     }
+
+
+def capture_content_fingerprints(snapshot: GitSnapshot) -> ContentFingerprints:
+    """Capture les empreintes de contenu d'un snapshot.
+
+    AC-R22-3: Compare le contenu via empreintes déterministes par fichier,
+    couvrant blob indexé, contenu worktree et fichiers non suivis.
+    """
+    # Organiser les hashes par catégorie
+    if snapshot.file_hashes is None:
+        return ContentFingerprints(timestamp_label=snapshot.timestamp_label)
+
+    index_set = set(snapshot.index_changed)
+    dirty_set = set(snapshot.tracked_dirty)
+    untracked_set = set(snapshot.untracked)
+
+    indexed_blob_hashes = {}
+    worktree_content_hashes = {}
+    untracked_file_hashes = {}
+
+    # AC-R22-3: Utiliser les hashes indexés séparés si disponibles
+    if snapshot.indexed_blob_hashes is not None:
+        indexed_blob_hashes = dict(snapshot.indexed_blob_hashes)
+
+    for path, hash_value in snapshot.file_hashes.items():
+        # Un fichier peut être à la fois staged et dirty.
+        # Dans ce cas, on doit capturer BOTH:
+        # - indexed_blob_hashes[path] = hash du blob indexé
+        # - worktree_content_hashes[path] = hash du contenu worktree
+        # Ceci capture la distinction requise par R22-3.
+
+        # Ajouter au hash indexé (fallback si pas disponible séparément)
+        if path in index_set and path not in indexed_blob_hashes:
+            # Fallback: utiliser le hash worktree si blob indexé non disponible
+            indexed_blob_hashes[path] = hash_value
+
+        # Ajouter au contenu worktree (NON-exclusif, contrairement au if/elif)
+        if path in dirty_set:
+            # Le contenu worktree du fichier dirty
+            worktree_content_hashes[path] = hash_value
+
+        # Ajouter au fichiers non suivis
+        if path in untracked_set:
+            # Le contenu du fichier non suivi
+            untracked_file_hashes[path] = hash_value
+
+    return ContentFingerprints(
+        indexed_blob_hashes=indexed_blob_hashes,
+        worktree_content_hashes=worktree_content_hashes,
+        untracked_file_hashes=untracked_file_hashes,
+        timestamp_label=snapshot.timestamp_label,
+    )
+
+
+def detect_content_changes(
+    before: ContentFingerprints,
+    after: ContentFingerprints,
+) -> list[ModificationChange]:
+    """Détecte les changements de contenu entre deux séries d'empreintes.
+
+    AC-R22-3: Compare le contenu par catégorie (indexed, tracked_dirty, untracked).
+    AC-R22-4: Détecte une nouvelle modification sur un fichier déjà modifié.
+    """
+    changes: list[ModificationChange] = []
+
+    # AC-R22-3: Comparer par catégorie séparée pour préserver les distinctions
+    # Identifier tous les chemins uniques à travers toutes les catégories
+    all_paths_indexed = set(before.indexed_blob_hashes.keys()) | set(after.indexed_blob_hashes.keys())
+    all_paths_dirty = set(before.worktree_content_hashes.keys()) | set(after.worktree_content_hashes.keys())
+    all_paths_untracked = set(before.untracked_file_hashes.keys()) | set(after.untracked_file_hashes.keys())
+
+    # Traiter indexed blobs
+    for path in all_paths_indexed:
+        before_hash = before.indexed_blob_hashes.get(path)
+        after_hash = after.indexed_blob_hashes.get(path)
+        hash_changed = before_hash is not None and after_hash is not None and before_hash != after_hash
+        presence_changed = (before_hash is None) != (after_hash is None)
+
+        if hash_changed or presence_changed:
+            changes.append(
+                ModificationChange(
+                    path=path,
+                    category="indexed",
+                    before_hash=before_hash,
+                    after_hash=after_hash,
+                    hash_changed=hash_changed,
+                    presence_changed=presence_changed,
+                )
+            )
+
+    # Traiter worktree content (dirty tracked files)
+    for path in all_paths_dirty:
+        before_hash = before.worktree_content_hashes.get(path)
+        after_hash = after.worktree_content_hashes.get(path)
+        hash_changed = before_hash is not None and after_hash is not None and before_hash != after_hash
+        presence_changed = (before_hash is None) != (after_hash is None)
+
+        if hash_changed or presence_changed:
+            changes.append(
+                ModificationChange(
+                    path=path,
+                    category="tracked_dirty",
+                    before_hash=before_hash,
+                    after_hash=after_hash,
+                    hash_changed=hash_changed,
+                    presence_changed=presence_changed,
+                )
+            )
+
+    # Traiter untracked files
+    for path in all_paths_untracked:
+        before_hash = before.untracked_file_hashes.get(path)
+        after_hash = after.untracked_file_hashes.get(path)
+        hash_changed = before_hash is not None and after_hash is not None and before_hash != after_hash
+        presence_changed = (before_hash is None) != (after_hash is None)
+
+        if hash_changed or presence_changed:
+            changes.append(
+                ModificationChange(
+                    path=path,
+                    category="untracked",
+                    before_hash=before_hash,
+                    after_hash=after_hash,
+                    hash_changed=hash_changed,
+                    presence_changed=presence_changed,
+                )
+            )
+
+    return changes
+
+
+def classify_modifications(
+    snapshot: GitSnapshot,
+    modified_paths: list[str],
+    mutations: dict[str, MutationAttribution],
+) -> list[ModificationClassification]:
+    """Classifie les modifications selon le scope autorisé.
+
+    AC-R11-3: Classe les modifications en autorisées, partielles ou hors scope.
+    AC-R11-4: Les modifications autorisées sont conservées.
+
+    Les modified_paths sont des scopes hiérarchiques (allowd_paths) qui peuvent être:
+    - Des chemins exacts (ex: "file.py")
+    - Des répertoires (ex: "src")
+
+    Un chemin de fichier est autorisé s'il:
+    - Est exact match avec un scope, OU
+    - Est un enfant d'un scope répertoire (ex: "src/nested/file.py" est enfant de "src")
+    """
+    classifications: list[ModificationClassification] = []
+
+    # Normaliser les allowed_paths (scopes hiérarchiques)
+    try:
+        normalized_allowed = [normalize_repo_relative_path(item) for item in modified_paths]
+    except ValueError as exc:
+        raise GitContextError(str(exc)) from exc
+
+    all_dirty = set(snapshot.index_changed + snapshot.tracked_dirty + snapshot.untracked)
+
+    for path in sorted(all_dirty):
+        attribution = mutations.get(path)
+        is_preexisting = attribution.before_hooks if attribution else False
+        is_agent_mutation = attribution.agent_mutation if attribution else False
+
+        # Vérifier si le chemin est autorisé via matching hiérarchique
+        try:
+            normalized_path = normalize_repo_relative_path(path)
+        except ValueError:
+            # Chemin invalide => pas autorisé
+            is_allowed = False
+        else:
+            is_allowed = any(
+                path_matches_allowed_scope(snapshot, normalized_path, allowed_scope)
+                for allowed_scope in normalized_allowed
+            )
+
+        # Determine classification type based on scope and origin
+        # preexisting: dirty before process start
+        # allowed: modification (agent or otherwise) on an allowed path
+        # out_of_scope: modification not in allowed paths
+        # partial: preexisting + allowed (carries both states)
+        if is_preexisting and is_allowed and is_agent_mutation:
+            classification_type: Literal["allowed", "partial", "out_of_scope", "preexisting"] = "allowed"
+        elif is_preexisting and is_allowed:
+            classification_type: Literal["allowed", "partial", "out_of_scope", "preexisting"] = "partial"
+        elif is_preexisting and is_agent_mutation:
+            classification_type = "out_of_scope"
+        elif is_preexisting and not is_allowed:
+            classification_type = "preexisting"
+        elif is_allowed:
+            classification_type = "allowed"
+        else:
+            classification_type = "out_of_scope"
+
+        classifications.append(
+            ModificationClassification(
+                path=path,
+                is_allowed=is_allowed,
+                is_preexisting=is_preexisting,
+                is_agent_mutation=is_agent_mutation,
+                classification=classification_type,
+            )
+        )
+
+    return classifications
+
+
+def diagnose_reconciliation(
+    before_hooks: GitSnapshot,
+    after_process: GitSnapshot,
+    modified_paths: list[str],
+    mutations: dict[str, MutationAttribution] | None = None,
+) -> ReconciliationDiagnostic:
+    """Produit un diagnostic structuré pour la réconciliation.
+
+    AC-R11-5: Diagnostic structuré précède toute reprise.
+    AC-R11-12: Si l'attribution d'un changement est ambiguë, REQUEST_HUMAN est imposé.
+    AC-R22-9: Produit des preuves vérifiables reliant avant/après, empreintes, classements.
+    AC-R22-7: Les modifications autorisées cohérentes peuvent être reprises ; ambiguïté impose REQUEST_HUMAN.
+    """
+    if mutations is None:
+        mutations = {}
+
+    # Capturer les empreintes de contenu
+    before_fingerprints = capture_content_fingerprints(before_hooks)
+    after_fingerprints = capture_content_fingerprints(after_process)
+    content_changes = detect_content_changes(before_fingerprints, after_fingerprints)
+
+    # Classifier les modifications
+    classifications = classify_modifications(after_process, modified_paths, mutations)
+
+    preexisting_dirty = [c.path for c in classifications if c.is_preexisting]
+    allowed = [c for c in classifications if c.classification == "allowed"]
+    partial = [c for c in classifications if c.classification == "partial"]
+    out_of_scope = [c for c in classifications if c.classification == "out_of_scope"]
+
+    # AC-R11-12: Vérifier les origines ambiguës des mutations
+    # AC-R22-7: Toute ambiguïté d'attribution, quel que soit le scope, impose REQUEST_HUMAN
+    modified_paths_set = set(modified_paths)
+    has_ambiguous_origin = False
+    for path in set(c.path for c in classifications):
+        mutation = mutations.get(path)
+        if mutation is not None:
+            # Si l'attribution est ambiguë, REQUEST_HUMAN est imposé
+            # (AC-R11-12, AC-R22-7)
+            if mutation.ambiguous_origin:
+                has_ambiguous_origin = True
+                break
+            # Origines externes ou indéterminées => REQUEST_HUMAN
+            # (AC-R22-7)
+            if mutation.origin in ("external", "indeterminate"):
+                has_ambiguous_origin = True
+                break
+
+    # Déterminer le verdict
+    has_divergence = len(out_of_scope) > 0
+    has_content_changes = len(content_changes) > 0
+    # AC-R22-7: Utiliser la même sémantique de scope hiérarchique que classify_modifications()
+    # pour déterminer si un changement de contenu est hors scope
+    try:
+        normalized_allowed = [normalize_repo_relative_path(item) for item in modified_paths]
+    except ValueError:
+        normalized_allowed = []
+
+    has_ambiguity = False
+    for ch in content_changes:
+        if ch.hash_changed:
+            try:
+                normalized_path = normalize_repo_relative_path(ch.path)
+            except ValueError:
+                # Chemin invalide => ambigu
+                has_ambiguity = True
+                break
+
+            # Vérifier si le chemin est dans un scope autorisé (matching hiérarchique)
+            is_in_allowed_scope = any(
+                path_matches_allowed_scope(after_process, normalized_path, allowed_scope)
+                for allowed_scope in normalized_allowed
+            )
+
+            if not is_in_allowed_scope:
+                has_ambiguity = True
+                break
+
+    # AC-R11-12: Appliquer la logique de verdict
+    # AC-R22-7: Assouplir pour mutations agent_mutation prouvées hors scope
+    # Une mutation hors scope prouvée comme agent_mutation n'est pas ambiguë,
+    # même avec changement de contenu, si elle peut être restaurée en toute sécurité.
+
+    # Vérifier si TOUS les changements hors scope sont prouvés agent_mutation
+    all_out_of_scope_are_agent = all(
+        mutations.get(oc.path, MutationAttribution(
+            path=oc.path,
+            before_hooks=False,
+            hook_mutation=False,
+            agent_mutation=False,
+            external_mutation=False,
+        )).agent_mutation
+        for oc in out_of_scope
+    )
+
+    if has_ambiguous_origin:
+        # Origines externes, indéterminées ou ambiguës => REQUEST_HUMAN
+        verdict: Literal["safe_to_recover", "requires_review", "request_human"] = "request_human"
+    elif has_ambiguity and not (has_divergence and all_out_of_scope_are_agent):
+        # Changements de contenu sur des chemins non autorisés, sauf si tous
+        # les out_of_scope sont prouvés agent_mutation => REQUEST_HUMAN
+        verdict = "request_human"
+    elif has_divergence or len(partial) > 0:
+        # Divergence (changements out_of_scope) ou parcelles (partiellement autorisées)
+        # => requires_review (pour validation/revue)
+        verdict = "requires_review"
+    else:
+        verdict = "safe_to_recover"
+
+    # Construire les preuves avec attribution
+    evidence = {
+        "preexisting_dirty_paths": preexisting_dirty,
+        "content_changes": [
+            {
+                "path": ch.path,
+                "category": ch.category,
+                "before_hash": ch.before_hash,
+                "after_hash": ch.after_hash,
+                "hash_changed": ch.hash_changed,
+                "presence_changed": ch.presence_changed,
+            }
+            for ch in content_changes
+        ],
+        "classification_summary": {
+            "allowed_count": len(allowed),
+            "partial_count": len(partial),
+            "out_of_scope_count": len(out_of_scope),
+        },
+        "mutation_attributions": {
+            path: {
+                "origin": mutation.origin,
+                "agent_mutation": mutation.agent_mutation,
+                "external_mutation": mutation.external_mutation,
+                "ambiguous_origin": mutation.ambiguous_origin,
+            }
+            for path, mutation in mutations.items()
+        },
+    }
+
+    return ReconciliationDiagnostic(
+        has_divergence=has_divergence,
+        preexisting_dirty_paths=preexisting_dirty,
+        allowed_changes=allowed,
+        partial_changes=partial,
+        out_of_scope_changes=out_of_scope,
+        content_changes_detected=content_changes,
+        verdict=verdict,
+        evidence=evidence,
+    )
+
+
+@dataclass(frozen=True)
+class GitReconstructionIncident:
+    """Incident detected during runtime state reconstruction from Git."""
+    code: str
+    reason: str
+    evidence: list[str]
+    path_affected: str | None = None
+    expected_value: str | None = None
+    actual_value: str | None = None
+
+
+def verify_branch_exists(repo_root: Path, branch: str) -> GitReconstructionIncident | None:
+    """Verify that a branch exists in Git. AC-R2.2, AC-R2.3."""
+    try:
+        if not branch_exists(repo_root, branch):
+            return GitReconstructionIncident(
+                code="BRANCH_NOT_FOUND",
+                reason=f"Branch {branch} does not exist",
+                evidence=[f"git branch -r | grep {branch} returned nothing"],
+            )
+    except GitError as e:
+        return GitReconstructionIncident(
+            code="BRANCH_CHECK_FAILED",
+            reason=f"Failed to check if branch exists: {e}",
+            evidence=[str(e)],
+        )
+    return None
+
+
+def verify_branch_head(repo_root: Path, branch: str, expected_commit: str) -> GitReconstructionIncident | None:
+    """Verify that a branch points to the expected commit. AC-R2.2, AC-R2.3."""
+    try:
+        actual_head = branch_head(repo_root, branch)
+        if actual_head != expected_commit:
+            return GitReconstructionIncident(
+                code="BRANCH_HEAD_DIVERGENCE",
+                reason=f"Branch {branch} HEAD diverged",
+                evidence=[
+                    f"Expected: {expected_commit}",
+                    f"Actual: {actual_head}",
+                ],
+                path_affected=branch,
+                expected_value=expected_commit,
+                actual_value=actual_head,
+            )
+    except GitError as e:
+        return GitReconstructionIncident(
+            code="BRANCH_HEAD_CHECK_FAILED",
+            reason=f"Failed to check branch HEAD: {e}",
+            evidence=[str(e)],
+        )
+    return None
+
+
+def verify_worktree_state(
+    repo_root: Path,
+    worktree_path: Path,
+    expected_branch: str | None = None,
+    expected_head: str | None = None,
+) -> list[GitReconstructionIncident]:
+    """Verify worktree state against Git reality. AC-R2.2, AC-R2.3."""
+    incidents: list[GitReconstructionIncident] = []
+
+    # Check if worktree path exists
+    if not worktree_path.exists():
+        incidents.append(GitReconstructionIncident(
+            code="WORKTREE_PATH_NOT_FOUND",
+            reason=f"Worktree path does not exist: {worktree_path}",
+            evidence=[f"Path.exists() = False"],
+            path_affected=str(worktree_path),
+        ))
+        return incidents
+
+    # Check if registered in git
+    try:
+        if not worktree_registered(repo_root, worktree_path):
+            incidents.append(GitReconstructionIncident(
+                code="WORKTREE_NOT_REGISTERED",
+                reason=f"Worktree not registered in git: {worktree_path}",
+                evidence=["git worktree list does not include this path"],
+                path_affected=str(worktree_path),
+            ))
+            return incidents
+    except GitError as e:
+        incidents.append(GitReconstructionIncident(
+            code="WORKTREE_CHECK_FAILED",
+            reason=f"Failed to check worktree registration: {e}",
+            evidence=[str(e)],
+            path_affected=str(worktree_path),
+        ))
+        return incidents
+
+    # Check current branch if expected
+    if expected_branch:
+        try:
+            actual_branch = current_branch(repo_root, cwd=worktree_path)
+            if actual_branch != expected_branch:
+                incidents.append(GitReconstructionIncident(
+                    code="WORKTREE_BRANCH_DIVERGENCE",
+                    reason=f"Worktree branch diverged: {worktree_path}",
+                    evidence=[
+                        f"Expected branch: {expected_branch}",
+                        f"Actual branch: {actual_branch}",
+                    ],
+                    path_affected=str(worktree_path),
+                    expected_value=expected_branch,
+                    actual_value=actual_branch,
+                ))
+        except GitError as e:
+            incidents.append(GitReconstructionIncident(
+                code="WORKTREE_BRANCH_CHECK_FAILED",
+                reason=f"Failed to check worktree branch: {e}",
+                evidence=[str(e)],
+                path_affected=str(worktree_path),
+            ))
+
+    # Check current HEAD if expected
+    if expected_head:
+        try:
+            actual_head = current_head(repo_root, cwd=worktree_path)
+            if actual_head != expected_head:
+                incidents.append(GitReconstructionIncident(
+                    code="WORKTREE_HEAD_DIVERGENCE",
+                    reason=f"Worktree HEAD diverged: {worktree_path}",
+                    evidence=[
+                        f"Expected HEAD: {expected_head}",
+                        f"Actual HEAD: {actual_head}",
+                    ],
+                    path_affected=str(worktree_path),
+                    expected_value=expected_head,
+                    actual_value=actual_head,
+                ))
+        except GitError as e:
+            incidents.append(GitReconstructionIncident(
+                code="WORKTREE_HEAD_CHECK_FAILED",
+                reason=f"Failed to check worktree HEAD: {e}",
+                evidence=[str(e)],
+                path_affected=str(worktree_path),
+            ))
+
+    return incidents

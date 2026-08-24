@@ -922,15 +922,19 @@ class ProductRuntime:
                 "priority": feature.get("priority"),
                 "depends_on": sorted(str(dep) for dep in feature.get("depends_on", [])),
                 "validations": sorted(str(validation) for validation in feature.get("validations", [])),
+                "integrated_commit": feature.get("integrated_commit"),
             }
 
-        return {
+        normalized_plan = {
             "plan_id": source.get("plan_id", plan_id),
             "plan_hash": source.get("plan_hash", plan_hash),
             "integration_branch": source.get("integration_branch"),
             "global_validations": sorted(str(item) for item in source.get("global_validations", [])),
             "features": normalized_features,
         }
+        if "base_commit" in source:
+            normalized_plan["base_commit"] = source.get("base_commit")
+        return normalized_plan
 
     def _compare_plan_snapshot(
         self,
@@ -1965,3 +1969,302 @@ class ProductRuntime:
             "product_graph_id": state.product_graph_id,
             "started_at": state.started_at,
         }
+
+    def reconstruct_runtime_state(
+        self,
+        plan: ProductPlan | dict[str, Any],
+        current_state: ProductRunState | None = None,
+    ) -> StateReconstructionResult:
+        """Reconstruct runtime state and detect divergences (AC-R2.2, AC-R2.3).
+
+        Compares plan, persisted state, checkpoints, branches, commits, worktrees,
+        validations and required artifacts to detect divergences.
+
+        Returns StateReconstructionResult with incidents for any divergences found.
+        """
+        if current_state is None:
+            try:
+                current_state = self.state_manager.read_state("", "")
+            except ProductStateError:
+                # State not yet persisted
+                return StateReconstructionResult(
+                    run_id=self.run_id,
+                    is_clean=True,
+                    incidents=[],
+                    divergences=[],
+                    state=current_state or ProductRunState.initial(self.run_id),
+                )
+
+        normalized_plan = self._normalize_plan(
+            plan,
+            plan_id=current_state.plan_id,
+            plan_hash=current_state.plan_hash,
+        )
+        incidents: list[StateReconstructionIncident] = []
+        divergences: list[str] = []
+
+        # AC-R2.3: Detect divergence of status
+        if current_state.status not in ("initializing", "running", "paused", "completed", "failed"):
+            incidents.append(
+                StateReconstructionIncident(
+                    code="INVALID_RUNTIME_STATUS",
+                    reason=f"Invalid runtime status: {current_state.status}",
+                    evidence=[f"Status field: {current_state.status}"],
+                )
+            )
+            divergences.append(f"status={current_state.status}")
+
+        # AC-R2.3: Detect divergence of base commit
+        if normalized_plan and "base_commit" in normalized_plan:
+            declared_base = normalized_plan["base_commit"]
+            if current_state.base_commit and current_state.base_commit != declared_base:
+                incidents.append(
+                    StateReconstructionIncident(
+                        code="BASE_COMMIT_DIVERGENCE",
+                        reason=f"Base commit divergence: declared {declared_base}, actual {current_state.base_commit}",
+                        evidence=[
+                            f"Plan base_commit: {declared_base}",
+                            f"Runtime base_commit: {current_state.base_commit}",
+                        ],
+                    )
+                )
+                divergences.append(f"base_commit={current_state.base_commit}!={declared_base}")
+
+        # AC-R2.3: Detect divergence of integrated commit
+        if normalized_plan and "features" in normalized_plan:
+            plan_features = normalized_plan["features"]
+            for feature_id, feature_state in current_state.feature_states.items():
+                if feature_id in plan_features:
+                    declared_integrated = plan_features[feature_id].get("integrated_commit")
+                    actual_integrated = feature_state.get("integrated_commit")
+                    if declared_integrated and actual_integrated and declared_integrated != actual_integrated:
+                        incidents.append(
+                            StateReconstructionIncident(
+                                code="INTEGRATED_COMMIT_DIVERGENCE",
+                                reason=f"Integrated commit divergence for {feature_id}",
+                                evidence=[
+                                    f"Feature {feature_id} declared: {declared_integrated}",
+                                    f"Feature {feature_id} actual: {actual_integrated}",
+                                ],
+                            )
+                        )
+                        divergences.append(f"feature.{feature_id}.integrated_commit divergence")
+
+        # AC-R2.3: Detect divergence of required artifacts
+        required_artifacts = getattr(current_state, "required_artifacts", [])
+        if required_artifacts:
+            for artifact in required_artifacts:
+                artifact_path = self.repo_root / artifact.get("path", "")
+                if not artifact_path.exists():
+                    incidents.append(
+                        StateReconstructionIncident(
+                            code="MISSING_REQUIRED_ARTIFACT",
+                            reason=f"Required artifact missing: {artifact.get('path')}",
+                            evidence=[f"Path: {artifact_path}"],
+                        )
+                    )
+                    divergences.append(f"artifact.missing={artifact.get('path')}")
+
+        # AC-R2.2, AC-R2.3: Detect divergence of branches (Git is the source of truth)
+        if current_state.feature_states:
+            for feature_id, feature_state in current_state.feature_states.items():
+                declared_branch = feature_state.get("branch") or feature_state.get("current_branch")
+                if declared_branch:
+                    declared_commit = feature_state.get("current_commit") or feature_state.get("branch_head_commit")
+                    try:
+                        import autodev.git_tools as git_tools
+
+                        if not git_tools.branch_exists(self.repo_root, declared_branch):
+                            incidents.append(
+                                StateReconstructionIncident(
+                                    code="FEATURE_BRANCH_NOT_FOUND",
+                                    reason=f"Feature branch missing: {declared_branch}",
+                                    evidence=[
+                                        f"Feature {feature_id} branch: {declared_branch}",
+                                        f"Branch status: not found in Git",
+                                    ],
+                                )
+                            )
+                            divergences.append(f"feature.{feature_id}.branch.missing")
+                        elif declared_commit:
+                            # Branch exists, now check if HEAD matches
+                            actual_commit = git_tools.branch_head(self.repo_root, declared_branch)
+                            if actual_commit != declared_commit:
+                                incidents.append(
+                                    StateReconstructionIncident(
+                                        code="BRANCH_HEAD_DIVERGENCE",
+                                        reason=f"Feature branch HEAD divergence: {declared_branch}",
+                                        evidence=[
+                                            f"Feature {feature_id} branch: {declared_branch}",
+                                            f"Declared commit: {declared_commit}",
+                                            f"Actual commit: {actual_commit}",
+                                        ],
+                                    )
+                                )
+                                divergences.append(f"feature.{feature_id}.branch_head.divergence")
+                    except Exception as exc:
+                        incidents.append(
+                            StateReconstructionIncident(
+                                code="GIT_VERIFICATION_ERROR",
+                                reason=f"Unable to verify feature branch Git state for {feature_id}",
+                                evidence=[
+                                    f"Feature {feature_id} branch: {declared_branch}",
+                                    f"Expected commit: {declared_commit or 'not recorded'}",
+                                    f"Git error: {exc}",
+                                ],
+                            )
+                        )
+                        divergences.append(f"feature.{feature_id}.branch.verification_error")
+
+        # AC-R2.2, AC-R2.3: Detect divergence of worktrees (Git is the source of truth)
+        if current_state.feature_states:
+            for feature_id, feature_state in current_state.feature_states.items():
+                declared_worktree_path = (
+                    feature_state.get("worktree")
+                    or feature_state.get("current_worktree")
+                    or feature_state.get("worktree_path")
+                )
+                if declared_worktree_path:
+                    declared_worktree = Path(declared_worktree_path)
+                    if not declared_worktree.exists():
+                        incidents.append(
+                            StateReconstructionIncident(
+                                code="WORKTREE_PATH_NOT_FOUND",
+                                reason=f"Feature worktree missing: {declared_worktree}",
+                                evidence=[
+                                    f"Feature {feature_id} worktree: {declared_worktree}",
+                                    f"Worktree status: not found on disk",
+                                ],
+                            )
+                        )
+                        divergences.append(f"feature.{feature_id}.worktree.missing")
+                    else:
+                        # Worktree path exists, now check Git registration and branch/HEAD
+                        try:
+                            import autodev.git_tools as git_tools
+
+                            if not git_tools.worktree_registered(self.repo_root, declared_worktree):
+                                incidents.append(
+                                    StateReconstructionIncident(
+                                        code="WORKTREE_NOT_REGISTERED",
+                                        reason=f"Feature worktree not registered in Git: {declared_worktree}",
+                                        evidence=[
+                                            f"Feature {feature_id} worktree: {declared_worktree}",
+                                            f"Worktree status: path exists but not registered",
+                                        ],
+                                    )
+                                )
+                                divergences.append(f"feature.{feature_id}.worktree.not_registered")
+                            else:
+                                # Worktree is registered, check branch and HEAD
+                                declared_branch = feature_state.get("current_branch") or feature_state.get("branch")
+                                declared_head = (
+                                    feature_state.get("current_commit")
+                                    or feature_state.get("worktree_head_commit")
+                                )
+                                actual_branch = git_tools.current_branch(self.repo_root, cwd=declared_worktree)
+                                actual_head = git_tools.current_head(self.repo_root, cwd=declared_worktree)
+
+                                if declared_branch and actual_branch != declared_branch:
+                                    incidents.append(
+                                        StateReconstructionIncident(
+                                            code="WORKTREE_BRANCH_DIVERGENCE",
+                                            reason=f"Feature worktree branch divergence: {declared_worktree}",
+                                            evidence=[
+                                                f"Feature {feature_id} expected branch: {declared_branch}",
+                                                f"Feature {feature_id} actual branch: {actual_branch}",
+                                            ],
+                                        )
+                                    )
+                                    divergences.append(f"feature.{feature_id}.worktree.branch.divergence")
+
+                                if declared_head and actual_head != declared_head:
+                                    incidents.append(
+                                        StateReconstructionIncident(
+                                            code="WORKTREE_HEAD_DIVERGENCE",
+                                            reason=f"Feature worktree HEAD divergence: {declared_worktree}",
+                                            evidence=[
+                                                f"Feature {feature_id} expected HEAD: {declared_head}",
+                                                f"Feature {feature_id} actual HEAD: {actual_head}",
+                                            ],
+                                        )
+                                    )
+                                    divergences.append(f"feature.{feature_id}.worktree.head.divergence")
+                        except Exception as exc:
+                            incidents.append(
+                                StateReconstructionIncident(
+                                    code="GIT_VERIFICATION_ERROR",
+                                    reason=f"Unable to verify feature worktree Git state for {feature_id}",
+                                    evidence=[
+                                        f"Feature {feature_id} worktree: {declared_worktree}",
+                                        f"Expected branch: {feature_state.get('current_branch') or feature_state.get('branch') or 'not recorded'}",
+                                        f"Expected HEAD: {feature_state.get('current_commit') or feature_state.get('worktree_head_commit') or 'not recorded'}",
+                                        f"Git error: {exc}",
+                                    ],
+                                )
+                            )
+                            divergences.append(f"feature.{feature_id}.worktree.verification_error")
+
+        # AC-R2.2, AC-R2.3: Detect divergence of checkpoints
+        checkpoints = getattr(current_state, "checkpoints", {})
+        if checkpoints:
+            for checkpoint_id, checkpoint_data in checkpoints.items():
+                checkpoint_path = self.repo_root / checkpoint_data.get("path", "")
+                if not checkpoint_path.exists():
+                    incidents.append(
+                        StateReconstructionIncident(
+                            code="CHECKPOINT_MISSING",
+                            reason=f"Checkpoint missing: {checkpoint_id}",
+                            evidence=[
+                                f"Checkpoint {checkpoint_id} path: {checkpoint_path}",
+                                f"Checkpoint status: not found",
+                            ],
+                        )
+                    )
+                    divergences.append(f"checkpoint.{checkpoint_id}.missing")
+
+        # AC-R2.2, AC-R2.3: Detect divergence of dependencies
+        if normalized_plan and "features" in normalized_plan:
+            plan_features = normalized_plan["features"]
+            for feature_id in current_state.feature_states:
+                if feature_id in plan_features:
+                    feature_def = plan_features[feature_id]
+                    declared_deps = feature_def.get("depends_on", [])
+                    for dep_id in declared_deps:
+                        dep_state = current_state.feature_states.get(dep_id, {})
+                        if dep_state.get("status") not in ("completed", "integrated"):
+                            incidents.append(
+                                StateReconstructionIncident(
+                                    code="DEPENDENCY_NOT_SATISFIED",
+                                    reason=f"Dependency {dep_id} not satisfied for feature {feature_id}",
+                                    evidence=[
+                                        f"Feature {feature_id} depends on: {dep_id}",
+                                        f"Dependency status: {dep_state.get('status', 'unknown')}",
+                                    ],
+                                )
+                            )
+                            divergences.append(f"feature.{feature_id}.dependency.{dep_id}.unmet")
+
+        # AC-R2.2, AC-R2.3: Detect divergence of validations
+        if current_state.validation_results:
+            for validation_id, validation_data in current_state.validation_results.items():
+                if validation_data.get("status") == "failed":
+                    incidents.append(
+                        StateReconstructionIncident(
+                            code="VALIDATION_FAILED",
+                            reason=f"Validation failed: {validation_id}",
+                            evidence=[
+                                f"Validation {validation_id} status: failed",
+                                f"Output: {validation_data.get('output', 'N/A')[:100]}",
+                            ],
+                        )
+                    )
+                    divergences.append(f"validation.{validation_id}.failed")
+
+        return StateReconstructionResult(
+            run_id=self.run_id,
+            is_clean=len(incidents) == 0,
+            incidents=incidents,
+            divergences=divergences,
+            state=current_state,
+        )

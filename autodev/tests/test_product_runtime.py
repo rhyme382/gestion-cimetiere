@@ -1,5 +1,6 @@
 import json
 import socket
+import subprocess
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +14,7 @@ from autodev.product_runtime import (
     ProductRuntimeError,
 )
 from autodev.product_state import IdempotenceKey
+from autodev.product_state import ProductRunState
 
 
 def make_plan_dict(
@@ -61,11 +63,91 @@ def persist_runtime_checkpoint(runtime: ProductRuntime, checkpoint: dict[str, ob
         runtime.release_lock(lock_id, reason="test-checkpoint-update")
 
 
+def run_git(repo_root: Path, args: list[str], *, cwd: Path | None = None) -> str:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=cwd or repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def create_branch_at_head(repo_root: Path, branch: str) -> None:
+    from autodev.git_tools import create_branch, current_head
+
+    create_branch(repo_root, branch, current_head(repo_root))
+
+
+def commit_file(repo_root: Path, path: str, content: str, message: str, *, cwd: Path | None = None) -> None:
+    from autodev.git_tools import create_commit
+
+    target_root = cwd or repo_root
+    target_path = target_root / path
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_text(content, encoding="utf-8")
+    run_git(repo_root, ["add", path], cwd=target_root)
+    create_commit(repo_root, message, cwd=target_root)
+
+
+def make_runtime_state(runtime: ProductRuntime) -> ProductRunState:
+    return ProductRunState(
+        run_id=runtime.run_id,
+        plan_id="plan-001",
+        product_key="plan-001",
+        schema_version="1.0",
+        plan_hash="",
+        started_at=datetime.now(timezone.utc).isoformat(),
+        run_namespace=runtime.state_manager.run_namespace,
+        product_graph_id="product-graph-001",
+        status="running",
+    )
+
+
+def record_feature_git_evidence(
+    runtime: ProductRuntime,
+    feature_id: str,
+    *,
+    branch: str,
+    current_branch: str | None = None,
+    base_commit: str,
+    current_commit: str,
+    integrated_commit: str | None = None,
+    worktree: Path | str | None = None,
+    current_worktree: Path | str | None = None,
+) -> ProductRunState:
+    runtime.initialize_run("plan-001", "abc123", plan=make_plan_dict())
+    lock_id = runtime.acquire_feature_lock(feature_id)
+    try:
+        runtime.record_git_evidence(
+            feature_id=feature_id,
+            branch=branch,
+            current_branch=current_branch or branch,
+            base_commit=base_commit,
+            current_commit=current_commit,
+            integrated_commit=integrated_commit or current_commit,
+            worktree=str(worktree) if worktree is not None else None,
+            current_worktree=str(current_worktree) if current_worktree is not None else None,
+        )
+    finally:
+        runtime.release_lock(lock_id, reason="feature evidence recorded")
+    state = runtime.state_manager.read_state("plan-001", "abc123")
+    state.status = "running"
+    return state
+
+
 @pytest.fixture
 def temp_repo():
     with tempfile.TemporaryDirectory() as tmpdir:
         repo_root = Path(tmpdir)
         (repo_root / ".autodev").mkdir(parents=True)
+        run_git(repo_root, ["init"])
+        run_git(repo_root, ["config", "user.email", "test@example.com"])
+        run_git(repo_root, ["config", "user.name", "Test User"])
+        (repo_root / "README.md").write_text("# Test repo\n", encoding="utf-8")
+        run_git(repo_root, ["add", "README.md"])
+        run_git(repo_root, ["commit", "-m", "Initial commit"])
         yield repo_root
 
 
@@ -1540,3 +1622,300 @@ class TestProductRuntime:
             other_runtime.acquire_task_lock("task-001")
 
         runtime.release_lock(task_lock_id)
+
+    def test_reconstruct_runtime_state_with_persisted_git_evidence_is_clean(self, runtime, temp_repo):
+        """Test AC-R2.2, AC-R2.3: Reconstruction detects correct Git state.
+
+        Scenario: Persisted branch/worktree/current_commit match real Git => no incidents.
+        """
+        from autodev.git_tools import add_worktree, branch_head
+
+        create_branch_at_head(temp_repo, "autodev/feature-001")
+        worktree_path = temp_repo / ".autodev" / "worktrees" / "feature-001"
+        add_worktree(temp_repo, worktree_path, "autodev/feature-001")
+        expected_commit = branch_head(temp_repo, "autodev/feature-001")
+
+        state = record_feature_git_evidence(
+            runtime,
+            "feature-001",
+            branch="autodev/feature-001",
+            base_commit=expected_commit,
+            current_commit=expected_commit,
+            worktree=worktree_path,
+            current_worktree=worktree_path,
+        )
+
+        assert "branch_head_commit" not in state.feature_states["feature-001"]
+        assert "worktree_head_commit" not in state.feature_states["feature-001"]
+
+        reloaded_runtime = ProductRuntime(temp_repo, "run-001")
+        result = reloaded_runtime.reconstruct_runtime_state({}, state)
+        assert result.is_clean
+        assert len(result.incidents) == 0
+
+    def test_reconstruct_runtime_state_detects_persisted_branch_current_commit_divergence(self, runtime, temp_repo):
+        """Test AC-R2.2, AC-R2.3: Reconstruction detects branch HEAD divergence.
+
+        Scenario: Persisted branch exists but later points to a different commit than current_commit.
+        """
+        from autodev.git_tools import add_worktree, branch_head
+
+        create_branch_at_head(temp_repo, "autodev/feature-002")
+        worktree_path = temp_repo / ".autodev" / "worktrees" / "feature-002"
+        add_worktree(temp_repo, worktree_path, "autodev/feature-002")
+        expected_commit = branch_head(temp_repo, "autodev/feature-002")
+        state = record_feature_git_evidence(
+            runtime,
+            "feature-002",
+            branch="autodev/feature-002",
+            base_commit=expected_commit,
+            current_commit=expected_commit,
+            worktree=worktree_path,
+            current_worktree=worktree_path,
+        )
+
+        assert state.feature_states["feature-002"]["current_commit"] == expected_commit
+        assert "branch_head_commit" not in state.feature_states["feature-002"]
+
+        commit_file(temp_repo, "feature-002.txt", "test file\n", "commit 1", cwd=worktree_path)
+        assert branch_head(temp_repo, "autodev/feature-002") != expected_commit
+
+        reloaded_runtime = ProductRuntime(temp_repo, "run-001")
+        result = reloaded_runtime.reconstruct_runtime_state({}, state)
+        assert not result.is_clean
+        divergence_incident = next(
+            (inc for inc in result.incidents if inc.code == "BRANCH_HEAD_DIVERGENCE"),
+            None
+        )
+        assert divergence_incident is not None
+        assert expected_commit in str(divergence_incident.proofs)
+
+    def test_reconstruct_runtime_state_worktree_not_registered(self, runtime, temp_repo):
+        """Test AC-R2.2, AC-R2.3: Reconstruction detects unregistered worktree.
+
+        Scenario: Worktree path exists but is not registered in Git.
+        """
+        from autodev.git_tools import add_worktree
+        from pathlib import Path
+
+        # Create a registered worktree
+        create_branch_at_head(temp_repo, "autodev/feature-003")
+        worktree_path = temp_repo / ".autodev" / "worktrees" / "feature-003"
+        add_worktree(temp_repo, worktree_path, "autodev/feature-003")
+
+        # Create a fake unregistered path
+        fake_worktree = temp_repo / ".autodev" / "worktrees" / "unregistered"
+        fake_worktree.mkdir(parents=True, exist_ok=True)
+
+        # Create state with unregistered worktree
+        state = make_runtime_state(runtime)
+        state.feature_states["feature-unregistered"] = {
+            "status": "running",
+            "branch": "autodev/feature-003",
+            "worktree": str(fake_worktree),
+        }
+
+        # Reconstruct: should detect unregistered worktree
+        result = runtime.reconstruct_runtime_state({}, state)
+        assert not result.is_clean
+        unregistered_incident = next(
+            (inc for inc in result.incidents if inc.code == "WORKTREE_NOT_REGISTERED"),
+            None
+        )
+        assert unregistered_incident is not None
+
+    def test_reconstruct_runtime_state_detects_persisted_worktree_current_branch_divergence(self, runtime, temp_repo):
+        """Test AC-R2.2, AC-R2.3: Reconstruction detects worktree branch divergence.
+
+        Scenario: Persisted worktree is registered but now checked out to another branch.
+        """
+        from autodev.git_tools import add_worktree, current_branch
+
+        create_branch_at_head(temp_repo, "autodev/feature-004a")
+        create_branch_at_head(temp_repo, "autodev/feature-004b")
+        worktree_path = temp_repo / ".autodev" / "worktrees" / "feature-004"
+        add_worktree(temp_repo, worktree_path, "autodev/feature-004a")
+        expected_commit = run_git(temp_repo, ["rev-parse", "HEAD"], cwd=worktree_path)
+
+        state = record_feature_git_evidence(
+            runtime,
+            "feature-004",
+            branch="autodev/feature-004a",
+            current_branch="autodev/feature-004a",
+            base_commit=expected_commit,
+            current_commit=expected_commit,
+            worktree=worktree_path,
+            current_worktree=worktree_path,
+        )
+        assert "worktree_path" not in state.feature_states["feature-004"]
+
+        run_git(temp_repo, ["checkout", "autodev/feature-004b"], cwd=worktree_path)
+        actual_branch = current_branch(temp_repo, cwd=worktree_path)
+        assert actual_branch == "autodev/feature-004b"
+
+        reloaded_runtime = ProductRuntime(temp_repo, "run-001")
+        result = reloaded_runtime.reconstruct_runtime_state({}, state)
+        assert not result.is_clean
+        branch_divergence = next(
+            (inc for inc in result.incidents if inc.code == "WORKTREE_BRANCH_DIVERGENCE"),
+            None
+        )
+        assert branch_divergence is not None
+
+    def test_reconstruct_runtime_state_detects_persisted_worktree_current_commit_divergence(self, runtime, temp_repo):
+        """Test AC-R2.2, AC-R2.3: Reconstruction detects worktree HEAD divergence.
+
+        Scenario: Persisted worktree stays on the right branch but advances past current_commit.
+        """
+        from autodev.git_tools import (
+            add_worktree,
+            current_head,
+        )
+
+        create_branch_at_head(temp_repo, "autodev/feature-005")
+        worktree_path = temp_repo / ".autodev" / "worktrees" / "feature-005"
+        add_worktree(temp_repo, worktree_path, "autodev/feature-005")
+        expected_commit = current_head(temp_repo, cwd=worktree_path)
+        state = record_feature_git_evidence(
+            runtime,
+            "feature-005",
+            branch="autodev/feature-005",
+            base_commit=expected_commit,
+            current_commit=expected_commit,
+            worktree=worktree_path,
+            current_worktree=worktree_path,
+        )
+
+        assert state.feature_states["feature-005"]["current_commit"] == expected_commit
+        assert "worktree_head_commit" not in state.feature_states["feature-005"]
+
+        commit_file(temp_repo, "feature-005.txt", "test file\n", "commit 1", cwd=worktree_path)
+        assert current_head(temp_repo, cwd=worktree_path) != expected_commit
+
+        reloaded_runtime = ProductRuntime(temp_repo, "run-001")
+        result = reloaded_runtime.reconstruct_runtime_state({}, state)
+        assert not result.is_clean
+        head_divergence = next(
+            (inc for inc in result.incidents if inc.code == "WORKTREE_HEAD_DIVERGENCE"),
+            None
+        )
+        assert head_divergence is not None
+
+    def test_reconstruct_runtime_state_reports_git_verification_error(self, runtime, temp_repo, monkeypatch):
+        """Test AC-R2.2, AC-R2.3: Git verification errors produce deterministic incidents."""
+        from autodev.git_tools import add_worktree, branch_head
+        import autodev.git_tools as git_tools
+
+        create_branch_at_head(temp_repo, "autodev/feature-git-error")
+        worktree_path = temp_repo / ".autodev" / "worktrees" / "feature-git-error"
+        add_worktree(temp_repo, worktree_path, "autodev/feature-git-error")
+        expected_commit = branch_head(temp_repo, "autodev/feature-git-error")
+        state = record_feature_git_evidence(
+            runtime,
+            "feature-git-error",
+            branch="autodev/feature-git-error",
+            base_commit=expected_commit,
+            current_commit=expected_commit,
+            worktree=worktree_path,
+            current_worktree=worktree_path,
+        )
+
+        def fail_branch_head(repo_root, branch):
+            raise git_tools.GitError("rev-parse failed")
+
+        monkeypatch.setattr(git_tools, "branch_head", fail_branch_head)
+
+        reloaded_runtime = ProductRuntime(temp_repo, "run-001")
+        result = reloaded_runtime.reconstruct_runtime_state({}, state)
+        assert not result.is_clean
+        assert any(inc.code == "GIT_VERIFICATION_ERROR" for inc in result.incidents)
+
+    def test_reconstruct_runtime_state_checks_normalized_plan_integrated_commit(self, runtime):
+        state = make_runtime_state(runtime)
+        state.feature_states["feature-001"] = {
+            "status": "integrated",
+            "integrated_commit": "actual-integrated",
+        }
+        plan = make_plan_dict(
+            features=[
+                {
+                    "feature_id": "feature-001",
+                    "title": "Feature 001",
+                    "specification_path": "specs/feature-001.md",
+                    "required": True,
+                    "priority": 1,
+                    "depends_on": [],
+                    "validations": ["unit"],
+                    "integrated_commit": "expected-integrated",
+                }
+            ]
+        )
+
+        result = runtime.reconstruct_runtime_state(plan, state)
+
+        assert not result.is_clean
+        assert any(inc.code == "INTEGRATED_COMMIT_DIVERGENCE" for inc in result.incidents)
+
+    def test_reconstruct_runtime_state_checks_normalized_plan_base_commit(self, runtime):
+        state = make_runtime_state(runtime)
+        state.base_commit = "actual-base"
+        plan = make_plan_dict()
+        plan["base_commit"] = "expected-base"
+
+        result = runtime.reconstruct_runtime_state(plan, state)
+
+        assert not result.is_clean
+        assert any(inc.code == "BASE_COMMIT_DIVERGENCE" for inc in result.incidents)
+
+    def test_reconstruct_runtime_state_checks_normalized_plan_dependencies(self, runtime):
+        state = make_runtime_state(runtime)
+        state.feature_states["feature-001"] = {"status": "running"}
+        state.feature_states["feature-dep"] = {"status": "running"}
+        plan = make_plan_dict(
+            features=[
+                {
+                    "feature_id": "feature-001",
+                    "title": "Feature 001",
+                    "specification_path": "specs/feature-001.md",
+                    "required": True,
+                    "priority": 1,
+                    "depends_on": ["feature-dep"],
+                    "validations": ["unit"],
+                }
+            ]
+        )
+
+        result = runtime.reconstruct_runtime_state(plan, state)
+
+        assert not result.is_clean
+        assert any(inc.code == "DEPENDENCY_NOT_SATISFIED" for inc in result.incidents)
+
+    def test_reconstruct_runtime_state_idempotent(self, runtime, temp_repo):
+        """Test AC-R2.2, AC-R2.3: Reconstruction is idempotent.
+
+        Multiple calls with unchanged Git state produce identical results.
+        """
+        from autodev.git_tools import add_worktree, branch_head
+
+        create_branch_at_head(temp_repo, "autodev/feature-006")
+        worktree_path = temp_repo / ".autodev" / "worktrees" / "feature-006"
+        add_worktree(temp_repo, worktree_path, "autodev/feature-006")
+        commit = branch_head(temp_repo, "autodev/feature-006")
+        state = record_feature_git_evidence(
+            runtime,
+            "feature-006",
+            branch="autodev/feature-006",
+            base_commit=commit,
+            current_commit=commit,
+            worktree=worktree_path,
+            current_worktree=worktree_path,
+        )
+
+        reloaded_runtime = ProductRuntime(temp_repo, "run-001")
+        result1 = reloaded_runtime.reconstruct_runtime_state({}, state)
+        result2 = reloaded_runtime.reconstruct_runtime_state({}, state)
+        result3 = reloaded_runtime.reconstruct_runtime_state({}, state)
+
+        assert result1.is_clean == result2.is_clean == result3.is_clean
+        assert len(result1.incidents) == len(result2.incidents) == len(result3.incidents)
+        assert len(result1.divergences) == len(result2.divergences) == len(result3.divergences)

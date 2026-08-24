@@ -580,9 +580,41 @@ def node_correct_task(
     try:
         if progress is not None:
             progress(f"Correction automatique #{next_count} : {task_id}.")
-        correct_task_fn(backlog_json=backlog_json, task_id=task_id)
+        result = correct_task_fn(backlog_json=backlog_json, task_id=task_id)
     except (CorrectTaskError, RuntimeError) as exc:
         return fail_state(state, str(exc), progress)
+
+    # AC-R22-10: Appliquer le routage explicite basé sur le résultat de la correction
+    # Si des changements significatifs sont détectés, relancer validation/review
+    requires_review = result.get("reconciliation_requires_review", False)
+    reconciliation_verdict = result.get("reconciliation_verdict")
+
+    if reconciliation_verdict == "request_human":
+        # AC-R11-12: Ambiguïté détectée => REQUEST_HUMAN
+        error = f"Correction {task_id}: ambiguïté d'attribution détectée, exige révision humaine."
+        if progress is not None:
+            progress(error)
+        return {
+            **state,
+            "correction_count": next_count,
+            "status": "HUMAN_REVIEW_REQUIRED",
+            "error": error,
+            "last_error": error,
+        }
+    elif requires_review and reconciliation_verdict == "requires_review":
+        # AC-R22-10: Changements significatifs => relancer review/validations
+        if progress is not None:
+            progress(f"Correction #{next_count}: changements significatifs détectés, relancer revue.")
+        return {
+            **state,
+            "correction_count": next_count,
+            "status": "CORRECTED",
+            "task_action": "REVIEW",
+            "error": None,
+            "last_error": None,
+        }
+
+    # Chemin normal: correction réussie sans changements significatifs
     return {
         **state,
         "correction_count": next_count,
@@ -656,7 +688,7 @@ def route_after_decision(state: RunFeatureState) -> str:
 
 
 def route_after_execution_step(state: RunFeatureState) -> str:
-    if state.get("status") == "FAILED":
+    if state.get("status") in TERMINAL_STATUSES:
         return "finish"
     return "review_task"
 

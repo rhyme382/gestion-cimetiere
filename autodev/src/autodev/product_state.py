@@ -200,6 +200,53 @@ class ProductLock:
         )
 
 
+@dataclass(frozen=True)
+class PatchInventoryEntry:
+    """Entrée d'inventaire pour un patch sauvegardé avant restauration.
+
+    AC-R22-6: Le superviseur conserve un inventaire des patchs, blobs ou diffs
+    produits par tentative avant toute restauration ou reprise.
+    """
+    patch_id: str
+    timestamp: str
+    timezone: str
+    run_id: str
+    task_id: str | None
+    paths_affected: list[str]
+    patch_content: str  # Contenu du diff/patch
+    reason: str  # Ex: "out_of_scope_restoration", "content_verification"
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "patch_id": self.patch_id,
+            "timestamp": self.timestamp,
+            "timezone": self.timezone,
+            "run_id": self.run_id,
+            "task_id": self.task_id,
+            "paths_affected": self.paths_affected,
+            "patch_content": self.patch_content,
+            "reason": self.reason,
+            "metadata": self.metadata,
+        }
+
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> "PatchInventoryEntry":
+        """Create from dictionary."""
+        return PatchInventoryEntry(
+            patch_id=data["patch_id"],
+            timestamp=data["timestamp"],
+            timezone=data["timezone"],
+            run_id=data["run_id"],
+            task_id=data.get("task_id"),
+            paths_affected=data.get("paths_affected", []),
+            patch_content=data["patch_content"],
+            reason=data["reason"],
+            metadata=data.get("metadata", {}),
+        )
+
+
 @dataclass
 class ProductRunState:
     """State of a product run, separate from plan."""
@@ -965,3 +1012,72 @@ class ProductStateManager:
         if current_lock.is_expired():
             return None
         return current_lock
+
+    def get_patches_inventory_path(self) -> Path:
+        """Path to patch inventory JSONL file.
+
+        AC-R22-6: Sauvegarder les patchs produits par tentative.
+        """
+        patches_dir = self.run_namespace / "patches"
+        patches_dir.mkdir(parents=True, exist_ok=True)
+        return patches_dir / "inventory.jsonl"
+
+    def save_patch(
+        self,
+        paths_affected: list[str],
+        patch_content: str,
+        reason: str,
+        task_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        """Sauvegarder un patch dans l'inventaire avant restauration.
+
+        AC-R22-6: Le superviseur conserve un inventaire des patchs, blobs ou diffs
+        produits par tentative avant toute restauration ou reprise.
+        """
+        patch_id = f"patch-{uuid4().hex[:8]}"
+        now = datetime.now(timezone.utc)
+
+        entry = PatchInventoryEntry(
+            patch_id=patch_id,
+            timestamp=now.isoformat(),
+            timezone=now.astimezone().tzname() or "UTC",
+            run_id=self.run_id,
+            task_id=task_id,
+            paths_affected=paths_affected,
+            patch_content=patch_content,
+            reason=reason,
+            metadata=metadata or {},
+        )
+
+        inventory_path = self.get_patches_inventory_path()
+        with open(inventory_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(entry.to_dict()) + "\n")
+
+        return patch_id
+
+    def get_patches_inventory(self) -> list[PatchInventoryEntry]:
+        """Récupérer l'inventaire des patchs sauvegardés.
+
+        AC-R22-9: Produit des preuves vérifiables.
+        """
+        inventory_path = self.get_patches_inventory_path()
+        if not inventory_path.exists():
+            return []
+
+        patches: list[PatchInventoryEntry] = []
+        try:
+            with open(inventory_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                        patches.append(PatchInventoryEntry.from_dict(data))
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+        except (FileNotFoundError, IOError):
+            return []
+
+        return patches

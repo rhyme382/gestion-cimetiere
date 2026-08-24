@@ -167,8 +167,11 @@ def diff_patch(repo_root: Path, worktree_path: Path, base_commit: str) -> str:
     return git_output(repo_root, ["diff", "--binary", base_commit, "HEAD"], cwd=worktree_path)
 
 
-def diff_patch_between(repo_root: Path, start_commit: str, end_commit: str) -> str:
-    return git_output(repo_root, ["diff", "--binary", start_commit, end_commit])
+def diff_patch_between(repo_root: Path, start_commit: str, end_commit: str, paths: list[str] | None = None) -> str:
+    cmd = ["diff", "--binary", start_commit, end_commit]
+    if paths:
+        cmd.extend(["--"] + paths)
+    return git_output(repo_root, cmd)
 
 
 def git_status_porcelain(repo_root: Path, cwd: Path | None = None) -> str:
@@ -321,4 +324,34 @@ def compute_file_hashes(worktree_path: Path, file_paths: list[str]) -> dict[str,
                     hashes[rel_path] = file_hash
             except (OSError, IOError):
                 pass
+    return hashes
+
+
+def compute_indexed_blob_hashes(repo_root: Path, file_paths: list[str], cwd: Path | None = None) -> dict[str, str]:
+    """Calcule les hashes SHA256 des blobs indexés (staged content).
+
+    AC-R22-3: Capture le hash du blob indexé pour distinguer le contenu staged
+    du contenu worktree lors de la détection de mutations.
+    """
+    hashes: dict[str, str] = {}
+    for rel_path in file_paths:
+        try:
+            # Récupérer le blob hash depuis l'index Git pour ce chemin
+            blob_hash = git_output(
+                repo_root,
+                ["ls-files", "--stage", "--", rel_path],
+                cwd=cwd
+            )
+            if blob_hash:
+                # Format: [mode] [object] [stage] [file]
+                # On extrait le hash (object SHA-1, convertir en SHA256)
+                parts = blob_hash.split()
+                if len(parts) >= 2:
+                    git_sha1 = parts[1]
+                    # Utiliser le SHA-1 Git comme identifiant de contenu indexé
+                    # (le full hash n'est pas accessible sans déréférencer)
+                    hashes[rel_path] = git_sha1
+        except GitError:
+            # Fichier non indexé, continuer
+            pass
     return hashes

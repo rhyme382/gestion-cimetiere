@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
+import autodev.review_task as review_task_module
+from autodev.correct_task import CorrectTaskError
 from autodev.run_feature import (
     RunFeatureError,
     determine_task_resume_action,
@@ -14,6 +18,25 @@ from autodev.run_feature import (
 )
 
 from test_task_runner import commit_all, init_repo, make_task, write_backlog
+
+
+def write_product_run_state(repo: Path, task_id: str, run_id: str) -> None:
+    from autodev.product_state import ProductRunState, ProductStateManager
+
+    state_manager = ProductStateManager(repo, run_id)
+    state = ProductRunState(
+        run_id=run_id,
+        plan_id="plan-001",
+        product_key="plan-001",
+        schema_version="1.0",
+        plan_hash="hash-001",
+        started_at=datetime.now(timezone.utc).isoformat(),
+        run_namespace=state_manager.run_namespace,
+        task_states={task_id: {"status": "RUNNING"}},
+    )
+    state_manager.reserve_run_namespace(plan_id=state.plan_id, plan_hash=state.plan_hash)
+    with state_manager.bootstrap_writes():
+        state_manager.write_state(state)
 
 
 def write_integration_result(repo: Path, task_id: str, status: str = "INTEGRATED") -> None:
@@ -41,6 +64,7 @@ def write_run_result(
     base_commit: str,
     worktree: Path | None = None,
     produced_commit: str | None = None,
+    product_run_id: str | None = None,
 ) -> None:
     path = repo / ".autodev" / "runs" / task_id / "result.json"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -54,6 +78,8 @@ def write_run_result(
         "validations": [],
         "validation_summary": [],
     }
+    if product_run_id is not None:
+        payload["run_id"] = product_run_id
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
@@ -120,12 +146,15 @@ def create_task_workspace(
 
     write_task_record(repo, task_id, backlog=backlog, base_commit=base_commit, worktree=worktree)
     if write_result_artifact:
+        product_run_id = f"product-run-{task_id.lower()}"
+        write_product_run_state(repo, task_id, product_run_id)
         write_run_result(
             repo,
             task_id,
             base_commit=base_commit,
             worktree=worktree,
             produced_commit=produced_commit if produced_commit_in_result else None,
+            product_run_id=product_run_id,
         )
 
     return base_commit, worktree, produced_commit
@@ -558,6 +587,297 @@ def test_correction_then_review_then_integration(tmp_path: Path) -> None:
     assert capture["correct"] == ["TASK-LOOP"]
     assert capture["integrate"] == ["TASK-LOOP"]
     assert result["status"] == "COMPLETED"
+
+
+def test_reconciliation_request_human_without_review_flag_stops_workflow(tmp_path: Path) -> None:
+    repo, backlog = prepare_backlog(tmp_path, [make_task("TASK-HUMAN")])
+    call_order: list[str] = []
+    review_calls = 0
+
+    def fake_run_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"run:{task_id}")
+        return {"task_id": task_id, "status": "success"}
+
+    def fake_review_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        nonlocal review_calls
+        review_calls += 1
+        call_order.append(f"review:{task_id}")
+        verdict = "CORRECTION_REQUIRED" if review_calls == 1 else "APPROVED"
+        write_review_result(repo, task_id, verdict)
+        return make_review_payload(task_id, verdict)
+
+    def fake_correct_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"correct:{task_id}")
+        return {
+            "task_id": task_id,
+            "status": "success",
+            "reconciliation_verdict": "request_human",
+        }
+
+    def fake_integrate_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"integrate:{task_id}")
+        write_integration_result(repo, task_id)
+        return {"task_id": task_id, "status": "INTEGRATED"}
+
+    result = run_feature(
+        backlog,
+        run_task_fn=fake_run_task,
+        review_task_fn=fake_review_task,
+        correct_task_fn=fake_correct_task,
+        integrate_task_fn=fake_integrate_task,
+    )
+
+    assert result["status"] == "HUMAN_REVIEW_REQUIRED"
+    assert result["tasks_integrated"] == []
+    assert call_order == [
+        "run:TASK-HUMAN",
+        "review:TASK-HUMAN",
+        "correct:TASK-HUMAN",
+    ]
+
+
+def test_correct_task_technical_error_stays_failed(tmp_path: Path) -> None:
+    repo, backlog = prepare_backlog(tmp_path, [make_task("TASK-TECH-ERR")])
+    call_order: list[str] = []
+
+    def fake_run_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"run:{task_id}")
+        return {"task_id": task_id, "status": "success"}
+
+    def fake_review_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"review:{task_id}")
+        write_review_result(repo, task_id, "CORRECTION_REQUIRED")
+        return make_review_payload(task_id, "CORRECTION_REQUIRED")
+
+    def fake_correct_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"correct:{task_id}")
+        raise CorrectTaskError("erreur technique de correction")
+
+    result = run_feature(
+        backlog,
+        run_task_fn=fake_run_task,
+        review_task_fn=fake_review_task,
+        correct_task_fn=fake_correct_task,
+        integrate_task_fn=lambda **_: (_ for _ in ()).throw(
+            AssertionError("integration ne doit pas tourner")
+        ),
+    )
+
+    assert result["status"] == "FAILED"
+    assert "erreur technique de correction" in result["error"]
+    assert call_order == [
+        "run:TASK-TECH-ERR",
+        "review:TASK-TECH-ERR",
+        "correct:TASK-TECH-ERR",
+    ]
+
+
+def test_reconciliation_requires_review_still_reruns_review(tmp_path: Path) -> None:
+    repo, backlog = prepare_backlog(tmp_path, [make_task("TASK-REVIEW-AGAIN")])
+    call_order: list[str] = []
+    review_calls = 0
+
+    def fake_run_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"run:{task_id}")
+        return {"task_id": task_id, "status": "success"}
+
+    def fake_review_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        nonlocal review_calls
+        review_calls += 1
+        call_order.append(f"review-{review_calls}:{task_id}")
+        verdict = "CORRECTION_REQUIRED" if review_calls == 1 else "APPROVED"
+        write_review_result(repo, task_id, verdict)
+        return make_review_payload(task_id, verdict)
+
+    def fake_correct_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"correct:{task_id}")
+        return {
+            "task_id": task_id,
+            "status": "success",
+            "reconciliation_requires_review": True,
+            "reconciliation_verdict": "requires_review",
+        }
+
+    def fake_integrate_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"integrate:{task_id}")
+        write_integration_result(repo, task_id)
+        return {"task_id": task_id, "status": "INTEGRATED"}
+
+    result = run_feature(
+        backlog,
+        run_task_fn=fake_run_task,
+        review_task_fn=fake_review_task,
+        correct_task_fn=fake_correct_task,
+        integrate_task_fn=fake_integrate_task,
+    )
+
+    assert result["status"] == "COMPLETED"
+    assert call_order == [
+        "run:TASK-REVIEW-AGAIN",
+        "review-1:TASK-REVIEW-AGAIN",
+        "correct:TASK-REVIEW-AGAIN",
+        "review-2:TASK-REVIEW-AGAIN",
+        "integrate:TASK-REVIEW-AGAIN",
+    ]
+
+
+def test_reconciliation_requires_review_reruns_real_validations_before_codex_review(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo, backlog = prepare_backlog(tmp_path, [make_task("TASK-R22-10")])
+    call_order: list[str] = []
+    task_id = "TASK-R22-10"
+    correction_invocations = 0
+
+    def fake_run_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"run:{task_id}")
+        create_task_workspace(repo, backlog, task_id, make_commit=True)
+        return {"task_id": task_id, "status": "success"}
+
+    def fake_correct_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        nonlocal correction_invocations
+        correction_invocations += 1
+        call_order.append(f"correct:{task_id}")
+        worktree = repo / ".autodev" / "worktrees" / task_id
+        modified_path = f"src/{task_id.lower()}.py"
+        (worktree / modified_path).write_text(
+            f"corrected {correction_invocations}\n",
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "add", "."], cwd=worktree, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "correction r22-10"],
+            cwd=worktree,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        produced_commit = git_head(repo, f"autodev/{task_id}")
+        run_result_path = repo / ".autodev" / "runs" / task_id / "result.json"
+        run_result = json.loads(run_result_path.read_text(encoding="utf-8"))
+        run_result["produced_commit"] = produced_commit
+        run_result["modified_paths"] = [modified_path]
+        run_result_path.write_text(
+            json.dumps(run_result, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return {
+            "task_id": task_id,
+            "status": "success",
+            "reconciliation_requires_review": True,
+            "reconciliation_verdict": "requires_review",
+        }
+
+    review_calls = 0
+
+    def review_after_reconciliation(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        nonlocal review_calls
+        review_calls += 1
+        if review_calls == 1:
+            call_order.append(f"review-initial:{task_id}")
+            write_review_result(repo, task_id, "CORRECTION_REQUIRED")
+            stale_validation_path = (
+                repo / ".autodev" / "runs" / task_id / "review" / "validation-results.json"
+            )
+            stale_validation_path.write_text(
+                json.dumps(
+                    {
+                        "task_id": task_id,
+                        "source": "stale-fixture",
+                        "results": [{"stdout": "stale\n"}],
+                        "summary": ["stale"],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return make_review_payload(task_id, "CORRECTION_REQUIRED")
+
+        def fake_validation_runner(
+            worktree: Path,
+            commands: list[str],
+            extra_env: dict[str, str] | None = None,
+        ) -> list[dict[str, object]]:
+            call_order.append("validations")
+            assert commands == [f'{sys.executable} -c "print(\'ok\')"']
+            return [
+                {
+                    "command": command,
+                    "argv": ["python", "-c", "print('review-validation-ok')"],
+                    "returncode": 0,
+                    "stdout": "review-validation-ok\n",
+                    "stderr": "",
+                    "timed_out": False,
+                }
+                for command in commands
+            ]
+
+        def fake_codex_runner(
+            *,
+            cwd: Path,
+            prompt: str,
+            schema_path: Path,
+            output_path: Path,
+        ) -> dict[str, object]:
+            validation_results_path = output_path.parent / "validation-results.json"
+            assert validation_results_path.is_file()
+            call_order.append("review")
+            payload = make_review_payload(task_id, "APPROVED")
+            payload["requirement_checks"] = [
+                {
+                    "requirement_id": "REQ-001",
+                    "acceptance_criterion_id": "REQ-001-AC1",
+                    "criterion": "Critère 1",
+                    "status": "PASS",
+                    "evidence": ["Validation relancée avant revue Codex."],
+                }
+            ]
+            output_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            return {"returncode": 0, "stdout": "codex-review-ok\n", "stderr": ""}
+
+        monkeypatch.setattr(review_task_module, "run_validation_commands", fake_validation_runner)
+        return review_task_module.review_task(
+            backlog_json=backlog_json,
+            task_id=task_id,
+            codex_runner=fake_codex_runner,
+        )
+
+    def fake_integrate_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"integrate:{task_id}")
+        write_integration_result(repo, task_id)
+        return {"task_id": task_id, "status": "INTEGRATED"}
+
+    result = run_feature(
+        backlog,
+        run_task_fn=fake_run_task,
+        review_task_fn=review_after_reconciliation,
+        correct_task_fn=fake_correct_task,
+        integrate_task_fn=fake_integrate_task,
+    )
+
+    validation_results_path = (
+        repo / ".autodev" / "runs" / task_id / "review" / "validation-results.json"
+    )
+    validation_payload = json.loads(validation_results_path.read_text(encoding="utf-8"))
+
+    assert result["status"] == "COMPLETED"
+    assert call_order == [
+        f"run:{task_id}",
+        f"review-initial:{task_id}",
+        f"correct:{task_id}",
+        "validations",
+        "review",
+        f"integrate:{task_id}",
+    ]
+    assert validation_payload["task_id"] == task_id
+    assert validation_payload["source"] == "review-task"
+    assert validation_payload["results"][0]["stdout"] == "review-validation-ok\n"
 
 
 def test_determine_resume_action_inconsistent_state_is_explicit_error(tmp_path: Path) -> None:

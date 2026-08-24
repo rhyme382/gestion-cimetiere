@@ -1465,6 +1465,97 @@ def test_allowed_preexisting_dirty_file_without_fingerprint_delta_is_not_current
     assert target_file.read_text(encoding="utf-8") == "preexisting dirty only\n"
 
 
+def test_requires_review_survives_when_only_restored_out_of_scope_changes_remain(
+    tmp_path: Path,
+) -> None:
+    """AC-R22-10: A significant initial diagnostic survives full restoration."""
+    from autodev.correct_task import correct_task
+    from autodev.run_feature import run_feature
+    from test_run_feature import (
+        make_review_payload,
+        prepare_backlog,
+        write_integration_result,
+        write_review_result,
+    )
+    from test_task_runner import make_task
+
+    correction_root = tmp_path / "correction"
+    flow_root = tmp_path / "flow"
+    correction_root.mkdir()
+    flow_root.mkdir()
+    _, backlog, worktree, produced_commit = prepare_correction_case(
+        correction_root,
+        allowed_paths=["src/task-pilot-002.py"],
+    )
+
+    def change_only_out_of_scope_path(target: Path) -> None:
+        (target / "package.json").write_text(
+            '{"name":"demo","version":"requires-review"}\n',
+            encoding="utf-8",
+        )
+
+    result = correct_task(
+        backlog,
+        "TASK-PILOT-002",
+        claude_runner=make_claude_runner([change_only_out_of_scope_path, lambda _: None]),
+    )
+
+    assert result["status"] == "no_allowed_changes"
+    assert result["produced_commit"] == produced_commit
+    assert result["restored_paths"] == ["package.json"]
+    assert result["remaining_allowed_paths"] == []
+    assert result["reconciliation_requires_review"] is True
+    assert result["reconciliation_verdict"] == "requires_review"
+    assert (worktree / "package.json").read_text(encoding="utf-8") == (
+        '{"name":"demo","version":"1.0.0"}\n'
+    )
+
+    flow_repo, flow_backlog = prepare_backlog(flow_root, [make_task("TASK-R22-10")])
+    call_order: list[str] = []
+    review_calls = 0
+
+    def fake_run_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"run:{task_id}")
+        return {"task_id": task_id, "status": "success"}
+
+    def fake_review_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        nonlocal review_calls
+        review_calls += 1
+        call_order.append(f"validations:{task_id}")
+        call_order.append(f"review:{task_id}")
+        verdict = "CORRECTION_REQUIRED" if review_calls == 1 else "APPROVED"
+        write_review_result(flow_repo, task_id, verdict)
+        return make_review_payload(task_id, verdict)
+
+    def fake_correct_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"correct:{task_id}")
+        return result
+
+    def fake_integrate_task(*, backlog_json: Path, task_id: str) -> dict[str, object]:
+        call_order.append(f"integrate:{task_id}")
+        write_integration_result(flow_repo, task_id)
+        return {"task_id": task_id, "status": "INTEGRATED"}
+
+    flow_result = run_feature(
+        flow_backlog,
+        run_task_fn=fake_run_task,
+        review_task_fn=fake_review_task,
+        correct_task_fn=fake_correct_task,
+        integrate_task_fn=fake_integrate_task,
+    )
+
+    assert flow_result["status"] == "COMPLETED"
+    assert call_order == [
+        "run:TASK-R22-10",
+        "validations:TASK-R22-10",
+        "review:TASK-R22-10",
+        "correct:TASK-R22-10",
+        "validations:TASK-R22-10",
+        "review:TASK-R22-10",
+        "integrate:TASK-R22-10",
+    ]
+
+
 def test_preexisting_dirty_state_is_never_restored_or_overwritten(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

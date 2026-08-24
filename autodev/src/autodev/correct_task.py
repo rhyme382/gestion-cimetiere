@@ -226,7 +226,10 @@ def correct_task(
         result["remaining_allowed_paths"] = attempt["remaining_allowed_paths"]
         result["claude_exit_code"] = attempt["claude_exit_code"]
         result["reconciliation_verdict"] = attempt["reconciliation_verdict"]
-        if attempt.get("reconciliation_requires_review"):
+        if (
+            attempt.get("reconciliation_requires_review")
+            or result["reconciliation_verdict"] == "requires_review"
+        ):
             result["reconciliation_requires_review"] = True
 
         if result["reconciliation_verdict"] == "request_human":
@@ -857,6 +860,7 @@ def run_correction_attempt(
     modified_union: set[str] = set()
     latest_exit_code: int | None = None
     restored_from_previous_attempt: list[str] = []
+    reconciliation_requires_review = False
 
     for attempt_number in (1, 2):
         prompt = build_correction_prompt(
@@ -912,6 +916,8 @@ def run_correction_attempt(
             task["allowed_paths"],
             mutations,
         )
+        if reconciliation.verdict == "requires_review":
+            reconciliation_requires_review = True
         correction_paths = paths_with_current_attempt_delta(
             after_paths,
             before_dirty_paths,
@@ -999,7 +1005,10 @@ def run_correction_attempt(
                 "modified_paths": sorted(modified_union),
                 "restored_paths": sorted(restored_union),
                 "remaining_allowed_paths": remaining_allowed_paths,
-                "reconciliation_verdict": reconciliation.verdict,
+                "reconciliation_requires_review": reconciliation_requires_review,
+                "reconciliation_verdict": "requires_review"
+                if reconciliation_requires_review
+                else reconciliation.verdict,
             }
 
         if attempt_number == 2:
@@ -1008,7 +1017,10 @@ def run_correction_attempt(
                 "modified_paths": sorted(modified_union),
                 "restored_paths": sorted(restored_union),
                 "remaining_allowed_paths": [],
-                "reconciliation_verdict": reconciliation.verdict,
+                "reconciliation_requires_review": reconciliation_requires_review,
+                "reconciliation_verdict": "requires_review"
+                if reconciliation_requires_review
+                else reconciliation.verdict,
             }
 
         restored_from_previous_attempt = sorted(restored_union)

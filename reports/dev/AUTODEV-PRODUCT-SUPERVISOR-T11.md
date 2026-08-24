@@ -276,3 +276,29 @@ env PYTHONPATH=autodev/src python -m pytest autodev/tests -q
 ```
 
 ---
+
+## Correctif AC-R22-10 — propagation requires_review après restauration
+
+### Objectif
+Corriger le cas où un diagnostic initial `requires_review` disparaissait lorsque seules des modifications hors scope restaurables étaient produites et qu'aucun `remaining_allowed_paths` ne subsistait.
+
+### Fichiers modifiés
+- `autodev/src/autodev/correct_task.py`
+- `autodev/tests/test_worktree_reconciliation.py`
+- `reports/dev/AUTODEV-PRODUCT-SUPERVISOR-T11.md`
+
+### Décisions prises
+- Conserver le signal `reconciliation_requires_review` dès qu'un diagnostic de tentative vaut `requires_review`, même si une tentative suivante ne laisse aucun chemin autorisé.
+- Faire propager `reconciliation_requires_review=True` par `correct_task` quand le verdict final exposé vaut `requires_review`.
+- Ne pas modifier `run_feature.py`, le comportement `request_human`, ni la sauvegarde/restauration hors scope.
+
+### Problèmes connus
+- Aucun connu pour ce correctif ciblé.
+
+### Résultats des tests
+- `env PYTHONPATH=autodev/src python -m pytest autodev/tests/test_worktree_reconciliation.py autodev/tests/test_run_feature.py -q` : 82 passed in 3.23s
+- `env PYTHONPATH=autodev/src python -m pytest autodev/tests/test_correct_task.py autodev/tests/test_run_feature.py autodev/tests/test_product_runtime.py autodev/tests/test_product_state.py autodev/tests/test_git_snapshots.py autodev/tests/test_worktree_reconciliation.py -q` : 299 passed in 7.12s
+- `env PYTHONPATH=autodev/src python -m pytest autodev/tests -q` : 915 passed, 6 skipped in 16.74s
+
+### Prochaine étape
+- Conserver l'absence de commit et remettre la correction T11 pour revue.
